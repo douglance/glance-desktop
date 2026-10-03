@@ -3,7 +3,8 @@ use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_text_mut};
 use std::sync::Arc;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Tool {
     Select,
     Pen,
@@ -14,10 +15,14 @@ pub enum Tool {
     Crop,
     Text,
     Counter,
+    Spotlight,
+    Magnifier,
 }
 impl Tool {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Spotlight => "Spotlight",
+            Self::Magnifier => "Magnifier",
             Self::Select => "Select",
             Self::Text => "Text",
             Self::Counter => "Step",
@@ -30,7 +35,7 @@ impl Tool {
         }
     }
 }
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Mark {
     pub tool: Tool,
     /// Quadratic control point; None is a straight arrow.
@@ -126,12 +131,41 @@ impl Document {
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
-    pub fn render(&self, draft: Option<&Mark>) -> RgbaImage {
+    pub fn plain(&self, draft: Option<&Mark>) -> RgbaImage {
         let mut out = (*self.base).clone();
-        for mark in self.marks.iter().chain(draft) {
+        for mark in self
+            .marks
+            .iter()
+            .chain(draft)
+            .filter(|m| !matches!(m.tool, Tool::Spotlight | Tool::Magnifier))
+        {
             paint(&mut out, mark);
         }
         out
+    }
+    pub fn render(&self, draft: Option<&Mark>) -> RgbaImage {
+        let mut out = self.plain(draft);
+        let effects: Vec<&Mark> = self.marks.iter().chain(draft).collect();
+        let source = effects
+            .iter()
+            .any(|m| m.tool == Tool::Magnifier)
+            .then(|| out.clone());
+        crate::effects::spotlight_raster(&mut out, &effects);
+        if let Some(source) = source {
+            for mark in effects.iter().filter(|m| m.tool == Tool::Magnifier) {
+                crate::effects::magnifier_raster(&mut out, &source, mark);
+            }
+        }
+        out
+    }
+    pub fn export_at(&self, phase: f32) -> RgbaImage {
+        if let Some(b) = self.backdrop
+            && b.motion != crate::animation::Motion::Still
+        {
+            crate::animation::Renderer::new(&self.render(None), b, None).frame(phase)
+        } else {
+            self.export()
+        }
     }
     pub fn export(&self) -> RgbaImage {
         let image = self.render(None);
@@ -197,7 +231,7 @@ fn thick_line(image: &mut RgbaImage, a: (f32, f32), b: (f32, f32), width: f32, c
         );
     }
 }
-fn paint(out: &mut RgbaImage, mark: &Mark) {
+pub(crate) fn paint(out: &mut RgbaImage, mark: &Mark) {
     if mark.points.is_empty() {
         return;
     }
@@ -205,7 +239,7 @@ fn paint(out: &mut RgbaImage, mark: &Mark) {
     let a = mark.points[0];
     let b = *mark.points.last().unwrap();
     match mark.tool {
-        Tool::Select => {}
+        Tool::Select | Tool::Spotlight | Tool::Magnifier => {}
         Tool::Counter => {
             let radius = (mark.width * 3.6).max(1.);
             draw_filled_circle_mut(

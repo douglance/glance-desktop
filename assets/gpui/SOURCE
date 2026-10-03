@@ -1,0 +1,4 @@
+GPUI 0.2.2 by Zed Industries: https://github.com/zed-industries/zed
+src/animation.rs adapts the Gaussian shadow integration from GPUI's
+src/platform/mac/shaders.metal into a cached CPU coverage lookup.
+The original shader is licensed under Apache-2.0; see LICENSE-APACHE.

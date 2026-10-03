@@ -11,6 +11,8 @@ Requires macOS 12+, Xcode Command Line Tools and a current stable Rust toolchain
 cargo run --locked
 ```
 
+For video export, run the bundle build below once to compile the native encoder.
+
 Build a locally signed app bundle:
 
 ```sh
@@ -65,6 +67,15 @@ not configured.
   restores the original framing. Each slider gesture is one undo step. Copy and
   PNG save include the backdrop at full resolution; rounded outer corners are
   transparent in the PNG.
+- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Lava,
+  Starfield or Painterly. Screenshot and annotations stay fixed while the
+  background moves. Set a **2–15 second** duration (5 seconds by default),
+  pause/play the preview, and choose **Export MP4…**. Export streams 30 fps
+  H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
+  1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
+  is one seamless cycle; duration also controls the preview's cycle speed.
+  **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
+  in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
   Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
@@ -100,7 +111,7 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 Implemented: global area/full-screen capture, pen, arrows, rectangles, text,
 highlights, pixelation, crop, backdrops, numbered callouts, smart upscale/resize,
 rotation, object selection/movement/deletion, undo/redo, fit/zoom/pan, open,
-clipboard import and PNG save. A single icon toolbar keeps image dimensions and
+clipboard import, PNG save and animated backdrop MP4 export. A single icon toolbar keeps image dimensions and
 zoom visible; native File, Edit, Draw, Zoom and Help menus expose the commands.
 See [PLAN.md](PLAN.md) for architecture and the intended proof-of-concept scope.
 
@@ -123,3 +134,14 @@ The toolbar uses embedded Lucide SVGs with hover labels and keyboard shortcuts.
 GPUI caches the SVG rendering; the app requires no network connection for icons.
 Upstream version and license are in `assets/lucide/SOURCE` and
 `assets/lucide/LICENSE`. The license is also included in the app bundle.
+
+### Local MCP companion
+
+Pachiri can expose its native editor to ChatGPT and local MCP clients: import images, edit selectable objects, crop/resize, set animated backdrops, return PNG previews, export MP4, and decode video frames. Start the editor with `--automation` and the stdio server with `--mcp`. See [setup, tools, and ChatGPT tunnel instructions](mcp/README.md).
+
+### Spotlight, magnifier, and GIF loops
+
+- **S — Spotlight:** drag a focus rectangle. The surrounding image dims; multiple focus windows share one dimming mask in exports. Drag the object to move it, or drag either corner handle to resize it. Undo/Delete work as with other annotations.
+- **M — Magnifier:** drag from a detail to where its enlarged lens should appear. The source and lens have separate handles. The toolbar's **2× / 3× / 4×** button changes a selected lens's magnification; **Ø** changes its diameter. It samples the original annotated foreground, so the enlarged detail stays bright even with a spotlight.
+- **Backdrop → Motion → GIF…** or **File → Export Looping GIF…** exports an infinitely repeating GIF. MP4 export remains available beside it. GIF uses 20 fps and a maximum edge of 960 pixels; MP4 uses 30 fps and 1920 pixels. Both render one complete cycle, excluding a duplicate endpoint frame. GIF's fixed palette keeps foreground colors stable across frames; rounded corners use the same ivory matte as MP4.
+- Spotlight and magnifier remain editable objects and appear in PNG, clipboard, GIF, and MP4 output. Animated backdrops loop while the foreground stays fixed. MP4 repeats when the player is configured to loop; GIF includes infinite-repeat metadata.

@@ -69,14 +69,17 @@ pub fn handles(m: &Mark) -> [Point; 3] {
     [m.points[0], at(m, 0.5), *m.points.last().unwrap()]
 }
 pub fn handle_at(m: &Mark, p: Point, tolerance: f32) -> Option<usize> {
-    if m.tool != Tool::Arrow || m.points.len() < 2 {
+    if !matches!(m.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight) || m.points.len() < 2 {
         return None;
     }
     // Endpoints win when a short arrow's handles overlap.
-    [0, 2, 1].into_iter().find(|i| {
-        let h = handles(m)[*i];
-        (p.0 - h.0).hypot(p.1 - h.1) <= tolerance
-    })
+    [0, 2, 1]
+        .into_iter()
+        .filter(|i| m.tool == Tool::Arrow || *i != 1)
+        .find(|i| {
+            let h = handles(m)[*i];
+            (p.0 - h.0).hypot(p.1 - h.1) <= tolerance
+        })
 }
 pub fn drag(m: &mut Mark, handle: Option<usize>, delta: Point, shift: bool) {
     if delta == (0., 0.) {
@@ -121,7 +124,11 @@ pub fn drag(m: &mut Mark, handle: Option<usize>, delta: Point, shift: bool) {
 }
 pub fn paint_handles(m: &Mark, l: Layout, w: &mut gpui::Window) {
     use gpui::*;
-    for p in handles(m) {
+    for (_, p) in handles(m)
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| m.tool == Tool::Arrow || *i != 1)
+    {
         w.paint_quad(quad(
             Bounds::new(
                 point(px(l.x + p.0 * l.scale - 4.), px(l.y + p.1 * l.scale - 4.)),

@@ -157,3 +157,13 @@ References: [Shottr tips](https://shottr.cc/#tips) and
 [CleanShot features](https://cleanshot.com/features). Direct Shottr inspection
 was blocked by computer-use access; behavior above is our implementation based
 on the published descriptions, not a verified pixel-for-pixel reproduction.
+
+## Animated backdrop video
+
+Implemented periodic Flow, Lava, Starfield and Painterly scenes beneath a fixed
+foreground, display-synchronized GPU preview, play/pause and a 2–15 second cycle
+slider. PNG captures the current phase. A Rust worker streams bounded 30 fps
+BGRA frames to a small bundled Swift AVFoundation adapter, which writes H.264
+MP4 using a pixel-buffer pool. Export has progress, cancellation, temporary-file
+commit and no FFmpeg/runtime downloads. Composition remains in Rust/GPUI;
+the Swift helper is an encoding bridge without UI or screen access.

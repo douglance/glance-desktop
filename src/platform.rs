@@ -116,3 +116,15 @@ pub fn clipboard_image() -> Result<RgbaImage, String> {
     )
     .ok_or_else(|| "Invalid clipboard image.".into())
 }
+
+pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
+    let extension = if gif { "gif" } else { "mp4" };
+    let script = format!(
+        "POSIX path of (choose file name with prompt \"Save animated backdrop\" default name \"Pachiri.{extension}\")"
+    );
+    let Some(mut path) = dialog(&script)? else {
+        return Ok(None);
+    };
+    path.set_extension(extension);
+    Ok(Some(path))
+}

@@ -83,3 +83,26 @@ GPU path with a filled triangular head. The midpoint lies on the visible curve;
 export uses the same geometry with a supersampled coverage mask to avoid colored
 alpha fringes. The mask is allocated only on the compositor worker. Curved-arrow
 path preparation measured p50 0.005 ms / p95 0.006 ms over 1,000 release samples.
+
+## Animated backdrops
+
+Display-frame requests run only for an active window with a playing motion
+backdrop. Preview paints GPUI Metal gradient, Gaussian shadow and star primitives;
+the screenshot texture stays constant. Animation ticks allocate no screenshot
+pixels, upload no image textures, launch no compositor workers and create no
+undo snapshots. Pause, window deactivation and static backgrounds stop frame
+requests. Drawing and normal object edits retain the existing GPU overlay path.
+
+Video export composites the screenshot/annotations once, caches the foreground
+and shadow coverage, then streams one bounded frame at a time to an AVFoundation
+helper. Soft-blob export shading uses a cached lookup of GPUI's Gaussian
+integration. Opaque foreground pixels bypass animated shading. H.264 output is
+30 fps with a maximum 1920 px edge; no frame sequence is retained in memory.
+Encoding speed varies with output size and effect; native desktop preview frame
+times/input latency have not been measured because app control remains denied.
+
+MCP operations use a serial IPC worker. Image import, document transforms, PNG rendering, and MP4 encode/decode do not run on the GPUI thread. The worker snapshots shared document pixels/history, then applies edits only if the editor revision is unchanged. Preview rendering uses the existing asynchronous cache. Video frames stream to AVFoundation rather than accumulating a clip in memory; inline PNG previews are bounded and do not upscale small source images.
+
+Focus effects: spotlight drafts use GPU quads; magnifier drafts use a bounded circular texture with asynchronous source sampling. A lens texture key includes source position, zoom, radius and document revision, but excludes bubble position, so dragging only the lens reuses its texture. Source-handle movement coalesces sampling jobs. Pointer handlers never rasterize a focus effect. Final focus composition is performed by the existing preview/export workers.
+
+GIF encoding renders the fixed foreground once and streams 20 fps frames at ≤960px. A fixed 256-color palette sampled across the whole animation prevents per-frame palette shimmer. All four background effects pass a periodic endpoint check and a last-to-first step-size check.

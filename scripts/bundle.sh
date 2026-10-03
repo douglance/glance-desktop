@@ -7,8 +7,13 @@ APP="$(pwd)/target/Pachiri.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cargo run --release --locked --example icon -- target/Pachiri.iconset
 iconutil -c icns target/Pachiri.iconset -o "$APP/Contents/Resources/Pachiri.icns"
+/usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_encoder.swift -o target/pachiri-video-encoder
+/usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_frame.swift -o target/pachiri-video-frame
+cp target/pachiri-video-frame "$APP/Contents/MacOS/pachiri-video-frame"
+cp target/pachiri-video-encoder "$APP/Contents/MacOS/pachiri-video-encoder"
+cp assets/gpui/LICENSE-APACHE "$APP/Contents/Resources/GPUI-LICENSE"
 cp assets/lucide/LICENSE "$APP/Contents/Resources/Lucide-LICENSE"
-cp "target/$MODE/pachiri" "$APP/Contents/MacOS/Pachiri"
+cp "${CARGO_TARGET_DIR:-target}/$MODE/pachiri" "$APP/Contents/MacOS/Pachiri"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

@@ -4,6 +4,14 @@ use std::borrow::Cow;
 pub struct Icons;
 const ASSETS: &[(&str, &[u8])] = &[
     (
+        "icons/scan.svg",
+        include_bytes!("../assets/lucide/scan.svg"),
+    ),
+    (
+        "icons/search.svg",
+        include_bytes!("../assets/lucide/search.svg"),
+    ),
+    (
         "icons/mouse-pointer-2.svg",
         include_bytes!("../assets/lucide/mouse-pointer-2.svg"),
     ),

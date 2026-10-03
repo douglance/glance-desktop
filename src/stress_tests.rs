@@ -62,6 +62,8 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                         padding: random(&mut seed) % 10,
                         preset: random(&mut seed) as usize % 8,
                         gradient: step % 2 == 0,
+                        motion: crate::animation::Motion::Still,
+                        seconds: 5,
                         inner_radius: random(&mut seed) % 30,
                         outer_radius: random(&mut seed) % 20,
                         shadow: random(&mut seed) % 15,

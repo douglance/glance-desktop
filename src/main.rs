@@ -1,14 +1,19 @@
+mod animation;
 mod arrow;
+mod automation;
 mod backdrop;
 mod backdrop_panel;
 mod document;
 mod drawing;
+mod effects;
 mod enhance;
 mod enhance_panel;
 mod gestures;
+mod gif_export;
 mod icons;
 #[cfg(test)]
 mod interaction_tests;
+mod mcp;
 mod menus;
 mod navigation;
 #[cfg(test)]
@@ -18,6 +23,7 @@ mod selection;
 #[cfg(test)]
 mod stress_tests;
 mod text;
+mod video;
 actions!(pachiri, [Quit]);
 use document::{Document, Mark, Tool};
 use global_hotkey::{
@@ -36,17 +42,24 @@ struct Layout {
     height: f32,
 }
 enum Message {
+    Automation(automation::Request),
+    Lens(effects::LensKey, Arc<RenderImage>),
     Magnify(f32, (f32, f32), bool),
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
     Cropped(Document, Arc<RenderImage>),
     Image(Result<Option<image::RgbaImage>, String>),
+    VideoProgress(u32),
+    VideoSaved(Result<Option<std::path::PathBuf>, String>),
     Saved(Result<Option<std::path::PathBuf>, String>),
     Copied(Result<(), String>),
     Transformed(Result<(Document, usize, Arc<RenderImage>), String>),
 }
 struct Editor {
     document: Document,
+    lens: Option<(effects::LensKey, Arc<RenderImage>)>,
+    lens_wanted: Option<effects::LensKey>,
+    lens_rendering: bool,
     revision: u64,
     preview_count: usize,
     rendering: bool,
@@ -62,6 +75,12 @@ struct Editor {
     draft: Option<Mark>,
     text_edit: Option<text::Edit>,
     text_session: u64,
+    animation_epoch: std::time::Instant,
+    animation_paused: bool,
+    animation_position: f32,
+    last_video: Option<std::path::PathBuf>,
+    video_progress: Option<u32>,
+    video_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     backdrop_panel: bool,
     backdrop_drag: Option<(backdrop::Control, Bounds<Pixels>)>,
     enhance_panel: bool,
@@ -146,6 +165,12 @@ impl Editor {
                 }
             }
         };
+        if native
+            && std::env::args().any(|arg| arg == "--automation")
+            && let Err(error) = automation::listen(sender.clone())
+        {
+            eprintln!("Pachiri automation: {error}");
+        }
         let hotkey_sender = sender.clone();
         if native {
             GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
@@ -175,6 +200,9 @@ impl Editor {
             native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
             document,
+            lens: None,
+            lens_wanted: None,
+            lens_rendering: false,
             revision: 0,
             preview_count: 0,
             rendering: false,
@@ -190,6 +218,12 @@ impl Editor {
             draft: None,
             text_edit: None,
             text_session: 0,
+            animation_epoch: std::time::Instant::now(),
+            animation_paused: false,
+            animation_position: 0.,
+            last_video: None,
+            video_progress: None,
+            video_cancel: None,
             backdrop_panel: false,
             backdrop_drag: None,
             enhance_panel: false,
@@ -237,11 +271,28 @@ impl Editor {
         let failed = matches!(
             &message,
             Message::Image(Err(_))
+                | Message::VideoSaved(Err(_))
                 | Message::Saved(Err(_))
                 | Message::Copied(Err(_))
                 | Message::Transformed(Err(_))
         );
         match message {
+            Message::Lens(key, image) => {
+                self.lens_rendering = false;
+                if self.lens_wanted == Some(key) {
+                    if let Some((_, old)) = self.lens.replace((key, image)) {
+                        self.retired.push(old);
+                    }
+                } else {
+                    self.retired.push(image);
+                }
+                cx.notify();
+                return;
+            }
+            Message::Automation(request) => {
+                self.automation(request, cx);
+                return;
+            }
             Message::Magnify(delta, position, smart) => {
                 if self.busy
                     || self.draft.is_some()
@@ -337,6 +388,24 @@ impl Editor {
             Message::Image(Err(e)) => {
                 self.busy = false;
                 self.status = e;
+            }
+            Message::VideoProgress(percent) => {
+                self.video_progress = Some(percent);
+                cx.notify();
+                return;
+            }
+            Message::VideoSaved(result) => {
+                self.busy = false;
+                self.video_progress = None;
+                self.video_cancel = None;
+                self.status = match result {
+                    Ok(Some(path)) => {
+                        self.last_video = Some(path.clone());
+                        format!("Animation saved to {}", path.display())
+                    }
+                    Ok(None) => "Animation export canceled".into(),
+                    Err(e) => e,
+                };
             }
             Message::Saved(result) => {
                 self.busy = false;
@@ -437,6 +506,7 @@ impl Editor {
         self.commit_text(cx);
         self.busy = true;
         let document = self.document.render_snapshot();
+        let phase = self.animation_phase();
         let sender = self.sender.clone();
         self.status = if save {
             "Choose where to save…"
@@ -445,7 +515,7 @@ impl Editor {
         }
         .into();
         std::thread::spawn(move || {
-            let image = document.export();
+            let image = document.export_at(phase);
             let message = if save {
                 Message::Saved(platform::save(image))
             } else {
@@ -568,7 +638,11 @@ impl Editor {
                 Tool::Counter => self.width.max(20. / 4.4),
                 _ => self.width,
             },
-            text: String::new(),
+            text: if self.tool == Tool::Magnifier {
+                "2".into()
+            } else {
+                String::new()
+            },
         };
         if self.tool == Tool::Counter {
             mark.text = (self
@@ -726,7 +800,17 @@ impl Editor {
             ));
         }
         if let Some(mut mark) = self.draft.take() {
-            if mark.tool == Tool::Arrow && mark.points.len() > 2 {
+            if mark.tool == Tool::Spotlight {
+                let a = mark.points[0];
+                let b = *mark.points.last().unwrap();
+                if (a.0 - b.0).abs() < 2. || (a.1 - b.1).abs() < 2. {
+                    cx.notify();
+                    return;
+                }
+            }
+            if matches!(mark.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight)
+                && mark.points.len() > 2
+            {
                 let end = *mark.points.last().unwrap();
                 mark.points.truncate(1);
                 mark.points.push(end);
@@ -758,6 +842,11 @@ impl Editor {
     }
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
+        if key == "escape" && self.video_cancel.is_some() {
+            self.cancel_video(cx);
+            cx.stop_propagation();
+            return;
+        }
         let m = e.keystroke.modifiers;
         if self.text_edit.is_some() {
             if matches!(key, "enter" | "escape")
@@ -906,6 +995,8 @@ impl Editor {
                 "x" => self.set_tool(Tool::Crop, cx),
                 "t" => self.set_tool(Tool::Text, cx),
                 "n" => self.set_tool(Tool::Counter, cx),
+                "s" => self.set_tool(Tool::Spotlight, cx),
+                "m" => self.set_tool(Tool::Magnifier, cx),
                 "escape" => {
                     self.cancel_move();
                     self.selected = None;
@@ -1035,9 +1126,15 @@ impl Editor {
             Tool::Pixelate => ("grid-2x2", "B"),
             Tool::Crop => ("crop", "X"),
             Tool::Counter => ("list-ordered", "N"),
+            Tool::Spotlight => ("scan", "S"),
+            Tool::Magnifier => ("search", "M"),
         };
         let active = self.tool == tool;
-        let label: SharedString = format!("{} · {}", tool.label(), key).into();
+        let label: SharedString = match tool {
+            Tool::Spotlight => "Spotlight · S · drag a focus area".into(),
+            Tool::Magnifier => "Magnifier · M · drag from detail to lens".into(),
+            _ => format!("{} · {}", tool.label(), key).into(),
+        };
         div()
             .id(SharedString::from(format!("tool-{name}")))
             .size(px(30.))
@@ -1137,6 +1234,7 @@ impl Render for Editor {
         for image in self.retired.drain(..) {
             let _ = window.drop_image(image);
         }
+        let self_revision = self.revision;
         let image = self.preview.clone();
         let text_entity = cx.entity();
         let overlays: Vec<Mark> = self
@@ -1154,6 +1252,8 @@ impl Render for Editor {
                 mark.clone()
             })
             .collect();
+        self.prepare_lens(&overlays);
+        let live_lens = self.lens.clone();
         let selected_mark = self.selected.and_then(|index| {
             self.object_drag
                 .as_ref()
@@ -1172,6 +1272,14 @@ impl Render for Editor {
         let layout = self.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let animation_phase = self.animation_phase();
+        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
+            && !self.animation_paused
+            && !self.busy
+            && window.is_window_active()
+        {
+            window.request_animation_frame();
+        }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
         let viewport = window.viewport_size();
         let fit_zoom = ((f32::from(viewport.width)
@@ -1197,6 +1305,8 @@ impl Render for Editor {
             Tool::Pixelate,
             Tool::Crop,
             Tool::Counter,
+            Tool::Spotlight,
+            Tool::Magnifier,
         ];
         let colors = [
             (0xff3864, [255, 56, 100, 255]),
@@ -1280,6 +1390,14 @@ impl Render for Editor {
             .on_action(cx.listener(|this, _: &menus::Crop, _, cx| this.set_tool(Tool::Crop, cx)))
             .on_action(
                 cx.listener(|this, _: &menus::Counter, _, cx| this.set_tool(Tool::Counter, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::ExportVideo, _, cx| this.export_video(cx)))
+            .on_action(cx.listener(|this, _: &menus::ExportGif, _, cx| this.export_gif(cx)))
+            .on_action(
+                cx.listener(|this, _: &menus::Spotlight, _, cx| this.set_tool(Tool::Spotlight, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Magnifier, _, cx| this.set_tool(Tool::Magnifier, cx)),
             )
             .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| this.toggle_backdrop(cx)))
             .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| this.toggle_enhance(cx)))
@@ -1389,19 +1507,58 @@ impl Render for Editor {
                                         this.apply_style(true, cx);
                                     }))
                             }))
-                            .child(self.button(
-                                &format!("{} px", self.width as u32),
-                                false,
-                                cx,
-                                |this, cx| {
-                                    this.width = match this.width as u32 {
-                                        3 => 5.,
-                                        5 => 9.,
-                                        _ => 3.,
-                                    };
-                                    this.apply_style(false, cx);
-                                },
-                            )),
+                            .child(
+                                self.button(
+                                    &if self.tool == Tool::Magnifier
+                                        || selected_mark
+                                            .as_ref()
+                                            .is_some_and(|m| m.tool == Tool::Magnifier)
+                                    {
+                                        format!("Ø{}", (self.width * 24.) as u32)
+                                    } else {
+                                        format!("{} px", self.width as u32)
+                                    },
+                                    false,
+                                    cx,
+                                    |this, cx| {
+                                        this.width = match this.width as u32 {
+                                            3 => 5.,
+                                            5 => 9.,
+                                            _ => 3.,
+                                        };
+                                        this.apply_style(false, cx);
+                                    },
+                                ),
+                            ),
+                    )
+                    .when(
+                        self.tool == Tool::Magnifier
+                            || selected_mark
+                                .as_ref()
+                                .is_some_and(|m| m.tool == Tool::Magnifier),
+                        |el| {
+                            let zoom = selected_mark
+                                .as_ref()
+                                .filter(|m| m.tool == Tool::Magnifier)
+                                .map_or(2., effects::zoom);
+                            el.child(self.button(&format!("{zoom}×"), false, cx, |this, cx| {
+                                if let Some(index) = this
+                                    .selected
+                                    .filter(|i| this.document.marks[*i].tool == Tool::Magnifier)
+                                {
+                                    let next =
+                                        match effects::zoom(&this.document.marks[index]) as u32 {
+                                            2 => 3,
+                                            3 => 4,
+                                            _ => 2,
+                                        };
+                                    this.document.remember();
+                                    this.document.marks[index].text = next.to_string();
+                                    this.changed();
+                                    cx.notify();
+                                }
+                            }))
+                        },
                     )
                     .child(div().flex_1())
                     .child(
@@ -1532,6 +1689,21 @@ impl Render for Editor {
                                         rgb(0xffffff),
                                         Default::default(),
                                     ));
+                                    if b.motion != animation::Motion::Still {
+                                        window.with_content_mask(
+                                            Some(ContentMask {
+                                                bounds: frame_bounds.intersect(&bounds),
+                                            }),
+                                            |window| {
+                                                animation::paint(
+                                                    b,
+                                                    animation_phase,
+                                                    frame_bounds,
+                                                    window,
+                                                )
+                                            },
+                                        );
+                                    }
                                     if b.shadow > 0 {
                                         window.with_content_mask(
                                             Some(ContentMask {
@@ -1599,17 +1771,41 @@ impl Render for Editor {
                                     |window| {
                                         for mark in &overlays {
                                             drawing::paint(mark, layout.get(), window, cx);
+                                            if mark.tool == Tool::Magnifier {
+                                                effects::paint_lens(
+                                                    mark,
+                                                    layout.get(),
+                                                    live_lens
+                                                        .as_ref()
+                                                        .filter(|(key, _)| {
+                                                            *key == effects::LensKey::new(
+                                                                self_revision,
+                                                                mark,
+                                                            )
+                                                        })
+                                                        .map(|(_, image)| image.clone()),
+                                                    window,
+                                                );
+                                            }
                                         }
                                         if let Some(mark) = &selected_mark
-                                            && mark.tool == Tool::Arrow
+                                            && matches!(
+                                                mark.tool,
+                                                Tool::Arrow | Tool::Magnifier | Tool::Spotlight
+                                            )
                                         {
                                             arrow::paint_handles(mark, layout.get(), window);
                                         }
                                         if let Some((left, top, right, bottom)) = selection_bounds
                                             .filter(|_| {
-                                                selected_mark
-                                                    .as_ref()
-                                                    .is_none_or(|m| m.tool != Tool::Arrow)
+                                                selected_mark.as_ref().is_none_or(|m| {
+                                                    !matches!(
+                                                        m.tool,
+                                                        Tool::Arrow
+                                                            | Tool::Magnifier
+                                                            | Tool::Spotlight
+                                                    )
+                                                })
                                             })
                                         {
                                             let l = layout.get();
@@ -1663,6 +1859,13 @@ impl Render for Editor {
     }
 }
 fn main() {
+    if std::env::args().any(|arg| arg == "--mcp") {
+        if let Err(error) = mcp::run() {
+            eprintln!("Pachiri MCP: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     let application = Application::new().with_assets(icons::Icons);
     application.on_reopen(|cx| cx.activate(true));
     application.run(|cx: &mut App| {
