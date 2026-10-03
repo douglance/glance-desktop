@@ -1,7 +1,11 @@
 //! GPUI editor entity: state ownership and application integration.
+#[cfg(test)]
+mod action_tests;
+pub(crate) mod actions;
 mod automation;
 mod canvas;
 mod commands;
+mod dispatch;
 mod feedback;
 mod input;
 mod jobs;

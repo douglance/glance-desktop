@@ -1,3 +1,4 @@
+use super::actions::Action;
 use super::{Editor, preview_base, render_image};
 use super::{feedback::CopyFeedback, state::Gesture};
 use crate::{document::Document, glance};
@@ -5,6 +6,11 @@ use gpui::*;
 use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct OperationId(u64);
+impl OperationId {
+    pub(crate) fn value(self) -> u64 {
+        self.0
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum OperationKind {
     Capture,
@@ -133,7 +139,7 @@ impl Editor {
                 cx.notify();
             }
             Message::Hotkey(area) => {
-                self.capture(area, cx);
+                self.dispatch_ui(Action::Capture { area }, cx);
             }
             Message::Preview(revision, count, image) => {
                 self.preview.rendering = false;

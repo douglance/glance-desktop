@@ -1,6 +1,6 @@
 use super::super::Editor;
 use super::super::{
-    state::Gesture,
+    actions::{Action, AnimationFormat, Panel},
     view::{HoverLabel, icon},
 };
 use crate::{
@@ -48,18 +48,20 @@ impl Editor {
                         MouseButton::Left,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                             cx.stop_propagation();
-                            if this.is_busy() {
-                                return;
-                            }
-                            this.commit_text(cx);
-                            this.document.remember();
-                            if this.document.backdrop.is_none() {
-                                this.document.backdrop = Some(b);
-                            }
-                            this.cancel_gesture();
-                            this.interaction.gesture =
-                                Gesture::AdjustingBackdrop(control, bounds.get());
-                            this.backdrop_slider_move(e.position, cx);
+                            let track = bounds.get();
+                            this.dispatch_ui(
+                                Action::BeginBackdropAdjustment {
+                                    control,
+                                    track: (
+                                        f32::from(track.origin.x),
+                                        f32::from(track.origin.y),
+                                        f32::from(track.size.width),
+                                        f32::from(track.size.height),
+                                    ),
+                                    position: (f32::from(e.position.x), f32::from(e.position.y)),
+                                },
+                                cx,
+                            );
                         }),
                     )
                     .child(
@@ -130,7 +132,7 @@ impl Editor {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
-                    this.commit_text(cx);
+                    this.dispatch_ui(Action::CommitText, cx);
                     cx.stop_propagation();
                 }),
             )
@@ -152,10 +154,14 @@ impl Editor {
                                     .child("Backdrop"),
                             ),
                     )
-                    .child(self.button("Done", false, cx, |this, cx| {
-                        this.panels.backdrop = false;
-                        cx.notify();
-                    })),
+                    .child(self.button(
+                        "Done",
+                        false,
+                        cx,
+                        Action::ClosePanel {
+                            panel: Panel::Backdrop,
+                        },
+                    )),
             )
             .child(
                 div()
@@ -191,13 +197,7 @@ impl Editor {
                                     },
                                 ))
                                 .on_click(cx.listener(move |this, _, _, cx| {
-                                    this.backdrop_style(
-                                        |b| {
-                                            b.gradient = gradient;
-                                            b.motion = Motion::Still;
-                                        },
-                                        cx,
-                                    )
+                                    this.dispatch_ui(Action::SetBackdropFill { gradient }, cx)
                                 }))
                                 .child(label)
                         },
@@ -225,10 +225,9 @@ impl Editor {
                             }))
                             .child("Motion")
                             .on_click(cx.listener(|this, _, _, cx| {
-                                this.backdrop_style(
-                                    |b| {
-                                        b.motion = Motion::Flow;
-                                        b.gradient = true;
+                                this.dispatch_ui(
+                                    Action::SelectMotion {
+                                        motion: Motion::Flow,
                                     },
                                     cx,
                                 )
@@ -242,19 +241,7 @@ impl Editor {
                             motion.label(),
                             b.motion == motion,
                             cx,
-                            move |this, cx| {
-                                this.backdrop_style(
-                                    |b| {
-                                        if b.motion != motion
-                                            && let Some(preset) = motion.suggested_preset()
-                                        {
-                                            b.preset = preset;
-                                        }
-                                        b.motion = motion;
-                                    },
-                                    cx,
-                                )
-                            },
+                            Action::SelectMotion { motion },
                         ))
                     }),
                 ))
@@ -282,7 +269,7 @@ impl Editor {
                             .cursor_pointer()
                             .tooltip(move |_, cx| cx.new(|_| HoverLabel(name.into())).into())
                             .on_click(cx.listener(move |this, _, _, cx| {
-                                this.backdrop_style(|b| b.preset = i, cx)
+                                this.dispatch_ui(Action::SetBackdropPreset { preset: i }, cx)
                             }))
                     })),
             )
@@ -306,7 +293,7 @@ impl Editor {
                                 },
                                 false,
                                 cx,
-                                |this, cx| this.toggle_animation(cx),
+                                Action::TogglePlayback,
                             ))
                             .child(self.button(
                                 if self.video_export.progress.is_some() {
@@ -316,20 +303,23 @@ impl Editor {
                                 },
                                 true,
                                 cx,
-                                |this, cx| {
-                                    if this.video_export.progress.is_some() {
-                                        this.cancel_video(cx);
-                                    } else {
-                                        this.export_video(cx);
+                                if self.video_export.progress.is_some() {
+                                    Action::CancelExport
+                                } else {
+                                    Action::ExportAnimation {
+                                        format: AnimationFormat::Mp4,
                                     }
                                 },
                             ))
                             .when(self.video_export.progress.is_none(), |el| {
-                                el.child(
-                                    self.button("GIF…", false, cx, |this, cx| {
-                                        this.export_gif(cx)
-                                    }),
-                                )
+                                el.child(self.button(
+                                    "GIF…",
+                                    false,
+                                    cx,
+                                    Action::ExportAnimation {
+                                        format: AnimationFormat::Gif,
+                                    },
+                                ))
                             }),
                     )
                     .child(
@@ -347,29 +337,14 @@ impl Editor {
             .child(self.backdrop_slider(Control::InnerRadius, b, cx))
             .child(self.backdrop_slider(Control::OuterRadius, b, cx))
             .when(self.video_export.last_video.is_some(), |el| {
-                el.child(
-                    self.button("Show exported animation", false, cx, |this, _| {
-                        if let Some(path) = &this.video_export.last_video {
-                            let _ = std::process::Command::new("/usr/bin/open")
-                                .arg("-R")
-                                .arg(path)
-                                .spawn();
-                        }
-                    }),
-                )
+                el.child(self.button("Show exported animation", false, cx, Action::RevealExport))
             })
             .child(div().flex_1())
-            .child(self.button("Remove backdrop", false, cx, |this, cx| {
-                if this.is_busy() {
-                    return;
-                }
-                if this.document.backdrop.is_some() {
-                    this.document.remember();
-                    this.document.backdrop = None;
-                    this.feedback.status = "Backdrop removed • ⌘Z to restore".into();
-                }
-                this.panels.backdrop = false;
-                cx.notify();
-            }))
+            .child(self.button(
+                "Remove backdrop",
+                false,
+                cx,
+                Action::SetBackdrop { backdrop: None },
+            ))
     }
 }

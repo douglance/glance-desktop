@@ -1,8 +1,8 @@
 use super::Editor;
+use super::actions::Action;
 use super::state::{AnnotationDrag, Gesture};
 use crate::{
     arrow,
-    backdrop::Control,
     document::{Mark, Tool},
     navigation, text,
 };
@@ -18,7 +18,7 @@ impl Editor {
             ),
         );
         if !image.contains(&e.position) {
-            self.commit_text(cx);
+            self.dispatch_ui(Action::CommitText, cx);
         }
     }
     pub(super) fn coordinate(&self, p: Point<Pixels>, clamp: bool) -> Option<(f32, f32)> {
@@ -70,7 +70,7 @@ impl Editor {
             cx.notify();
             return;
         }
-        self.commit_text(cx);
+        self.dispatch_ui(Action::CommitText, cx);
         let Some(mut p) = self.coordinate(e.position, false) else {
             return;
         };
@@ -314,17 +314,10 @@ impl Editor {
             self.interaction.gesture = Gesture::Idle;
         }
     }
-    pub(super) fn menu_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
-        let e = KeyDownEvent {
-            keystroke: Keystroke::parse(key).expect("valid menu shortcut"),
-            is_held: false,
-        };
-        self.key(&e, window, cx);
-    }
     pub(super) fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
         if key == "escape" && self.video_export.cancel.is_some() {
-            self.cancel_video(cx);
+            self.dispatch_ui(Action::CancelExport, cx);
             cx.stop_propagation();
             return;
         }
@@ -341,51 +334,49 @@ impl Editor {
             }
             match key {
                 "enter" => {
-                    self.commit_text(cx);
+                    self.dispatch_ui(Action::CommitText, cx);
                     cx.stop_propagation();
                     return;
                 }
                 "escape" => {
-                    self.interaction.text_edit = None;
-                    self.feedback.status = "Text canceled".into();
-                    cx.notify();
+                    self.dispatch_ui(Action::Cancel, cx);
                     cx.stop_propagation();
                     return;
                 }
                 _ => {}
             }
             if m.platform && (matches!(key, "s" | "o" | "q") || (m.shift && key == "c")) {
-                self.commit_text(cx);
+                self.dispatch_ui(Action::CommitText, cx);
             } else {
+                let text_action = if m.platform {
+                    match key {
+                        "c" => Some(Action::Copy),
+                        "x" => Some(Action::Cut),
+                        "v" => Some(Action::Paste),
+                        "z" => Some(if m.shift { Action::Redo } else { Action::Undo }),
+                        _ => None,
+                    }
+                } else if key == "backspace" {
+                    Some(Action::Delete)
+                } else {
+                    None
+                };
+                if let Some(action) = text_action {
+                    self.dispatch_ui(action, cx);
+                    cx.stop_propagation();
+                    return;
+                }
                 let edit = self.interaction.text_edit.as_mut().unwrap();
                 let mut handled = true;
                 if m.platform {
                     match key {
                         "a" => edit.buffer.select_all(),
-                        "v" => {
-                            if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
-                                edit.replace_text(&text);
-                            }
-                        }
-                        "c" | "x" => {
-                            let range = edit.buffer.selection();
-                            if !range.is_empty() {
-                                cx.write_to_clipboard(ClipboardItem::new_string(
-                                    edit.buffer.text()[range].into(),
-                                ));
-                                if key == "x" {
-                                    edit.replace_text("");
-                                }
-                            }
-                        }
-                        "z" => edit.buffer.history(m.shift),
                         "left" => edit.buffer.move_to(0, m.shift),
                         "right" => edit.buffer.move_to(edit.buffer.text().len(), m.shift),
                         _ => handled = false,
                     }
                 } else {
                     match key {
-                        "backspace" => edit.buffer.delete(false),
                         "delete" => edit.buffer.delete(true),
                         "left" => edit.buffer.move_cursor(false, m.shift),
                         "right" => edit.buffer.move_cursor(true, m.shift),
@@ -420,74 +411,76 @@ impl Editor {
                 && self.interaction.selected.is_some()
                 && !self.is_busy()
             {
-                self.cancel_gesture();
-                if let Some(index) = self.interaction.selected {
-                    if !e.is_held {
-                        self.document.remember();
-                    }
-                    let step = if m.shift { 10. } else { 1. };
-                    let d = match key {
-                        "left" => (-step, 0.),
-                        "right" => (step, 0.),
-                        "up" => (0., -step),
-                        _ => (0., step),
-                    };
-                    self.document.marks[index].translate(d.0, d.1);
-                    self.changed();
-                    cx.notify();
-                }
+                let step = if m.shift { 10. } else { 1. };
+                let delta = match key {
+                    "left" => (-step, 0.),
+                    "right" => (step, 0.),
+                    "up" => (0., -step),
+                    _ => (0., step),
+                };
+                self.dispatch_ui(
+                    Action::NudgeSelection {
+                        delta,
+                        remember: !e.is_held,
+                    },
+                    cx,
+                );
                 cx.stop_propagation();
                 return;
             }
         }
-        if m.platform && m.alt && matches!(key, "2" | "3") {
-            self.capture(key == "2", cx);
+        let action = if m.platform && m.alt && matches!(key, "2" | "3") {
+            Some(Action::Capture { area: key == "2" })
         } else if m.platform {
             match key {
-                "q" => cx.quit(),
-                "c" if m.shift => self.copy_remote(cx),
-                "c" => self.export(false, cx),
-                "s" => self.export(true, cx),
-                "o" => self.open(cx),
-                "v" => self.paste_image(cx),
-                "d" => self.duplicate_selected(cx),
-                "z" => self.history(m.shift, cx),
-                "1" => {
-                    self.viewport.zoom = None;
-                    self.viewport.pan = (0., 0.);
-                    cx.notify();
-                }
-                "0" => {
-                    self.viewport.zoom = Some(1.);
-                    self.viewport.pan = (0., 0.);
-                    cx.notify();
-                }
-                "+" | "=" => self.change_zoom(1.25, cx),
-                "-" => self.change_zoom(0.8, cx),
-                _ => {}
+                "q" => Some(Action::Quit),
+                "c" if m.shift => Some(Action::CopyRemote),
+                "c" => Some(Action::Copy),
+                "s" => Some(Action::SaveImage),
+                "o" => Some(Action::OpenImage),
+                "v" => Some(Action::Paste),
+                "d" => Some(Action::DuplicateSelection),
+                "z" => Some(if m.shift { Action::Redo } else { Action::Undo }),
+                "1" => Some(Action::Fit),
+                "0" => Some(Action::ActualSize),
+                "+" | "=" => Some(Action::Zoom { factor: 1.25 }),
+                "-" => Some(Action::Zoom { factor: 0.8 }),
+                _ => None,
             }
         } else if !m.alt && !m.control {
             match key {
-                "v" => self.set_tool(Tool::Select, cx),
-                "backspace" | "delete" => self.delete_selected(cx),
-                "p" => self.set_tool(Tool::Pen, cx),
-                "a" => self.set_tool(Tool::Arrow, cx),
-                "r" => self.set_tool(Tool::Rectangle, cx),
-                "h" => self.set_tool(Tool::Highlight, cx),
-                "b" => self.set_tool(Tool::Pixelate, cx),
-                "x" => self.set_tool(Tool::Crop, cx),
-                "t" => self.set_tool(Tool::Text, cx),
-                "n" => self.set_tool(Tool::Counter, cx),
-                "s" => self.set_tool(Tool::Spotlight, cx),
-                "m" => self.set_tool(Tool::Magnifier, cx),
-                "escape" => {
-                    self.cancel_gesture();
-                    self.interaction.selected = None;
-                    self.interaction.gesture = Gesture::Idle;
-                    cx.notify();
-                }
-                _ => {}
+                "v" => Some(Action::SelectTool { tool: Tool::Select }),
+                "backspace" | "delete" => Some(Action::Delete),
+                "p" => Some(Action::SelectTool { tool: Tool::Pen }),
+                "a" => Some(Action::SelectTool { tool: Tool::Arrow }),
+                "r" => Some(Action::SelectTool {
+                    tool: Tool::Rectangle,
+                }),
+                "h" => Some(Action::SelectTool {
+                    tool: Tool::Highlight,
+                }),
+                "b" => Some(Action::SelectTool {
+                    tool: Tool::Pixelate,
+                }),
+                "x" => Some(Action::SelectTool { tool: Tool::Crop }),
+                "t" => Some(Action::SelectTool { tool: Tool::Text }),
+                "n" => Some(Action::SelectTool {
+                    tool: Tool::Counter,
+                }),
+                "s" => Some(Action::SelectTool {
+                    tool: Tool::Spotlight,
+                }),
+                "m" => Some(Action::SelectTool {
+                    tool: Tool::Magnifier,
+                }),
+                "escape" => Some(Action::Cancel),
+                _ => None,
             }
+        } else {
+            None
+        };
+        if let Some(action) = action {
+            self.dispatch_ui(action, cx);
         }
         cx.stop_propagation();
     }
@@ -555,19 +548,11 @@ impl Editor {
         let Gesture::AdjustingBackdrop(control, bounds) = self.interaction.gesture else {
             return false;
         };
-        let phase = self.animation_phase();
-        if let Some(b) = &mut self.document.backdrop {
+        if self.document.backdrop.is_some() && f32::from(bounds.size.width) > 0. {
             let ratio = f32::from(position.x - bounds.left()) / f32::from(bounds.size.width);
-            control.set(
-                b,
-                control.min()
-                    + (ratio.clamp(0., 1.) * (control.max() - control.min()) as f32).round() as u32,
-            );
-            if control == Control::Duration {
-                self.playback.position = phase * b.seconds as f32;
-                self.playback.epoch = std::time::Instant::now();
-            }
-            cx.notify();
+            let value = control.min()
+                + (ratio.clamp(0., 1.) * (control.max() - control.min()) as f32).round() as u32;
+            self.dispatch_ui(Action::SetBackdropControl { control, value }, cx);
         }
         true
     }

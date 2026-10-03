@@ -1,4 +1,5 @@
 use super::Editor;
+use super::actions::Action;
 use super::feedback::CopyFeedback;
 use crate::{document::Tool, effects, menus};
 use gpui::{prelude::*, *};
@@ -46,6 +47,7 @@ impl Editor {
         };
         div()
             .id(SharedString::from(format!("tool-{name}")))
+            .debug_selector(move || format!("tool-{name}").into())
             .size(px(30.))
             .flex_shrink_0()
             .flex()
@@ -58,7 +60,11 @@ impl Editor {
             .active(|s| s.bg(rgb(0xe5e7ed)))
             .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone())).into())
-            .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
+            .on_click(
+                cx.listener(move |this, _, _, cx| {
+                    this.dispatch_ui(Action::SelectTool { tool }, cx)
+                }),
+            )
     }
     pub(super) fn compact_button(
         &self,
@@ -66,7 +72,7 @@ impl Editor {
         name: &'static str,
         active: bool,
         cx: &Context<Self>,
-        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        action: Action,
     ) -> impl IntoElement {
         div()
             .id(label)
@@ -81,14 +87,14 @@ impl Editor {
             .hover(|s| s.bg(rgb(0xf0f1f5)))
             .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.into())).into())
-            .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
     }
     pub(super) fn button(
         &self,
         label: &str,
         active: bool,
         cx: &Context<Self>,
-        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+        action: Action,
     ) -> impl IntoElement {
         let icon_name = if label.starts_with("Area") {
             Some("scan")
@@ -134,7 +140,7 @@ impl Editor {
                 el.child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             })
             .child(label.to_string())
-            .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+            .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
     }
 }
 impl Render for Editor {
@@ -205,84 +211,136 @@ impl Render for Editor {
                 "GlanceCanvas"
             })
             .on_action(
-                cx.listener(|this, _: &menus::Open, window, cx| this.menu_key("cmd-o", window, cx)),
+                cx.listener(|this, _: &menus::Open, _, cx| this.dispatch_ui(Action::OpenImage, cx)),
             )
             .on_action(
-                cx.listener(|this, _: &menus::Save, window, cx| this.menu_key("cmd-s", window, cx)),
+                cx.listener(|this, _: &menus::Save, _, cx| this.dispatch_ui(Action::SaveImage, cx)),
             )
             .on_action(
-                cx.listener(|this, _: &menus::Copy, window, cx| this.menu_key("cmd-c", window, cx)),
+                cx.listener(|this, _: &menus::Copy, _, cx| this.dispatch_ui(Action::Copy, cx)),
             )
-            .on_action(cx.listener(|this, _: &menus::CopyRemote, window, cx| {
-                this.menu_key("cmd-shift-c", window, cx)
+            .on_action(cx.listener(|this, _: &menus::CopyRemote, _, cx| {
+                this.dispatch_ui(Action::CopyRemote, cx)
             }))
             .on_action(
-                cx.listener(|this, _: &menus::Paste, window, cx| {
-                    this.menu_key("cmd-v", window, cx)
-                }),
+                cx.listener(|this, _: &menus::Paste, _, cx| this.dispatch_ui(Action::Paste, cx)),
             )
             .on_action(
-                cx.listener(|this, _: &menus::Undo, window, cx| this.menu_key("cmd-z", window, cx)),
+                cx.listener(|this, _: &menus::Undo, _, cx| this.dispatch_ui(Action::Undo, cx)),
             )
-            .on_action(cx.listener(|this, _: &menus::Redo, window, cx| {
-                this.menu_key("cmd-shift-z", window, cx)
+            .on_action(
+                cx.listener(|this, _: &menus::Redo, _, cx| this.dispatch_ui(Action::Redo, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Delete, _, cx| this.dispatch_ui(Action::Delete, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::CaptureArea, _, cx| {
+                this.dispatch_ui(Action::Capture { area: true }, cx)
             }))
-            .on_action(cx.listener(|this, _: &menus::Delete, window, cx| {
-                this.menu_key("backspace", window, cx)
+            .on_action(cx.listener(|this, _: &menus::CaptureScreen, _, cx| {
+                this.dispatch_ui(Action::Capture { area: false }, cx)
             }))
-            .on_action(cx.listener(|this, _: &menus::CaptureArea, window, cx| {
-                this.menu_key("cmd-alt-2", window, cx)
+            .on_action(cx.listener(|this, _: &menus::Fit, _, cx| this.dispatch_ui(Action::Fit, cx)))
+            .on_action(cx.listener(|this, _: &menus::ActualSize, _, cx| {
+                this.dispatch_ui(Action::ActualSize, cx)
             }))
-            .on_action(cx.listener(|this, _: &menus::CaptureScreen, window, cx| {
-                this.menu_key("cmd-alt-3", window, cx)
+            .on_action(cx.listener(|this, _: &menus::ZoomIn, _, cx| {
+                this.dispatch_ui(Action::Zoom { factor: 1.25 }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::ZoomOut, _, cx| {
+                this.dispatch_ui(Action::Zoom { factor: 0.8 }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Select, _, cx| {
+                this.dispatch_ui(Action::SelectTool { tool: Tool::Select }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Pen, _, cx| {
+                this.dispatch_ui(Action::SelectTool { tool: Tool::Pen }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Arrow, _, cx| {
+                this.dispatch_ui(Action::SelectTool { tool: Tool::Arrow }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Rectangle, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Rectangle,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Text, _, cx| {
+                this.dispatch_ui(Action::SelectTool { tool: Tool::Text }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Highlight, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Highlight,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Pixelate, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Pixelate,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Crop, _, cx| {
+                this.dispatch_ui(Action::SelectTool { tool: Tool::Crop }, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Counter, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Counter,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Spotlight, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Spotlight,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Magnifier, _, cx| {
+                this.dispatch_ui(
+                    Action::SelectTool {
+                        tool: Tool::Magnifier,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::ExportVideo, _, cx| {
+                this.dispatch_ui(
+                    Action::ExportAnimation {
+                        format: super::actions::AnimationFormat::Mp4,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::ExportGif, _, cx| {
+                this.dispatch_ui(
+                    Action::ExportAnimation {
+                        format: super::actions::AnimationFormat::Gif,
+                    },
+                    cx,
+                )
+            }))
+            .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| {
+                this.dispatch_ui(Action::ToggleBackdrop, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| {
+                this.dispatch_ui(Action::ToggleEnhance, cx)
             }))
             .on_action(
-                cx.listener(|this, _: &menus::Fit, window, cx| this.menu_key("cmd-1", window, cx)),
+                cx.listener(|this, _: &menus::Help, _, cx| this.dispatch_ui(Action::Help, cx)),
             )
-            .on_action(cx.listener(|this, _: &menus::ActualSize, window, cx| {
-                this.menu_key("cmd-0", window, cx)
+            .on_action(cx.listener(|this, _: &menus::Duplicate, _, cx| {
+                this.dispatch_ui(Action::DuplicateSelection, cx)
             }))
-            .on_action(
-                cx.listener(|this, _: &menus::ZoomIn, window, cx| {
-                    this.menu_key("cmd-=", window, cx)
-                }),
-            )
-            .on_action(cx.listener(|this, _: &menus::ZoomOut, window, cx| {
-                this.menu_key("cmd--", window, cx)
-            }))
-            .on_action(
-                cx.listener(|this, _: &menus::Select, _, cx| this.set_tool(Tool::Select, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menus::Pen, _, cx| this.set_tool(Tool::Pen, cx)))
-            .on_action(cx.listener(|this, _: &menus::Arrow, _, cx| this.set_tool(Tool::Arrow, cx)))
-            .on_action(
-                cx.listener(|this, _: &menus::Rectangle, _, cx| this.set_tool(Tool::Rectangle, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menus::Text, _, cx| this.set_tool(Tool::Text, cx)))
-            .on_action(
-                cx.listener(|this, _: &menus::Highlight, _, cx| this.set_tool(Tool::Highlight, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &menus::Pixelate, _, cx| this.set_tool(Tool::Pixelate, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menus::Crop, _, cx| this.set_tool(Tool::Crop, cx)))
-            .on_action(
-                cx.listener(|this, _: &menus::Counter, _, cx| this.set_tool(Tool::Counter, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menus::ExportVideo, _, cx| this.export_video(cx)))
-            .on_action(cx.listener(|this, _: &menus::ExportGif, _, cx| this.export_gif(cx)))
-            .on_action(
-                cx.listener(|this, _: &menus::Spotlight, _, cx| this.set_tool(Tool::Spotlight, cx)),
-            )
-            .on_action(
-                cx.listener(|this, _: &menus::Magnifier, _, cx| this.set_tool(Tool::Magnifier, cx)),
-            )
-            .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| this.toggle_backdrop(cx)))
-            .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| this.toggle_enhance(cx)))
-            .on_action(|_: &menus::Help, _, cx| {
-                cx.open_url("https://github.com/benvinegar/pachiri#workflow")
-            })
-            .on_action(cx.listener(|this, _: &menus::Duplicate, _, cx| this.duplicate_selected(cx)))
             .on_key_down(cx.listener(Self::key))
             .on_key_up(cx.listener(|this, e: &KeyUpEvent, _, cx| {
                 match e.keystroke.key.as_str() {
@@ -326,24 +384,26 @@ impl Render for Editor {
                             .mr_2()
                             .child("glance"),
                     )
-                    .child(
-                        self.compact_button("Area · ⌘⌥2", "scan", false, cx, |this, cx| {
-                            this.capture(true, cx)
-                        }),
-                    )
+                    .child(self.compact_button(
+                        "Area · ⌘⌥2",
+                        "scan",
+                        false,
+                        cx,
+                        Action::Capture { area: true },
+                    ))
                     .child(self.compact_button(
                         "Screen · ⌘⌥3",
                         "monitor",
                         false,
                         cx,
-                        |this, cx| this.capture(false, cx),
+                        Action::Capture { area: false },
                     ))
                     .child(self.compact_button(
                         "Open · ⌘O",
                         "folder-open",
                         false,
                         cx,
-                        |this, cx| this.open(cx),
+                        Action::OpenImage,
                     ))
                     .child(div().w(px(1.)).h(px(18.)).mx_1().bg(rgb(0xe5e5ec)))
                     .children(tools.into_iter().map(|tool| self.tool_button(tool, cx)))
@@ -353,14 +413,14 @@ impl Render for Editor {
                         "square",
                         self.panels.backdrop,
                         cx,
-                        |this, cx| this.toggle_backdrop(cx),
+                        Action::ToggleBackdrop,
                     ))
                     .child(self.compact_button(
                         "Image tools",
                         "sparkles",
                         self.panels.enhance,
                         cx,
-                        |this, cx| this.toggle_enhance(cx),
+                        Action::ToggleEnhance,
                     ))
                     .child(
                         div()
@@ -381,8 +441,7 @@ impl Render for Editor {
                                     .bg(rgb(hex))
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.interaction.color = color;
-                                        this.apply_style(true, cx);
+                                        this.dispatch_ui(Action::SetColor { color }, cx);
                                     }))
                             }))
                             .child(
@@ -398,15 +457,7 @@ impl Render for Editor {
                                     },
                                     false,
                                     cx,
-                                    |this, cx| {
-                                        this.interaction.width = match this.interaction.width as u32
-                                        {
-                                            3 => 5.,
-                                            5 => 9.,
-                                            _ => 3.,
-                                        };
-                                        this.apply_style(false, cx);
-                                    },
+                                    Action::CycleStrokeWidth,
                                 ),
                             ),
                     )
@@ -420,24 +471,12 @@ impl Render for Editor {
                                 .as_ref()
                                 .filter(|m| m.tool == Tool::Magnifier)
                                 .map_or(2., effects::zoom);
-                            el.child(self.button(&format!("{zoom}×"), false, cx, |this, cx| {
-                                if let Some(index) = this
-                                    .interaction
-                                    .selected
-                                    .filter(|i| this.document.marks[*i].tool == Tool::Magnifier)
-                                {
-                                    let next =
-                                        match effects::zoom(&this.document.marks[index]) as u32 {
-                                            2 => 3,
-                                            3 => 4,
-                                            _ => 2,
-                                        };
-                                    this.document.remember();
-                                    this.document.marks[index].text = next.to_string();
-                                    this.changed();
-                                    cx.notify();
-                                }
-                            }))
+                            el.child(self.button(
+                                &format!("{zoom}×"),
+                                false,
+                                cx,
+                                Action::CycleMagnifierZoom,
+                            ))
                         },
                     )
                     .child(div().flex_1())
@@ -450,7 +489,7 @@ impl Render for Editor {
                         },
                         false,
                         cx,
-                        |this, cx| this.export(false, cx),
+                        Action::CopyImage,
                     ))
                     .child(
                         div()
@@ -466,14 +505,10 @@ impl Render for Editor {
                                 },
                                 false,
                                 cx,
-                                |this, cx| this.copy_remote(cx),
+                                Action::CopyRemote,
                             )),
                     )
-                    .child(
-                        self.compact_button("Save · ⌘S", "save", false, cx, |this, cx| {
-                            this.export(true, cx)
-                        }),
-                    )
+                    .child(self.compact_button("Save · ⌘S", "save", false, cx, Action::SaveImage))
                     .child(
                         div()
                             .flex()
@@ -505,9 +540,7 @@ impl Render for Editor {
                                             .into()
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.viewport.zoom = None;
-                                        this.viewport.pan = (0., 0.);
-                                        cx.notify();
+                                        this.dispatch_ui(Action::Fit, cx);
                                     })),
                             ),
                     ),

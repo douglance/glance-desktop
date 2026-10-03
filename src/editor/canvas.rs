@@ -1,3 +1,4 @@
+use super::actions::Action;
 use super::state::Layout;
 use super::{Editor, text_input};
 use crate::{
@@ -72,7 +73,7 @@ impl Editor {
             .on_scroll_wheel(cx.listener(|this, e, _, cx| this.scroll(e, cx)))
             .on_drop(cx.listener(|this, files: &ExternalPaths, _, cx| {
                 if let Some(path) = files.paths().first() {
-                    this.open_path(path.clone(), cx);
+                    this.dispatch_ui(Action::OpenPath { path: path.clone() }, cx);
                 }
             }))
             .flex()

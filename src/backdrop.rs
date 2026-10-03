@@ -131,7 +131,8 @@ pub(crate) fn distance(x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
     qx.max(0.).hypot(qy.max(0.)) + qx.max(qy).min(0.) - radius
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Control {
     Padding,
     InnerRadius,

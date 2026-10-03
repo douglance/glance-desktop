@@ -1,4 +1,5 @@
 use super::super::Editor;
+use super::super::actions::{Action, Panel};
 use super::super::view::{HoverLabel, icon};
 use gpui::{prelude::*, *};
 impl Editor {
@@ -22,7 +23,7 @@ impl Editor {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, _, _, cx| {
-                    this.commit_text(cx);
+                    this.dispatch_ui(Action::CommitText, cx);
                     cx.stop_propagation();
                 }),
             )
@@ -44,10 +45,14 @@ impl Editor {
                                     .child("Image tools"),
                             ),
                     )
-                    .child(self.button("Done", false, cx, |this, cx| {
-                        this.panels.enhance = false;
-                        cx.notify();
-                    })),
+                    .child(self.button(
+                        "Done",
+                        false,
+                        cx,
+                        Action::ClosePanel {
+                            panel: Panel::Enhance,
+                        },
+                    )),
             )
             .child(
                 div()
@@ -79,8 +84,7 @@ impl Editor {
                         }))
                         .child(format!("{}%", (scale * 100.) as u32))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.panels.resize_scale = scale;
-                            cx.notify();
+                            this.dispatch_ui(Action::SetResizeScale { scale }, cx);
                         }))
                 }),
             ))
@@ -117,8 +121,7 @@ impl Editor {
                         .into()
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.panels.resize_smart = !this.panels.resize_smart;
-                        cx.notify();
+                        this.dispatch_ui(Action::ToggleSmartResize, cx);
                     })),
             )
             .child(
@@ -148,14 +151,10 @@ impl Editor {
                 },
                 true,
                 cx,
-                |this, cx| this.resize_image(false, cx),
+                Action::ApplyResize,
             ))
             .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
-            .child(self.button("Rotate 90°", false, cx, |this, cx| {
-                this.resize_image(true, cx)
-            }))
-            .child(self.button("Paste image  ⌘V", false, cx, |this, cx| {
-                this.paste_image(cx)
-            }))
+            .child(self.button("Rotate 90°", false, cx, Action::Rotate))
+            .child(self.button("Paste image  ⌘V", false, cx, Action::PasteImage))
     }
 }
