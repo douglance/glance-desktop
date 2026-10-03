@@ -1,5 +1,6 @@
 //! Tests use GPUI's virtual platform. No desktop interaction or capture permission.
-use super::{CopyFeedback, Document, Editor, Layout, Message, Tool, render_image};
+use super::feedback::CopyFeedback;
+use super::{Document, Editor, Layout, Message, Tool, render_image};
 use gpui::{
     Bounds, EntityInputHandler, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, TestAppContext, WindowHandle, point, px, size,
@@ -91,20 +92,22 @@ fn remote_copy_updates_clipboard_only_after_upload_success(cx: &mut TestAppConte
     let view = editor(cx);
     view.update(cx, |e, _, cx| {
         cx.write_to_clipboard(gpui::ClipboardItem::new_string("existing clipboard".into()));
-        e.busy = true;
+        e.start_operation(super::jobs::OperationKind::Upload)
+            .unwrap();
         e.copy_remote(cx); // A second request must not start another upload.
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().unwrap(),
             "existing clipboard"
         );
-        e.receive(
-            Message::RemoteCopied(Ok(crate::glance::Share {
+        complete(
+            e,
+            super::jobs::OperationResult::RemoteCopied(Ok(crate::glance::Share {
                 url: "https://glance.sh/example.png".into(),
                 expires_at: u64::MAX,
             })),
             cx,
         );
-        assert!(!e.busy);
+        assert!(!e.is_busy());
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().unwrap(),
             "Screenshot: https://glance.sh/example.png"
@@ -112,9 +115,14 @@ fn remote_copy_updates_clipboard_only_after_upload_success(cx: &mut TestAppConte
         assert!(e.feedback.status.contains("Glance link copied"));
         assert!(matches!(e.feedback.copy, Some(CopyFeedback::LinkCopied(_))));
         cx.write_to_clipboard(gpui::ClipboardItem::new_string("keep on failure".into()));
-        e.busy = true;
-        e.receive(Message::RemoteCopied(Err("Offline".into())), cx);
-        assert!(!e.busy);
+        e.start_operation(super::jobs::OperationKind::Upload)
+            .unwrap();
+        complete(
+            e,
+            super::jobs::OperationResult::RemoteCopied(Err("Offline".into())),
+            cx,
+        );
+        assert!(!e.is_busy());
         assert_eq!(e.feedback.status, "Offline");
         assert_eq!(e.feedback.copy, None);
         assert_eq!(
@@ -128,8 +136,10 @@ fn remote_copy_updates_clipboard_only_after_upload_success(cx: &mut TestAppConte
 fn copy_confirmation_expires_without_dismissing_a_new_upload(cx: &mut TestAppContext) {
     use std::time::Duration;
     let view = editor(cx);
-    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
-        .unwrap();
+    view.update(cx, |e, _, cx| {
+        complete(e, super::jobs::OperationResult::Copied(Ok(())), cx)
+    })
+    .unwrap();
     cx.run_until_parked();
     cx.executor().advance_clock(Duration::from_secs(1));
     view.update(cx, |e, _, cx| {
@@ -141,8 +151,9 @@ fn copy_confirmation_expires_without_dismissing_a_new_upload(cx: &mut TestAppCon
     cx.run_until_parked();
     view.update(cx, |e, _, cx| {
         assert_eq!(e.feedback.copy, Some(CopyFeedback::Uploading));
-        e.receive(
-            Message::RemoteCopied(Ok(crate::glance::Share {
+        complete(
+            e,
+            super::jobs::OperationResult::RemoteCopied(Ok(crate::glance::Share {
                 url: "https://glance.sh/example.png".into(),
                 expires_at: u64::MAX,
             })),
@@ -160,8 +171,10 @@ fn copy_confirmation_expires_without_dismissing_a_new_upload(cx: &mut TestAppCon
 fn copy_confirmation_fits_and_refreshes_on_repeated_copy(cx: &mut TestAppContext) {
     use std::time::Duration;
     let view = editor(cx);
-    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
-        .unwrap();
+    view.update(cx, |e, _, cx| {
+        complete(e, super::jobs::OperationResult::Copied(Ok(())), cx)
+    })
+    .unwrap();
     let mut visual = gpui::VisualTestContext::from_window(*view, cx);
     visual.simulate_resize(size(px(1050.), px(600.)));
     visual.run_until_parked();
@@ -170,8 +183,10 @@ fn copy_confirmation_fits_and_refreshes_on_repeated_copy(cx: &mut TestAppContext
     assert!(bounds.origin.y >= px(48.));
     assert!(bounds.right() <= px(1050.));
     cx.executor().advance_clock(Duration::from_secs(1));
-    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
-        .unwrap();
+    view.update(cx, |e, _, cx| {
+        complete(e, super::jobs::OperationResult::Copied(Ok(())), cx)
+    })
+    .unwrap();
     cx.run_until_parked();
     cx.executor().advance_clock(Duration::from_secs(1));
     cx.run_until_parked();
@@ -183,7 +198,11 @@ fn copy_confirmation_fits_and_refreshes_on_repeated_copy(cx: &mut TestAppContext
     cx.run_until_parked();
     view.update(cx, |e, _, cx| {
         assert_eq!(e.feedback.copy, None);
-        e.receive(Message::Copied(Err("Clipboard unavailable".into())), cx);
+        complete(
+            e,
+            super::jobs::OperationResult::Copied(Err("Clipboard unavailable".into())),
+            cx,
+        );
         assert_eq!(e.feedback.copy, None);
     })
     .unwrap();
@@ -570,6 +589,131 @@ fn switching_pointer_gestures_cancels_the_previous_drag(cx: &mut TestAppContext)
         e.key(&key("escape"), w, cx);
         e.finish(&up(60., 60.), cx);
         assert_eq!(e.document.marks.len(), 1);
+    })
+    .unwrap();
+}
+
+fn complete(e: &mut Editor, result: super::jobs::OperationResult, cx: &mut gpui::Context<Editor>) {
+    let kind = match &result {
+        super::jobs::OperationResult::RemoteCopied(_) => super::jobs::OperationKind::Upload,
+        super::jobs::OperationResult::Copied(_) => super::jobs::OperationKind::Copy,
+        _ => panic!("Choose the operation kind for this test result"),
+    };
+    let id = e
+        .operations
+        .active
+        .as_ref()
+        .map(|op| op.id)
+        .unwrap_or_else(|| e.start_operation(kind).unwrap());
+    e.receive(Message::Operation(id, result), cx);
+}
+
+#[gpui::test]
+fn stale_operation_completion_cannot_change_clipboard_or_clear_new_job(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        use super::jobs::{OperationKind, OperationResult};
+        let old = e.start_operation(OperationKind::Upload).unwrap();
+        e.receive(
+            Message::Operation(old, OperationResult::RemoteCopied(Err("Offline".into()))),
+            cx,
+        );
+        let current = e.start_operation(OperationKind::Copy).unwrap();
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("keep this".into()));
+        e.set_copy_feedback(Some(CopyFeedback::Copying), cx);
+        e.receive(
+            Message::Operation(
+                old,
+                OperationResult::RemoteCopied(Ok(crate::glance::Share {
+                    url: "https://glance.sh/stale.png".into(),
+                    expires_at: u64::MAX,
+                })),
+            ),
+            cx,
+        );
+        assert_eq!(e.operations.active.as_ref().unwrap().id, current);
+        assert_eq!(e.feedback.copy, Some(CopyFeedback::Copying));
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "keep this"
+        );
+        e.receive(
+            Message::Operation(current, OperationResult::Copied(Ok(()))),
+            cx,
+        );
+        assert!(!e.is_busy());
+        assert_eq!(e.feedback.copy, Some(CopyFeedback::Copied));
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn preview_completion_does_not_unlock_an_active_operation(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        use super::jobs::{OperationKind, OperationResult};
+        let id = e.start_operation(OperationKind::Copy).unwrap();
+        e.preview.waiting = true;
+        e.receive(
+            Message::Preview(
+                e.preview.revision,
+                0,
+                render_image((*e.document.base).clone()),
+            ),
+            cx,
+        );
+        assert!(!e.preview.waiting);
+        assert!(e.is_busy());
+        assert!(e.start_operation(OperationKind::Upload).is_none());
+        e.receive(Message::Operation(id, OperationResult::Copied(Ok(()))), cx);
+        assert!(!e.is_busy());
+        let id = e.start_operation(OperationKind::Open).unwrap();
+        e.receive(
+            Message::Operation(
+                id,
+                OperationResult::Image(Ok(Some(image::RgbaImage::new(30, 20)))),
+            ),
+            cx,
+        );
+        assert!(e.operations.active.is_none());
+        assert!(e.is_busy()); // The new image must finish preparing before editing resumes.
+        e.receive(
+            Message::Preview(
+                e.preview.revision,
+                0,
+                render_image((*e.document.base).clone()),
+            ),
+            cx,
+        );
+        assert!(!e.is_busy());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn video_progress_belongs_to_the_active_export(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        use super::jobs::{OperationKind, OperationResult};
+        let old = e.start_operation(OperationKind::Video).unwrap();
+        e.receive(Message::VideoProgress(old, 40), cx);
+        assert_eq!(e.video_export.progress, Some(40));
+        e.receive(
+            Message::Operation(old, OperationResult::VideoSaved(Ok(None))),
+            cx,
+        );
+        let current = e.start_operation(OperationKind::Video).unwrap();
+        e.video_export.progress = Some(0);
+        e.receive(Message::VideoProgress(old, 90), cx);
+        assert_eq!(e.video_export.progress, Some(0));
+        e.receive(Message::VideoProgress(current, 25), cx);
+        assert_eq!(e.video_export.progress, Some(25));
+        e.receive(
+            Message::Operation(current, OperationResult::VideoSaved(Ok(None))),
+            cx,
+        );
+        assert!(!e.is_busy());
+        assert_eq!(e.video_export.progress, None);
     })
     .unwrap();
 }

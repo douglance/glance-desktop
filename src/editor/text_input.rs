@@ -1,5 +1,7 @@
 //! Native text input and inline text painting for the editor.
-use super::*;
+use super::Editor;
+use super::state::Layout;
+use gpui::*;
 use std::ops::Range;
 impl EntityInputHandler for Editor {
     fn text_for_range(

@@ -1,16 +1,47 @@
-use super::*;
+use super::{Editor, preview_base, render_image};
+use super::{feedback::CopyFeedback, state::Gesture};
+use crate::{document::Document, glance};
+use gpui::*;
+use std::sync::Arc;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct OperationId(u64);
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum OperationKind {
+    Capture,
+    Open,
+    Paste,
+    Copy,
+    Save,
+    Upload,
+    Crop,
+    Transform,
+    Video,
+}
+pub(super) struct ActiveOperation {
+    pub(super) id: OperationId,
+    pub(super) kind: OperationKind,
+}
+#[derive(Default)]
+pub(super) struct OperationState {
+    pub(super) active: Option<ActiveOperation>,
+    next_id: u64,
+}
 pub(crate) enum Message {
     Magnify(f32, (f32, f32), bool),
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
+    Operation(OperationId, OperationResult),
+    VideoProgress(OperationId, u32),
+}
+pub(crate) enum OperationResult {
     Cropped(Document, Arc<RenderImage>),
     Image(Result<Option<image::RgbaImage>, String>),
-    VideoProgress(u32),
     VideoSaved(Result<Option<std::path::PathBuf>, String>),
     Saved(Result<Option<std::path::PathBuf>, String>),
     Copied(Result<(), String>),
     RemoteCopied(Result<glance::Share, String>),
     Transformed(Result<(Document, usize, Arc<RenderImage>), String>),
+    Failed(String),
 }
 impl Editor {
     pub(super) fn schedule_preview(&mut self) {
@@ -34,19 +65,37 @@ impl Editor {
         self.preview.revision += 1;
         self.schedule_preview();
     }
+    pub(super) fn is_busy(&self) -> bool {
+        self.operations.active.is_some() || self.preview.waiting
+    }
+    pub(super) fn start_operation(&mut self, kind: OperationKind) -> Option<OperationId> {
+        if self.is_busy() {
+            return None;
+        }
+        self.cancel_gesture();
+        self.operations.next_id += 1;
+        let id = OperationId(self.operations.next_id);
+        self.operations.active = Some(ActiveOperation { id, kind });
+        Some(id)
+    }
+    pub(super) fn spawn_operation(
+        &self,
+        id: OperationId,
+        work: impl FnOnce() -> OperationResult + Send + 'static,
+    ) {
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| {
+                    OperationResult::Failed("The operation stopped unexpectedly. Try again.".into())
+                });
+            let _ = sender.send_blocking(Message::Operation(id, result));
+        });
+    }
     pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
-        let failed = matches!(
-            &message,
-            Message::Image(Err(_))
-                | Message::VideoSaved(Err(_))
-                | Message::Saved(Err(_))
-                | Message::Copied(Err(_))
-                | Message::RemoteCopied(Err(_))
-                | Message::Transformed(Err(_))
-        );
         match message {
             Message::Magnify(delta, position, smart) => {
-                if self.busy || self.interaction.gesture.is_active() {
+                if self.is_busy() || self.interaction.gesture.is_active() {
                     return;
                 }
                 if smart {
@@ -68,28 +117,9 @@ impl Editor {
                     self.zoom_at(1. + delta, position, cx);
                 }
                 cx.notify();
-                return;
-            }
-            Message::Transformed(Ok((document, count, image))) => {
-                self.interaction.selected = None;
-                self.interaction.gesture = Gesture::Idle;
-                self.document = document;
-                self.preview.revision += 1;
-                self.preview
-                    .retired
-                    .push(std::mem::replace(&mut self.preview.image, image));
-                self.preview.mark_count = count;
-                self.viewport.zoom = None;
-                self.viewport.pan = (0., 0.);
-                self.busy = false;
-            }
-            Message::Transformed(Err(e)) => {
-                self.busy = false;
-                self.feedback.status = e;
             }
             Message::Hotkey(area) => {
                 self.capture(area, cx);
-                return;
             }
             Message::Preview(revision, count, image) => {
                 self.preview.rendering = false;
@@ -100,16 +130,62 @@ impl Editor {
                     self.preview.mark_count = count;
                     if self.preview.waiting {
                         self.preview.waiting = false;
-                        self.busy = false;
+
                         self.feedback.status = "Ready".into();
                     }
                 } else {
                     self.schedule_preview();
                 }
                 cx.notify();
-                return;
             }
-            Message::Cropped(document, image) => {
+            Message::VideoProgress(id, percent) => {
+                if self
+                    .operations
+                    .active
+                    .as_ref()
+                    .is_some_and(|op| op.id == id && op.kind == OperationKind::Video)
+                {
+                    self.video_export.progress = Some(percent);
+                    cx.notify();
+                }
+            }
+            Message::Operation(id, result) => {
+                if self.operations.active.as_ref().is_none_or(|op| op.id != id) {
+                    return;
+                }
+                self.operations.active = None;
+                self.receive_result(result, cx);
+            }
+        }
+    }
+    fn receive_result(&mut self, result: OperationResult, cx: &mut Context<Self>) {
+        let failed = matches!(
+            &result,
+            OperationResult::Failed(_)
+                | OperationResult::Image(Err(_))
+                | OperationResult::VideoSaved(Err(_))
+                | OperationResult::Saved(Err(_))
+                | OperationResult::Copied(Err(_))
+                | OperationResult::RemoteCopied(Err(_))
+                | OperationResult::Transformed(Err(_))
+        );
+        match result {
+            OperationResult::Transformed(Ok((document, count, image))) => {
+                self.interaction.selected = None;
+                self.interaction.gesture = Gesture::Idle;
+                self.document = document;
+                self.preview.revision += 1;
+                self.preview
+                    .retired
+                    .push(std::mem::replace(&mut self.preview.image, image));
+                self.preview.mark_count = count;
+                self.viewport.zoom = None;
+                self.viewport.pan = (0., 0.);
+            }
+            OperationResult::Transformed(Err(e)) => {
+                self.feedback.status = e;
+            }
+            OperationResult::Cropped(document, image) => {
                 let count = document.marks.len();
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
@@ -121,36 +197,26 @@ impl Editor {
                 self.preview.mark_count = count;
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);
-                self.busy = false;
                 self.feedback.status = "Cropped • ⌘Z to restore".into();
             }
-            Message::Image(Ok(Some(image))) => {
+            OperationResult::Image(Ok(Some(image))) => {
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
                 self.document = Document::new(image);
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);
-                self.interaction.gesture = Gesture::Idle;
                 self.preview.mark_count = usize::MAX;
                 self.preview.waiting = true;
                 self.changed();
                 self.feedback.status = "Preparing image…".into();
             }
-            Message::Image(Ok(None)) => {
-                self.busy = false;
+            OperationResult::Image(Ok(None)) => {
                 self.feedback.status = "Selection canceled".into();
             }
-            Message::Image(Err(e)) => {
-                self.busy = false;
+            OperationResult::Image(Err(e)) => {
                 self.feedback.status = e;
             }
-            Message::VideoProgress(percent) => {
-                self.video_export.progress = Some(percent);
-                cx.notify();
-                return;
-            }
-            Message::VideoSaved(result) => {
-                self.busy = false;
+            OperationResult::VideoSaved(result) => {
                 self.video_export.progress = None;
                 self.video_export.cancel = None;
                 self.feedback.status = match result {
@@ -162,24 +228,21 @@ impl Editor {
                     Err(e) => e,
                 };
             }
-            Message::Saved(result) => {
-                self.busy = false;
+            OperationResult::Saved(result) => {
                 self.feedback.status = match result {
                     Ok(Some(path)) => format!("Saved {}", path.display()),
                     Ok(None) => "Save canceled".into(),
                     Err(e) => e,
                 };
             }
-            Message::Copied(result) => {
-                self.busy = false;
+            OperationResult::Copied(result) => {
                 self.set_copy_feedback(result.is_ok().then_some(CopyFeedback::Copied), cx);
                 self.feedback.status = match result {
                     Ok(()) => "Copied image to clipboard".into(),
                     Err(e) => e,
                 };
             }
-            Message::RemoteCopied(result) => {
-                self.busy = false;
+            OperationResult::RemoteCopied(result) => {
                 self.feedback.status = match result {
                     Ok(share) => {
                         cx.write_to_clipboard(ClipboardItem::new_string(format!(
@@ -201,6 +264,12 @@ impl Editor {
                         e
                     }
                 };
+            }
+            OperationResult::Failed(error) => {
+                self.feedback.status = error;
+                self.set_copy_feedback(None, cx);
+                self.video_export.progress = None;
+                self.video_export.cancel = None;
             }
         }
         cx.activate(true);

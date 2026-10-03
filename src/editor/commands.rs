@@ -1,4 +1,19 @@
-use super::*;
+use super::{Editor, preview_base, render_image};
+use super::{
+    feedback::CopyFeedback,
+    jobs::{Message, OperationKind, OperationResult},
+};
+use crate::{
+    animation::Motion,
+    backdrop::Backdrop,
+    document::{Mark, Tool},
+    glance, platform, video,
+};
+use gpui::Context;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 impl Editor {
     pub(super) fn commit_text(&mut self, cx: &mut Context<Self>) {
         if let Some(edit) = self.interaction.text_edit.take() {
@@ -16,46 +31,52 @@ impl Editor {
         }
     }
     pub(super) fn capture(&mut self, area: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
+        let Some(id) = self.start_operation(OperationKind::Capture) else {
+            return;
+        };
         if let Err(error) = platform::screen_capture_permission() {
-            self.receive(Message::Image(Err(error)), cx);
+            self.receive(
+                Message::Operation(id, OperationResult::Image(Err(error))),
+                cx,
+            );
             return;
         }
         self.commit_text(cx);
-        self.interaction.gesture = Gesture::Idle;
-        self.busy = true;
+        self.cancel_gesture();
         self.feedback.status = "Capturing… Escape cancels area selection".into();
         cx.hide();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let _ = sender.send_blocking(Message::Image(platform::capture(area)));
-        });
+        self.spawn_operation(id, move || OperationResult::Image(platform::capture(area)));
         cx.notify();
     }
     pub(super) fn open(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.busy = true;
+        let Some(id) = self.start_operation(OperationKind::Open) else {
+            return;
+        };
         self.feedback.status = "Choose a PNG or JPEG…".into();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let _ = sender.send_blocking(Message::Image(platform::open()));
-        });
+        self.spawn_operation(id, move || OperationResult::Image(platform::open()));
         cx.notify();
     }
     pub(super) fn export(&mut self, save: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.busy = true;
+        let Some(id) = self.start_operation(if save {
+            OperationKind::Save
+        } else {
+            OperationKind::Copy
+        }) else {
+            return;
+        };
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
-        let sender = self.sender.clone();
         self.feedback.status = if save {
             "Choose where to save…"
         } else {
@@ -65,42 +86,41 @@ impl Editor {
         if !save {
             self.set_copy_feedback(Some(CopyFeedback::Copying), cx);
         }
-        std::thread::spawn(move || {
+        self.spawn_operation(id, move || {
             let image = document.export_at(phase);
-            let message = if save {
-                Message::Saved(platform::save(image))
+            if save {
+                OperationResult::Saved(platform::save(image))
             } else {
-                Message::Copied(platform::copy(image))
-            };
-            let _ = sender.send_blocking(message);
+                OperationResult::Copied(platform::copy(image))
+            }
         });
         cx.notify();
     }
     pub(super) fn copy_remote(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.busy = true;
+        let Some(id) = self.start_operation(OperationKind::Upload) else {
+            return;
+        };
         self.feedback.status = "Uploading screenshot to Glance…".into();
         self.set_copy_feedback(Some(CopyFeedback::Uploading), cx);
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
+        self.spawn_operation(id, move || {
             let result = glance::upload(document.export_at(phase));
-            let _ = sender.send_blocking(Message::RemoteCopied(result));
+            OperationResult::RemoteCopied(result)
         });
         cx.notify();
     }
     pub(super) fn history(&mut self, redo: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.interaction.gesture = Gesture::Idle;
+        self.cancel_gesture();
         self.interaction.selected = None;
-        self.interaction.gesture = Gesture::Idle;
         if redo {
             self.document.redo();
         } else {
@@ -108,7 +128,6 @@ impl Editor {
         }
         self.preview.mark_count = usize::MAX;
         self.preview.waiting = true;
-        self.busy = true;
         self.feedback.status = "Updating image…".into();
         self.changed();
         cx.notify();
@@ -118,7 +137,6 @@ impl Editor {
         self.cancel_gesture();
         self.interaction.selected = None;
         self.interaction.tool = tool;
-        self.interaction.gesture = Gesture::Idle;
         cx.notify();
     }
     pub(super) fn cancel_gesture(&mut self) {
@@ -128,7 +146,7 @@ impl Editor {
         }
     }
     pub(super) fn duplicate_selected(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.cancel_gesture();
@@ -142,7 +160,7 @@ impl Editor {
         }
     }
     pub(super) fn apply_style(&mut self, color: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.cancel_gesture();
@@ -164,7 +182,7 @@ impl Editor {
         cx.notify();
     }
     pub(super) fn delete_selected(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.cancel_gesture();
@@ -172,17 +190,16 @@ impl Editor {
             self.document.delete_mark(index);
             self.preview.mark_count = usize::MAX;
             self.preview.waiting = true;
-            self.busy = true;
             self.changed();
             cx.notify();
         }
     }
     pub(super) fn toggle_backdrop(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.interaction.gesture = Gesture::Idle;
+        self.cancel_gesture();
         self.panels.backdrop = !self.panels.backdrop;
         if self.panels.backdrop {
             self.panels.enhance = false;
@@ -199,7 +216,7 @@ impl Editor {
         change: impl FnOnce(&mut Backdrop),
         cx: &mut Context<Self>,
     ) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         if let Some(mut b) = self.document.backdrop {
@@ -234,17 +251,18 @@ impl Editor {
         cx.notify();
     }
     pub(super) fn resize_image(&mut self, rotate: bool, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.interaction.gesture = Gesture::Idle;
-        self.busy = true;
+        self.cancel_gesture();
+        let Some(id) = self.start_operation(OperationKind::Transform) else {
+            return;
+        };
         let mut document = self.document.clone();
         let scale = self.panels.resize_scale;
         let smart = self.panels.resize_smart;
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
+        self.spawn_operation(id, move || {
             let result = if rotate {
                 document.rotate();
                 Ok(())
@@ -256,20 +274,20 @@ impl Editor {
                 let preview = render_image(preview_base(&document));
                 (document, count, preview)
             });
-            let _ = sender.send_blocking(Message::Transformed(result));
+            OperationResult::Transformed(result)
         });
         cx.notify();
     }
     pub(super) fn paste_image(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
-        self.busy = true;
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let _ =
-                sender.send_blocking(Message::Image(crate::platform::clipboard_image().map(Some)));
+        let Some(id) = self.start_operation(OperationKind::Paste) else {
+            return;
+        };
+        self.spawn_operation(id, move || {
+            OperationResult::Image(crate::platform::clipboard_image().map(Some))
         });
         cx.notify();
     }
@@ -300,12 +318,11 @@ impl Editor {
         }
     }
     pub(super) fn export_video(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.commit_text(cx);
         self.cancel_gesture();
-        self.interaction.gesture = Gesture::Idle;
         if !self
             .document
             .backdrop
@@ -328,21 +345,49 @@ impl Editor {
         let cancel = Arc::new(AtomicBool::new(false));
         self.video_export.cancel = Some(cancel.clone());
         self.video_export.progress = Some(0);
-        self.busy = true;
+        let Some(id) = self.start_operation(OperationKind::Video) else {
+            return;
+        };
         self.panels.backdrop = true;
         let sender = self.sender.clone();
         cx.notify();
-        std::thread::spawn(move || {
+        self.spawn_operation(id, move || {
             let result = crate::platform::video_destination().and_then(|path| {
                 let Some(path) = path else {
                     return Ok(None);
                 };
                 video::encode(&document, &path, phase, &cancel, |percent| {
-                    let _ = sender.try_send(Message::VideoProgress(percent));
+                    let _ = sender.try_send(Message::VideoProgress(id, percent));
                 })
                 .map(|finished| finished.then_some(path))
             });
-            let _ = sender.send_blocking(Message::VideoSaved(result));
+            OperationResult::VideoSaved(result)
         });
+    }
+    pub(super) fn open_path(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        if self.is_busy() {
+            return;
+        }
+        self.commit_text(cx);
+        let Some(id) = self.start_operation(OperationKind::Open) else {
+            return;
+        };
+        self.spawn_operation(id, move || {
+            OperationResult::Image(platform::load(&path).map(Some))
+        });
+        cx.notify();
+    }
+    pub(super) fn crop(&mut self, mark: Mark, cx: &mut Context<Self>) {
+        let Some(id) = self.start_operation(OperationKind::Crop) else {
+            return;
+        };
+        self.feedback.status = "Cropping…".into();
+        let mut document = self.document.clone();
+        self.spawn_operation(id, move || {
+            document.commit(mark);
+            let image = render_image(preview_base(&document));
+            OperationResult::Cropped(document, image)
+        });
+        cx.notify();
     }
 }

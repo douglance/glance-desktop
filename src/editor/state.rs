@@ -1,5 +1,13 @@
 //! State owned by the editor, grouped by responsibility.
-use super::*;
+use super::feedback::CopyFeedback;
+use crate::{
+    arrow,
+    backdrop::Control,
+    document::{Mark, Tool},
+    navigation, text,
+};
+use gpui::{Bounds, Pixels, Point, RenderImage, Task};
+use std::{cell::Cell, rc::Rc, sync::Arc};
 #[derive(Clone, Copy, Default)]
 pub(crate) struct Layout {
     pub(crate) x: f32,

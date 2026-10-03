@@ -1,4 +1,7 @@
-use super::*;
+use super::Editor;
+use super::feedback::CopyFeedback;
+use crate::{document::Tool, menus};
+use gpui::{prelude::*, *};
 pub(super) struct HoverLabel(pub(super) SharedString);
 impl Render for HoverLabel {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {

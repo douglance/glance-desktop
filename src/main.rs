@@ -20,7 +20,7 @@ mod video;
 actions!(pachiri, [Quit]);
 mod editor;
 use editor::Editor;
-pub(crate) use editor::{Layout, Message, render_image};
+pub(crate) use editor::{Layout, Message};
 use gpui::*;
 fn main() {
     let application = Application::new().with_assets(icons::Icons);

@@ -1,4 +1,6 @@
-use super::super::*;
+use super::super::Editor;
+use super::super::view::{HoverLabel, icon};
+use gpui::{prelude::*, *};
 impl Editor {
     pub(in crate::editor) fn enhance_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let target =
@@ -139,7 +141,7 @@ impl Editor {
                     }),
             )
             .child(self.button(
-                if self.busy {
+                if self.is_busy() {
                     "Working…"
                 } else {
                     "Apply resize"

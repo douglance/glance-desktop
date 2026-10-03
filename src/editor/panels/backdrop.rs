@@ -1,4 +1,14 @@
-use super::super::*;
+use super::super::Editor;
+use super::super::{
+    state::Gesture,
+    view::{HoverLabel, icon},
+};
+use crate::{
+    animation::Motion,
+    backdrop::{Backdrop, Control, PRESETS},
+};
+use gpui::{prelude::*, *};
+use std::{cell::Cell, rc::Rc};
 impl Editor {
     pub(in crate::editor) fn backdrop_slider(
         &self,
@@ -38,7 +48,7 @@ impl Editor {
                         MouseButton::Left,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                             cx.stop_propagation();
-                            if this.busy {
+                            if this.is_busy() {
                                 return;
                             }
                             this.commit_text(cx);
@@ -329,7 +339,7 @@ impl Editor {
             })
             .child(div().flex_1())
             .child(self.button("Remove backdrop", false, cx, |this, cx| {
-                if this.busy {
+                if this.is_busy() {
                     return;
                 }
                 if this.document.backdrop.is_some() {

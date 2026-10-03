@@ -165,3 +165,22 @@ The toolbar uses embedded Lucide SVGs with hover labels and keyboard shortcuts.
 GPUI caches the SVG rendering; the app requires no network connection for icons.
 Upstream version and license are in `assets/lucide/SOURCE` and
 `assets/lucide/LICENSE`. The license is also included in the app bundle.
+
+## Editor architecture
+
+`main.rs` only launches the app and opens its window. The GPUI editor lives in
+`src/editor/`: `mod.rs` constructs the entity, `state.rs` groups its state,
+`commands.rs` owns edits and external actions, and `input.rs` translates pointer
+and keyboard events into those actions. `view.rs`, `canvas.rs`, and `panels/`
+build and paint the interface. `text_input.rs` implements native text input;
+`text.rs` owns the Unicode buffer and text history independently of the editor.
+
+One `Gesture` enum represents the active pointer interaction. `jobs.rs` owns
+worker dispatch and completion: each external operation has an ID, and stale
+results or video progress cannot affect a newer operation. Preview rendering
+has its own revision checks and remains independent of external operations.
+`feedback.rs` owns transient copy confirmations.
+
+The document, geometry, compositors, macOS integration, Glance protocol, and
+video encoder remain separate modules. Interaction tests use GPUI's virtual
+platform in `src/editor/tests.rs`, without controlling the user's desktop.

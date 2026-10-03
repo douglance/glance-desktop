@@ -1,39 +1,33 @@
-mod state;
-mod text_input;
-pub(crate) use jobs::Message;
-pub(crate) use state::Layout;
-use state::*;
+//! GPUI editor entity: state ownership and application integration.
 mod canvas;
 mod commands;
 mod feedback;
 mod input;
 mod jobs;
 mod panels;
+mod state;
 #[cfg(test)]
 mod tests;
+mod text_input;
 mod view;
-use crate::animation::Motion;
-use crate::backdrop::{Backdrop, Control, PRESETS};
-use crate::document::{Document, Mark, Tool};
+
 use crate::{
-    animation, arrow, backdrop, document, drawing, gestures, glance, menus, navigation, platform,
-    text, video,
+    document::{self, Document, Tool},
+    gestures,
 };
-use feedback::CopyFeedback;
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{Code, HotKey, Modifiers},
 };
-use gpui::{prelude::*, *};
-use std::{
-    cell::Cell,
-    rc::Rc,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+use gpui::*;
+pub(crate) use jobs::Message;
+use jobs::OperationState;
+pub(crate) use state::Layout;
+use state::{
+    FeedbackState, Gesture, InteractionState, PanelState, PlaybackState, PreviewState,
+    VideoExportState, ViewportState,
 };
-use view::{HoverLabel, icon};
+use std::{cell::Cell, rc::Rc, sync::Arc};
 pub(crate) struct Editor {
     document: Document,
     interaction: InteractionState,
@@ -45,7 +39,7 @@ pub(crate) struct Editor {
     feedback: FeedbackState,
     _gestures: Option<gestures::Monitor>,
     pub(crate) focus: FocusHandle,
-    busy: bool,
+    operations: OperationState,
     sender: async_channel::Sender<Message>,
     _hotkeys: Option<GlobalHotKeyManager>,
 }
@@ -172,7 +166,7 @@ impl Editor {
             },
             _gestures: gestures,
             focus: cx.focus_handle(),
-            busy: false,
+            operations: OperationState::default(),
             sender,
             _hotkeys: hotkeys,
         }

@@ -2,7 +2,8 @@
 use crate::{
     Layout,
     document::{Document, Mark, Tool},
-    drawing, render_image,
+    drawing,
+    editor::render_image,
 };
 use image::{Rgba, RgbaImage};
 use std::time::Instant;

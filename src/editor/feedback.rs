@@ -1,4 +1,6 @@
-use super::*;
+use super::Editor;
+use super::view::icon;
+use gpui::{prelude::*, *};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum CopyFeedback {
     Copying,

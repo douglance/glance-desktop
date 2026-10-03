@@ -1,4 +1,12 @@
-use super::*;
+use super::Editor;
+use super::state::{AnnotationDrag, Gesture};
+use crate::{
+    arrow,
+    backdrop::Control,
+    document::{Mark, Tool},
+    navigation, text,
+};
+use gpui::*;
 impl Editor {
     pub(super) fn outside_text(&mut self, e: &MouseDownEvent, cx: &mut Context<Self>) {
         let layout = self.viewport.layout.get();
@@ -35,7 +43,7 @@ impl Editor {
         cx: &mut Context<Self>,
     ) {
         self.focus.focus(window);
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         if self.viewport.space_down {
@@ -233,15 +241,7 @@ impl Editor {
                     mark.points.push(end);
                 }
                 if mark.tool == Tool::Crop {
-                    self.busy = true;
-                    self.feedback.status = "Cropping…".into();
-                    let mut document = self.document.clone();
-                    let sender = self.sender.clone();
-                    std::thread::spawn(move || {
-                        document.commit(mark);
-                        let image = render_image(preview_base(&document));
-                        let _ = sender.send_blocking(Message::Cropped(document, image));
-                    });
+                    self.crop(mark, cx);
                 } else {
                     self.document.commit(mark);
                     self.interaction.selected = self.document.marks.len().checked_sub(1);
@@ -288,7 +288,7 @@ impl Editor {
         self.changed();
     }
     pub(super) fn begin_pan(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
-        if self.busy {
+        if self.is_busy() {
             return;
         }
         self.cancel_gesture();
@@ -404,7 +404,7 @@ impl Editor {
             }
             if matches!(key, "left" | "right" | "up" | "down")
                 && self.interaction.selected.is_some()
-                && !self.busy
+                && !self.is_busy()
             {
                 self.cancel_gesture();
                 if let Some(index) = self.interaction.selected {

@@ -1,4 +1,11 @@
-use super::*;
+use super::state::Layout;
+use super::{Editor, text_input};
+use crate::{
+    animation, arrow, backdrop,
+    document::{Mark, Tool},
+    drawing,
+};
+use gpui::{prelude::*, *};
 impl Editor {
     pub(super) fn canvas(
         &mut self,
@@ -45,7 +52,7 @@ impl Editor {
         let animation_phase = self.animation_phase();
         if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
             && !self.playback.paused
-            && !self.busy
+            && !self.is_busy()
             && window.is_window_active()
         {
             window.request_animation_frame();
@@ -57,20 +64,8 @@ impl Editor {
             .relative()
             .on_scroll_wheel(cx.listener(|this, e, _, cx| this.scroll(e, cx)))
             .on_drop(cx.listener(|this, files: &ExternalPaths, _, cx| {
-                if this.busy {
-                    return;
-                }
                 if let Some(path) = files.paths().first() {
-                    let path = path.clone();
-                    this.commit_text(cx);
-                    this.cancel_gesture();
-                    this.busy = true;
-                    let sender = this.sender.clone();
-                    std::thread::spawn(move || {
-                        let _ =
-                            sender.send_blocking(Message::Image(platform::load(&path).map(Some)));
-                    });
-                    cx.notify();
+                    this.open_path(path.clone(), cx);
                 }
             }))
             .flex()
