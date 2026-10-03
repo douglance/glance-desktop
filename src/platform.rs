@@ -109,15 +109,9 @@ pub fn open() -> Result<Option<RgbaImage>, String> {
     }
 }
 pub fn save(image: RgbaImage) -> Result<Option<PathBuf>, String> {
-    let Some(mut path) = dialog(
-        "POSIX path of (choose file name with prompt \"Save annotated screenshot\" default name \"Pachiri.png\")",
-    )?
-    else {
+    let Some(path) = export_destination(ExportFormat::Png)? else {
         return Ok(None);
     };
-    if path.extension().is_none() {
-        path.set_extension("png");
-    }
     image
         .save_with_format(&path, image::ImageFormat::Png)
         .map_err(|e| e.to_string())?;
@@ -153,16 +147,50 @@ pub fn clipboard_image() -> Result<RgbaImage, String> {
     .ok_or_else(|| "Invalid clipboard image.".into())
 }
 
-pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
-    let extension = if gif { "gif" } else { "mp4" };
+enum ExportFormat {
+    Png,
+    Gif,
+    Mp4,
+}
+
+fn export_destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
+    let (prompt, name, extension, folder) = match format {
+        ExportFormat::Png => ("Save annotated screenshot", "Screenshot", "png", "pictures"),
+        ExportFormat::Gif => (
+            "Export animated backdrop GIF",
+            "Animated Screenshot",
+            "gif",
+            "pictures",
+        ),
+        ExportFormat::Mp4 => (
+            "Export animated backdrop video",
+            "Animated Screenshot",
+            "mp4",
+            "movies",
+        ),
+    };
+    // Use local time and filename-safe separators, like macOS screenshots.
+    // All interpolated values are constants, never user-provided filenames.
     let script = format!(
-        "POSIX path of (choose file name with prompt \"Save animated backdrop\" default name \"Pachiri.{extension}\")"
+        r#"set timestamp to do shell script "/bin/date '+%Y-%m-%d at %H.%M.%S'"
+set exportName to "{name} " & timestamp & ".{extension}"
+POSIX path of (choose file name with prompt "{prompt}" default name exportName default location (path to {folder} folder))"#
     );
     let Some(mut path) = dialog(&script)? else {
         return Ok(None);
     };
-    path.set_extension(extension);
+    if !matches!(format, ExportFormat::Png) || path.extension().is_none() {
+        path.set_extension(extension);
+    }
     Ok(Some(path))
+}
+
+pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
+    export_destination(if gif {
+        ExportFormat::Gif
+    } else {
+        ExportFormat::Mp4
+    })
 }
 #[cfg(test)]
 mod tests {

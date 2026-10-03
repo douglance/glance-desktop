@@ -97,6 +97,10 @@ no certificate or Keychain trust is installed automatically. See Apple's
   in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
   Copy shows a brief **Copied!** confirmation and a checkmark on its button.
+  Save dialogs suggest `Screenshot YYYY-MM-DD at HH.MM.SS.png` in **Pictures**.
+  Animated exports suggest `Animated Screenshot YYYY-MM-DD at HH.MM.SS` with
+  `.gif` in **Pictures** or `.mp4` in **Movies**. The timestamp is the local
+  export time; you can change the name and folder before saving.
 - **Copy (remote) · ⌘⇧C** (cloud-upload icon) uploads the composed PNG (including annotations and
   backdrop) to [Glance](https://glance.sh) and copies `Screenshot: <url>`.
   An **Uploading…** indicator stays visible until completion, then **Link copied!**
