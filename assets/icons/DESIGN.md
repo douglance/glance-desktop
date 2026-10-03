@@ -9,6 +9,9 @@ physical pixels), filtering premultiplied colors to preserve clean alpha edges.
 `scripts/bundle.sh` packages them into `Pachiri.icns` for Dock, Finder, Spotlight
 and the app switcher.
 
+The bundled ICNS filename includes the generated artwork's hash, so a changed
+design gets a fresh resource name instead of reusing macOS's previous icon cache.
+
 Generated using the built-in image_gen tool on 2026-10-03.
 
 ## Generation prompt
