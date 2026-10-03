@@ -1,6 +1,6 @@
 use gpui::*;
 actions!(
-    pachiri,
+    glance,
     [
         Open,
         Save,
@@ -46,17 +46,17 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-shift-z", Redo, None),
         KeyBinding::new("backspace", Delete, None),
         KeyBinding::new("cmd-d", Duplicate, None),
-        KeyBinding::new("v", Select, Some("PachiriCanvas")),
-        KeyBinding::new("p", Pen, Some("PachiriCanvas")),
-        KeyBinding::new("a", Arrow, Some("PachiriCanvas")),
-        KeyBinding::new("r", Rectangle, Some("PachiriCanvas")),
-        KeyBinding::new("t", Text, Some("PachiriCanvas")),
-        KeyBinding::new("h", Highlight, Some("PachiriCanvas")),
-        KeyBinding::new("b", Pixelate, Some("PachiriCanvas")),
-        KeyBinding::new("x", Crop, Some("PachiriCanvas")),
-        KeyBinding::new("n", Counter, Some("PachiriCanvas")),
-        KeyBinding::new("s", Spotlight, Some("PachiriCanvas")),
-        KeyBinding::new("m", Magnifier, Some("PachiriCanvas")),
+        KeyBinding::new("v", Select, Some("GlanceCanvas")),
+        KeyBinding::new("p", Pen, Some("GlanceCanvas")),
+        KeyBinding::new("a", Arrow, Some("GlanceCanvas")),
+        KeyBinding::new("r", Rectangle, Some("GlanceCanvas")),
+        KeyBinding::new("t", Text, Some("GlanceCanvas")),
+        KeyBinding::new("h", Highlight, Some("GlanceCanvas")),
+        KeyBinding::new("b", Pixelate, Some("GlanceCanvas")),
+        KeyBinding::new("x", Crop, Some("GlanceCanvas")),
+        KeyBinding::new("n", Counter, Some("GlanceCanvas")),
+        KeyBinding::new("s", Spotlight, Some("GlanceCanvas")),
+        KeyBinding::new("m", Magnifier, Some("GlanceCanvas")),
         KeyBinding::new("cmd-alt-2", CaptureArea, None),
         KeyBinding::new("cmd-alt-3", CaptureScreen, None),
         KeyBinding::new("cmd-1", Fit, None),
@@ -66,8 +66,8 @@ pub fn install(cx: &mut App) {
     ]);
     cx.set_menus(vec![
         Menu {
-            name: "Pachiri".into(),
-            items: vec![MenuItem::action("Quit Pachiri", crate::Quit)],
+            name: "Glance".into(),
+            items: vec![MenuItem::action("Quit Glance", crate::Quit)],
         },
         Menu {
             name: "File".into(),
@@ -126,7 +126,7 @@ pub fn install(cx: &mut App) {
         },
         Menu {
             name: "Help".into(),
-            items: vec![MenuItem::action("Pachiri Help", Help)],
+            items: vec![MenuItem::action("Glance Help", Help)],
         },
     ]);
 }

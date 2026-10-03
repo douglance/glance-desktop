@@ -1,4 +1,4 @@
-# Pachiri proof of concept
+# Glance proof of concept
 
 Reference: https://shottr.cc/ and the supplied toolbar/editor screenshot.
 Shottr combines global capture shortcuts with immediate markup and export. Its

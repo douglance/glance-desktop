@@ -222,7 +222,7 @@ mod tests {
         ));
         d.commit(mark());
         let image = d.export();
-        if let Ok(path) = std::env::var("PACHIRI_QA_IMAGE") {
+        if let Ok(path) = std::env::var("GLANCE_QA_IMAGE") {
             image.save(path).unwrap();
         }
         assert_eq!(image.get_pixel(100, 40).0, [255, 40, 100, 255]);

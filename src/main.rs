@@ -25,7 +25,7 @@ mod selection;
 mod stress_tests;
 mod text;
 mod video;
-actions!(pachiri, [Quit]);
+actions!(glance, [Quit]);
 use document::{Document, Mark, Tool};
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
@@ -193,7 +193,7 @@ impl Editor {
             && std::env::args().any(|arg| arg == "--automation")
             && let Err(error) = automation::listen(sender.clone())
         {
-            eprintln!("Pachiri automation: {error}");
+            eprintln!("Glance automation: {error}");
         }
         let hotkey_sender = sender.clone();
         if native {
@@ -481,7 +481,7 @@ impl Editor {
             if let Ok(answer) = window.update(cx, |_, window, cx| {
                 window.prompt(
                     PromptLevel::Critical,
-                    "Pachiri couldn’t complete the operation",
+                    "Glance couldn’t complete the operation",
                     Some(&detail),
                     &["OK"],
                     cx,
@@ -1467,9 +1467,9 @@ impl Render for Editor {
             .font_family(".AppleSystemUIFont")
             .track_focus(&self.focus)
             .key_context(if self.text_edit.is_some() {
-                "PachiriText"
+                "GlanceText"
             } else {
-                "PachiriCanvas"
+                "GlanceCanvas"
             })
             .on_action(
                 cx.listener(|this, _: &menus::Open, window, cx| this.menu_key("cmd-o", window, cx)),
@@ -1591,7 +1591,7 @@ impl Render for Editor {
                             .font_weight(FontWeight::BOLD)
                             .text_color(rgb(0xf35d45))
                             .mr_2()
-                            .child("pachiri"),
+                            .child("glance"),
                     )
                     .child(
                         self.compact_button("Area · ⌘⌥2", "scan", false, cx, |this, cx| {
@@ -2033,7 +2033,7 @@ impl Render for Editor {
 fn main() {
     if std::env::args().any(|arg| arg == "--mcp") {
         if let Err(error) = mcp::run() {
-            eprintln!("Pachiri MCP: {error}");
+            eprintln!("Glance MCP: {error}");
             std::process::exit(1);
         }
         return;
@@ -2050,7 +2050,7 @@ fn main() {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(1050.), px(600.))),
                 titlebar: Some(TitlebarOptions {
-                    title: Some("Pachiri".into()),
+                    title: Some("Glance".into()),
                     ..Default::default()
                 }),
                 ..Default::default()

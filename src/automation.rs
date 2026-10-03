@@ -31,7 +31,7 @@ pub enum Request {
 }
 pub fn directory() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or("HOME is unavailable")?;
-    let dir = PathBuf::from(home).join("Library/Caches/dev.benv.pachiri/automation");
+    let dir = PathBuf::from(home).join("Library/Caches/sh.glance.desktop/automation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
         .map_err(|e| e.to_string())?;
@@ -198,7 +198,7 @@ fn serve(stream: &mut UnixStream, sender: &async_channel::Sender<Message>) {
 }
 pub fn call(name: &str, args: Value) -> Result<Value, String> {
     let mut stream = UnixStream::connect(socket()?).map_err(|_| {
-        "Native editor unavailable. Launch Pachiri with --automation, then call open_editor."
+        "Native editor unavailable. Launch Glance with --automation, then call open_editor."
             .to_string()
     })?;
     stream

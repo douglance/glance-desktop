@@ -1,7 +1,9 @@
-# Pachiri
+# Glance
 
-A native macOS screenshot and annotation proof of concept written in Rust with
-GPUI. Metal shaders compile at runtime, so full Xcode is not required. Inspired by Shottr's fast capture → markup → copy workflow.
+Glance is the native macOS desktop companion to [glance.sh](https://glance.sh):
+capture your screen, annotate it, and share a temporary image link with a remote
+coding agent. Written in Rust with GPUI. Metal shaders compile at runtime, so
+full Xcode is not required.
 
 ## Run
 
@@ -17,41 +19,55 @@ Build a locally signed app bundle:
 
 ```sh
 ./scripts/bundle.sh
-open target/Pachiri.app
+open target/Glance.app
 ```
 
 To launch through Spotlight or Raycast, link the bundle into Applications:
 
 ```sh
-ln -s "$(pwd)/target/Pachiri.app" /Applications/Pachiri.app
+ln -s "$(pwd)/target/Glance.app" /Applications/Glance.app
 ```
 
 Rebuilding updates the linked app. Save or copy your current image before
 quitting and relaunching to use a new build.
 
+When upgrading from Pachiri, replace the old Applications shortcut with
+`/Applications/Glance.app`. Glance uses the new bundle identity
+`sh.glance.desktop`, so grant Screen Recording to Glance once after the rename.
+The bundle build migrates existing local signing files into Glance's Signing
+directory and reuses the certificate; its original common name may still show
+the former app name. New certificates are named Glance Local Development.
+
 Use the packaged app consistently so macOS can associate screen-recording
-permission with `dev.benv.pachiri`. On first capture, grant access in **System
+permission with `sh.glance.desktop`. On first capture, grant access in **System
 Settings → Privacy & Security → Screen & System Audio Recording**, then relaunch.
-This local bundle uses an ad-hoc signature; distribution signing/notarization is
-not configured.
+Local builds use a persistent development certificate, kept in
+`~/Library/Application Support/Glance/Signing`. The first build prepares it;
+run `./scripts/trust-local-signing.sh` once to trust it for code signing, then
+repeat the bundle build. That setup changes user certificate trust for code
+signing only. Distribution signing/notarization is not configured.
 
 ### Screen Recording enabled but capture fails
 
-Ad-hoc signing gives each changed executable a different designated requirement.
-macOS may display the old grant as enabled while rejecting the rebuilt app.
-Quit Pachiri, remove its entry from **Screen & System Audio Recording** with **−**,
-add `/Applications/Pachiri.app` again with **+**, enable it and reopen. Re-grant
-only after the final rebuild; another changed ad-hoc build may require it again.
+Earlier ad-hoc builds gave each changed executable a different designated
+requirement. macOS may display the old grant as enabled while rejecting the
+rebuilt app.
+Quit Glance, remove its entry from **Screen & System Audio Recording** with **−**,
+add `/Applications/Glance.app` again with **+**, enable it and reopen. Re-grant
+once after switching to the persistent signing identity. Subsequent builds use
+the same certificate and requirement. Keep the Signing directory when cleaning
+`target/` or moving the checkout; replacing the certificate changes the identity.
 The app now checks permission before hiding and preserves other capture errors.
 
 For development with a stable code-signing certificate already in your Keychain:
 
 ```sh
-PACHIRI_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
+GLANCE_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
 ```
 
-Use the same certificate for subsequent builds. The default remains ad-hoc;
-no certificate or Keychain trust is installed automatically. See Apple's
+Use the same certificate for subsequent builds. Set the identity to `-` only
+when explicitly testing ad-hoc signing; that mode can invalidate grants again.
+See Apple's
 [code-signing requirement explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
 
 ## Workflow
@@ -110,8 +126,8 @@ no certificate or Keychain trust is installed automatically. See Apple's
   and private Blob storage, require internet, and are limited to 15 MB and
   30 uploads/hour per IP. Failed uploads preserve your clipboard. This shares
   a link; it does not automatically push into an agent’s live session.
-  Glance API requests identify the app with `X-Glance-Client: pachiri` and
-  `X-Glance-Client-Version: <app version>`, alongside `User-Agent: Pachiri/<app version>`.
+  Glance API requests identify the app with `X-Glance-Client: glance-desktop` and
+  `X-Glance-Client-Version: <app version>`, alongside `User-Agent: Glance/<app version>`.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
   Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
   scroll** zooms; **Shift + wheel** pans horizontally. Hold **Space** and drag
@@ -172,7 +188,7 @@ Upstream version and license are in `assets/lucide/SOURCE` and
 
 ### Local MCP companion
 
-Pachiri can expose its native editor to ChatGPT and local MCP clients: import images, edit selectable objects, crop/resize, set animated backdrops, return PNG previews, export MP4, and decode video frames. Start the editor with `--automation` and the stdio server with `--mcp`. See [setup, tools, and ChatGPT tunnel instructions](mcp/README.md).
+Glance can expose its native editor to ChatGPT and local MCP clients: import images, edit selectable objects, crop/resize, set animated backdrops, return PNG previews, export MP4, and decode video frames. Start the editor with `--automation` and the stdio server with `--mcp`. See [setup, tools, and ChatGPT tunnel instructions](mcp/README.md).
 
 ### Spotlight, magnifier, and GIF loops
 

@@ -8,7 +8,7 @@ func fail(_ message: String) -> Never {
 }
 guard CommandLine.arguments.count == 4,
       let seconds = Double(CommandLine.arguments[2]), seconds.isFinite, seconds >= 0 else {
-    fail("Usage: pachiri-video-frame input.mp4 seconds output.png")
+    fail("Usage: glance-video-frame input.mp4 seconds output.png")
 }
 let asset = AVURLAsset(url: URL(fileURLWithPath: CommandLine.arguments[1]))
 let duration = CMTimeGetSeconds(asset.duration)

@@ -2154,6 +2154,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "glance"
+version = "0.1.0"
+dependencies = [
+ "ab_glyph",
+ "aes-gcm",
+ "arboard",
+ "async-channel 2.5.0",
+ "base64 0.22.1",
+ "block",
+ "cocoa 0.26.0",
+ "color_quant",
+ "gif",
+ "global-hotkey",
+ "gpui",
+ "hkdf",
+ "image",
+ "imageproc",
+ "lyon",
+ "objc",
+ "rand 0.8.8",
+ "reqwest",
+ "resvg",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "smallvec",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "glob"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3941,35 +3971,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36820e9051aca1014ddc75770aab4d68bc1e9e632f0f5627c4086bc216fb583b"
 dependencies = [
  "ttf-parser 0.25.1",
-]
-
-[[package]]
-name = "pachiri"
-version = "0.1.0"
-dependencies = [
- "ab_glyph",
- "aes-gcm",
- "arboard",
- "async-channel 2.5.0",
- "base64 0.22.1",
- "block",
- "cocoa 0.26.0",
- "color_quant",
- "gif",
- "global-hotkey",
- "gpui",
- "hkdf",
- "image",
- "imageproc",
- "lyon",
- "objc",
- "rand 0.8.8",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "smallvec",
- "unicode-segmentation",
 ]
 
 [[package]]

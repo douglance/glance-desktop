@@ -3,7 +3,7 @@
 ## Result
 
 61 automated tests pass (5 opt-in tests ignored). Native desktop testing remains blocked: computer-use
-access to Pachiri was denied. These results cover a virtual GPUI window and
+access to the former desktop app was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
 ## Bugs found and fixed
@@ -139,7 +139,7 @@ The benchmark measures CPU preparation, not input-to-display latency.
 - Explicit `focus_and_loop_demo_qa` renders a five-second GIF, MP4 and full-resolution PNG with focus effects for visual inspection. Native live canvas interaction remains separate from virtual-platform tests.
 ## Screen Recording grant after a rebuild
 
-macOS tccd logs reported “Failed to match existing code requirement” for
+macOS tccd logs for the former Pachiri app reported “Failed to match existing code requirement” for
 `dev.benv.pachiri` / `kTCCServiceScreenCapture`. `codesign -d -r-` showed a
 build-specific cdhash designated requirement, and no code-signing identities
 were available in the local Keychain. This confirms the enabled Settings entry
@@ -149,6 +149,15 @@ Capture now preflights permission and requests the standard macOS grant before
 hiding the editor. Rejected grants show remove/re-add instructions; unrelated
 capture failures preserve screencapture stderr rather than alleging a missing
 permission. Regression coverage checks cancellation and error classification.
-The bundle script accepts PACHIRI_CODESIGN_IDENTITY for stable certificate
-signing and warns when falling back to ad-hoc. Permission removal/re-granting
-remains a manual System Settings action; it was not automated or verified here.
+Bundle builds now use a persistent development certificate in
+`~/Library/Application Support/Glance/Signing`, migrating existing signing files
+without replacing the certificate. New certificate trust is an explicit,
+one-time user-domain code-signing step via `scripts/trust-local-signing.sh`.
+`GLANCE_CODESIGN_IDENTITY` selects an existing certificate; `-` opts into ad-hoc
+signing. Build/signing failures preserve the installed bundle. Nested helpers
+are signed first, then the staged bundle is signed and strictly verified.
+
+`./scripts/test-local-signing.sh` verifies two different signed bundle hashes
+satisfy the same certificate-based requirement. The renamed bundle passed this
+check locally. Glance uses `sh.glance.desktop` and needs a one-time Screen
+Recording grant after the rename; actual desktop capture remains a manual pass.
