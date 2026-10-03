@@ -39,8 +39,7 @@ impl Editor {
             return;
         }
         if self.viewport.space_down {
-            self.viewport.pan_start = Some(e.position);
-            cx.notify();
+            self.begin_pan(e.position, cx);
             return;
         }
         if self.viewport.zoom_down {
@@ -70,20 +69,15 @@ impl Editor {
         if self.interaction.tool == Tool::Crop {
             p = navigation::endpoint(Tool::Crop, p, p, false, self.viewport.layout.get());
         }
-        self.interaction.drag_handle = None;
         if let Some(index) = self
             .interaction
             .selected
             .filter(|i| *i < self.document.marks.len())
         {
             let mark = &self.document.marks[index];
-            self.interaction.drag_handle =
-                arrow::handle_at(mark, p, 7. / self.viewport.layout.get().scale);
-            if self.interaction.drag_handle.is_some()
-                || mark.hit(p, 5. / self.viewport.layout.get().scale)
-            {
-                self.interaction.object_drag = Some((index, p, mark.clone()));
-                self.changed();
+            let handle = arrow::handle_at(mark, p, 7. / self.viewport.layout.get().scale);
+            if handle.is_some() || mark.hit(p, 5. / self.viewport.layout.get().scale) {
+                self.start_annotation_drag(index, p, handle);
                 cx.notify();
                 return;
             }
@@ -95,8 +89,7 @@ impl Editor {
             if let Some(index) = self.interaction.selected {
                 self.interaction.color = self.document.marks[index].color;
                 self.interaction.width = self.document.marks[index].width;
-                self.interaction.object_drag = Some((index, p, self.document.marks[index].clone()));
-                self.changed();
+                self.start_annotation_drag(index, p, None);
             }
             cx.notify();
             return;
@@ -161,7 +154,7 @@ impl Editor {
             })
             .detach();
         } else {
-            self.interaction.draft = Some(mark);
+            self.interaction.gesture = Gesture::Drawing(mark);
         }
         cx.notify();
     }
@@ -169,10 +162,10 @@ impl Editor {
         if self.backdrop_slider_move(e.position, cx) {
             return;
         }
-        if let Some(previous) = self.viewport.pan_start {
+        if let Gesture::Panning(previous) = &mut self.interaction.gesture {
             self.viewport.pan.0 += f32::from(e.position.x - previous.x);
             self.viewport.pan.1 += f32::from(e.position.y - previous.y);
-            self.viewport.pan_start = Some(e.position);
+            *previous = e.position;
             cx.notify();
             return;
         }
@@ -184,122 +177,127 @@ impl Editor {
             cx.notify();
             return;
         }
-        if let Some((index, start, _)) = self.interaction.object_drag.as_ref() {
-            if let Some(p) = self.coordinate(e.position, true) {
-                let mut moved = self.document.marks[*index].clone();
-                let d = navigation::translation(
-                    *start,
-                    p,
-                    e.modifiers.shift && self.interaction.drag_handle.is_none(),
-                );
-                arrow::drag(
-                    &mut moved,
-                    self.interaction.drag_handle,
-                    d,
-                    e.modifiers.shift,
-                );
-                self.interaction.object_drag.as_mut().unwrap().2 = moved;
-                cx.notify();
-            }
-            return;
-        }
-        if self.interaction.draft.is_none() {
-            return;
-        }
         let Some(p) = self.coordinate(e.position, true) else {
             return;
         };
-        if let Some(mark) = &mut self.interaction.draft {
-            if mark.tool == Tool::Pen {
-                if let Some(last) = mark.points.last()
-                    && (p.0 - last.0).hypot(p.1 - last.1) * self.viewport.layout.get().scale < 0.35
-                {
-                    return;
-                }
-                mark.points.push(p);
-            } else {
-                mark.points.truncate(1);
-                mark.points.push(navigation::endpoint(
-                    mark.tool,
-                    mark.points[0],
-                    p,
-                    e.modifiers.shift,
-                    self.viewport.layout.get(),
-                ));
+        match &mut self.interaction.gesture {
+            Gesture::MovingAnnotation(drag) => drag.update(p, e.modifiers.shift, None),
+            Gesture::EditingArrow { drag, handle } => {
+                drag.update(p, e.modifiers.shift, Some(*handle))
             }
-            cx.notify();
+            Gesture::Drawing(mark) => {
+                if mark.tool == Tool::Pen {
+                    if let Some(last) = mark.points.last()
+                        && (p.0 - last.0).hypot(p.1 - last.1) * self.viewport.layout.get().scale
+                            < 0.35
+                    {
+                        return;
+                    }
+                    mark.points.push(p);
+                } else {
+                    mark.points.truncate(1);
+                    mark.points.push(navigation::endpoint(
+                        mark.tool,
+                        mark.points[0],
+                        p,
+                        e.modifiers.shift,
+                        self.viewport.layout.get(),
+                    ));
+                }
+            }
+            _ => return,
         }
+        cx.notify();
     }
     pub(super) fn finish(&mut self, e: &MouseUpEvent, cx: &mut Context<Self>) {
-        if self.viewport.pan_start.take().is_some() {
-            cx.notify();
-            return;
-        }
-        if let Some((index, start, mut moved)) = self.interaction.object_drag.take() {
-            if let Some(p) = self.coordinate(e.position, true) {
-                moved = self.document.marks[index].clone();
-                let d = navigation::translation(
-                    start,
-                    p,
-                    e.modifiers.shift && self.interaction.drag_handle.is_none(),
-                );
-                arrow::drag(
-                    &mut moved,
-                    self.interaction.drag_handle,
-                    d,
-                    e.modifiers.shift,
-                );
-            }
-            if moved.points != self.document.marks[index].points
-                || moved.curve != self.document.marks[index].curve
-            {
-                self.document.remember();
-                self.document.marks[index] = moved;
-            }
-            self.changed();
-            cx.notify();
-            return;
-        }
-        if self.panels.backdrop_drag.take().is_some() {
-            cx.notify();
-            return;
-        }
         if let Some(edit) = &mut self.interaction.text_edit {
             edit.selecting = false;
         }
-        if let Some(p) = self.coordinate(e.position, true)
-            && let Some(mark) = &mut self.interaction.draft
-        {
-            mark.points.push(navigation::endpoint(
-                mark.tool,
-                mark.points[0],
-                p,
-                e.modifiers.shift,
-                self.viewport.layout.get(),
-            ));
+        let gesture = std::mem::take(&mut self.interaction.gesture);
+        let (mut drag, handle) = match gesture {
+            Gesture::MovingAnnotation(drag) => (drag, None),
+            Gesture::EditingArrow { drag, handle } => (drag, Some(handle)),
+            Gesture::Drawing(mut mark) => {
+                if let Some(p) = self.coordinate(e.position, true) {
+                    mark.points.push(navigation::endpoint(
+                        mark.tool,
+                        mark.points[0],
+                        p,
+                        e.modifiers.shift,
+                        self.viewport.layout.get(),
+                    ));
+                }
+                if mark.tool == Tool::Arrow && mark.points.len() > 2 {
+                    let end = *mark.points.last().unwrap();
+                    mark.points.truncate(1);
+                    mark.points.push(end);
+                }
+                if mark.tool == Tool::Crop {
+                    self.busy = true;
+                    self.feedback.status = "Cropping…".into();
+                    let mut document = self.document.clone();
+                    let sender = self.sender.clone();
+                    std::thread::spawn(move || {
+                        document.commit(mark);
+                        let image = render_image(preview_base(&document));
+                        let _ = sender.send_blocking(Message::Cropped(document, image));
+                    });
+                } else {
+                    self.document.commit(mark);
+                    self.interaction.selected = self.document.marks.len().checked_sub(1);
+                    self.changed();
+                }
+                cx.notify();
+                return;
+            }
+            Gesture::Idle => return,
+            Gesture::Panning(_) | Gesture::AdjustingBackdrop(..) => {
+                cx.notify();
+                return;
+            }
+        };
+        if let Some(p) = self.coordinate(e.position, true) {
+            drag.update(p, e.modifiers.shift, handle);
         }
-        if let Some(mut mark) = self.interaction.draft.take() {
-            if mark.tool == Tool::Arrow && mark.points.len() > 2 {
-                let end = *mark.points.last().unwrap();
-                mark.points.truncate(1);
-                mark.points.push(end);
-            }
-            if mark.tool == Tool::Crop {
-                self.busy = true;
-                self.feedback.status = "Cropping…".into();
-                let mut document = self.document.clone();
-                let sender = self.sender.clone();
-                std::thread::spawn(move || {
-                    document.commit(mark);
-                    let image = render_image(preview_base(&document));
-                    let _ = sender.send_blocking(Message::Cropped(document, image));
-                });
-            } else {
-                self.document.commit(mark);
-                self.interaction.selected = self.document.marks.len().checked_sub(1);
-                self.changed();
-            }
-            cx.notify();
+        if let Some(original) = self.document.marks.get(drag.index)
+            && (drag.moved.points != original.points || drag.moved.curve != original.curve)
+        {
+            self.document.remember();
+            self.document.marks[drag.index] = drag.moved;
+        }
+        self.changed();
+        cx.notify();
+    }
+    pub(super) fn start_annotation_drag(
+        &mut self,
+        index: usize,
+        origin: (f32, f32),
+        handle: Option<usize>,
+    ) {
+        let original = self.document.marks[index].clone();
+        let drag = AnnotationDrag {
+            index,
+            origin,
+            moved: original.clone(),
+            original,
+        };
+        self.interaction.gesture = match handle {
+            Some(handle) => Gesture::EditingArrow { drag, handle },
+            None => Gesture::MovingAnnotation(drag),
+        };
+        self.changed();
+    }
+    pub(super) fn begin_pan(&mut self, position: Point<Pixels>, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.cancel_gesture();
+        self.interaction.gesture = Gesture::Panning(position);
+        cx.notify();
+    }
+    pub(super) fn end_pan(&mut self) {
+        if matches!(self.interaction.gesture, Gesture::Panning(_)) {
+            self.interaction.gesture = Gesture::Idle;
         }
     }
     pub(super) fn menu_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
@@ -408,7 +406,7 @@ impl Editor {
                 && self.interaction.selected.is_some()
                 && !self.busy
             {
-                self.cancel_move();
+                self.cancel_gesture();
                 if let Some(index) = self.interaction.selected {
                     if !e.is_held {
                         self.document.remember();
@@ -467,9 +465,9 @@ impl Editor {
                 "t" => self.set_tool(Tool::Text, cx),
                 "n" => self.set_tool(Tool::Counter, cx),
                 "escape" => {
-                    self.cancel_move();
+                    self.cancel_gesture();
                     self.interaction.selected = None;
-                    self.interaction.draft = None;
+                    self.interaction.gesture = Gesture::Idle;
                     cx.notify();
                 }
                 _ => {}
@@ -478,10 +476,7 @@ impl Editor {
         cx.stop_propagation();
     }
     pub(super) fn zoom_at(&mut self, factor: f32, anchor: (f32, f32), cx: &mut Context<Self>) {
-        if self.interaction.draft.is_some()
-            || self.interaction.object_drag.is_some()
-            || self.viewport.pan_start.is_some()
-        {
+        if self.interaction.gesture.is_active() {
             return;
         }
         let bounds = self.viewport.canvas_bounds.get();
@@ -515,10 +510,7 @@ impl Editor {
         );
     }
     pub(super) fn scroll(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.interaction.draft.is_some()
-            || self.interaction.object_drag.is_some()
-            || self.viewport.pan_start.is_some()
-        {
+        if self.interaction.gesture.is_active() {
             return;
         }
         let delta = e.delta.pixel_delta(px(24.));
@@ -544,7 +536,7 @@ impl Editor {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some((control, bounds)) = self.panels.backdrop_drag else {
+        let Gesture::AdjustingBackdrop(control, bounds) = self.interaction.gesture else {
             return false;
         };
         let phase = self.animation_phase();

@@ -46,7 +46,9 @@ impl Editor {
                             if this.document.backdrop.is_none() {
                                 this.document.backdrop = Some(b);
                             }
-                            this.panels.backdrop_drag = Some((control, bounds.get()));
+                            this.cancel_gesture();
+                            this.interaction.gesture =
+                                Gesture::AdjustingBackdrop(control, bounds.get());
                             this.backdrop_slider_move(e.position, cx);
                         }),
                     )

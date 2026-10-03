@@ -122,13 +122,13 @@ impl Editor {
         Self {
             document,
             interaction: InteractionState {
+                gesture: Gesture::Idle,
                 selected: None,
-                drag_handle: None,
-                object_drag: None,
+
                 tool: Tool::Select,
                 color: [255, 56, 100, 255],
                 width: 5.,
-                draft: None,
+
                 text_edit: None,
                 text_session: 0,
             },
@@ -138,7 +138,7 @@ impl Editor {
                 zoom_down: false,
                 zoom: None,
                 pan: (0., 0.),
-                pan_start: None,
+
                 layout: Rc::new(Cell::new(Layout::default())),
             },
             preview: PreviewState {
@@ -164,7 +164,6 @@ impl Editor {
                 enhance: false,
                 resize_scale: 2.,
                 resize_smart: true,
-                backdrop_drag: None,
             },
             feedback: FeedbackState {
                 status,

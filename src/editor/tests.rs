@@ -220,7 +220,7 @@ fn drawing_pick_move_duplicate_delete_and_undo(cx: &mut TestAppContext) {
     .unwrap();
 }
 #[gpui::test]
-fn cancel_move_and_shift_release_preserve_document(cx: &mut TestAppContext) {
+fn cancel_gesture_and_shift_release_preserve_document(cx: &mut TestAppContext) {
     let view = editor(cx);
     view.update(cx, |e, w, cx| {
         reset_layout(e);
@@ -513,7 +513,8 @@ fn motion_controls_pause_duration_and_history(cx: &mut TestAppContext) {
         e.playback.position = 1.25;
         assert!((e.animation_phase() - 0.25).abs() < 0.001);
         let track = Bounds::new(point(px(0.), px(0.)), size(px(130.), px(24.)));
-        e.panels.backdrop_drag = Some((crate::backdrop::Control::Duration, track));
+        e.interaction.gesture =
+            super::Gesture::AdjustingBackdrop(crate::backdrop::Control::Duration, track);
         e.backdrop_slider_move(point(px(80.), px(12.)), cx);
         assert_eq!(e.document.backdrop.unwrap().seconds, 10);
         assert!(
@@ -524,7 +525,7 @@ fn motion_controls_pause_duration_and_history(cx: &mut TestAppContext) {
         assert_eq!(e.document.backdrop.unwrap().seconds, 2);
         e.backdrop_slider_move(point(px(200.), px(12.)), cx);
         assert_eq!(e.document.backdrop.unwrap().seconds, 15);
-        e.panels.backdrop_drag = None;
+        e.interaction.gesture = super::Gesture::Idle;
         e.toggle_animation(cx);
         assert!(!e.playback.paused);
         e.toggle_animation(cx);
@@ -542,6 +543,33 @@ fn motion_controls_pause_duration_and_history(cx: &mut TestAppContext) {
             crate::animation::Motion::Lava
         );
         assert!(Arc::ptr_eq(&base, &e.document.base));
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn switching_pointer_gestures_cancels_the_previous_drag(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        e.set_tool(Tool::Rectangle, cx);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(30., 30.), cx);
+        let original = e.document.marks[0].points.clone();
+        e.begin(&down(10., 10.), w, cx);
+        e.motion(&motion(20., 20.), cx);
+        assert!(e.interaction.gesture.drag().is_some());
+        e.begin_pan(point(px(40.), px(40.)), cx);
+        assert!(matches!(e.interaction.gesture, super::Gesture::Panning(_)));
+        assert_eq!(e.document.marks[0].points, original);
+        e.key(&key("escape"), w, cx);
+        assert!(!e.interaction.gesture.is_active());
+        e.set_tool(Tool::Pen, cx);
+        e.begin(&down(50., 50.), w, cx);
+        assert!(e.interaction.gesture.draft().is_some());
+        e.key(&key("escape"), w, cx);
+        e.finish(&up(60., 60.), cx);
+        assert_eq!(e.document.marks.len(), 1);
     })
     .unwrap();
 }

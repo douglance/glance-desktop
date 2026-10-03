@@ -24,7 +24,7 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.interaction.draft = None;
+        self.interaction.gesture = Gesture::Idle;
         self.busy = true;
         self.feedback.status = "Capturing… Escape cancels area selection".into();
         cx.hide();
@@ -98,9 +98,9 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.interaction.draft = None;
+        self.interaction.gesture = Gesture::Idle;
         self.interaction.selected = None;
-        self.interaction.object_drag = None;
+        self.interaction.gesture = Gesture::Idle;
         if redo {
             self.document.redo();
         } else {
@@ -115,14 +115,15 @@ impl Editor {
     }
     pub(super) fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.commit_text(cx);
-        self.cancel_move();
+        self.cancel_gesture();
         self.interaction.selected = None;
         self.interaction.tool = tool;
-        self.interaction.draft = None;
+        self.interaction.gesture = Gesture::Idle;
         cx.notify();
     }
-    pub(super) fn cancel_move(&mut self) {
-        if self.interaction.object_drag.take().is_some() {
+    pub(super) fn cancel_gesture(&mut self) {
+        let gesture = std::mem::take(&mut self.interaction.gesture);
+        if gesture.drag().is_some() {
             self.changed();
         }
     }
@@ -130,7 +131,7 @@ impl Editor {
         if self.busy {
             return;
         }
-        self.cancel_move();
+        self.cancel_gesture();
         if let Some(index) = self.interaction.selected {
             let mut mark = self.document.marks[index].clone();
             mark.translate(10., 10.);
@@ -144,7 +145,7 @@ impl Editor {
         if self.busy {
             return;
         }
-        self.cancel_move();
+        self.cancel_gesture();
         if let Some(index) = self.interaction.selected {
             let m = &self.document.marks[index];
             if (color && m.color != self.interaction.color)
@@ -166,7 +167,7 @@ impl Editor {
         if self.busy {
             return;
         }
-        self.cancel_move();
+        self.cancel_gesture();
         if let Some(index) = self.interaction.selected.take() {
             self.document.delete_mark(index);
             self.preview.mark_count = usize::MAX;
@@ -181,7 +182,7 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.interaction.draft = None;
+        self.interaction.gesture = Gesture::Idle;
         self.panels.backdrop = !self.panels.backdrop;
         if self.panels.backdrop {
             self.panels.enhance = false;
@@ -237,7 +238,7 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.interaction.draft = None;
+        self.interaction.gesture = Gesture::Idle;
         self.busy = true;
         let mut document = self.document.clone();
         let scale = self.panels.resize_scale;
@@ -303,8 +304,8 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.cancel_move();
-        self.interaction.draft = None;
+        self.cancel_gesture();
+        self.interaction.gesture = Gesture::Idle;
         if !self
             .document
             .backdrop

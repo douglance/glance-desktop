@@ -19,8 +19,8 @@ impl Editor {
         }
         self.preview.rendering = true;
         let mut document = self.document.render_snapshot();
-        if let Some((index, _, _)) = &self.interaction.object_drag {
-            document.marks.truncate(*index);
+        if let Some((drag, _)) = self.interaction.gesture.drag() {
+            document.marks.truncate(drag.index);
         }
         let revision = self.preview.revision;
         let count = document.marks.len();
@@ -46,11 +46,7 @@ impl Editor {
         );
         match message {
             Message::Magnify(delta, position, smart) => {
-                if self.busy
-                    || self.interaction.draft.is_some()
-                    || self.interaction.object_drag.is_some()
-                    || self.viewport.pan_start.is_some()
-                {
+                if self.busy || self.interaction.gesture.is_active() {
                     return;
                 }
                 if smart {
@@ -76,7 +72,7 @@ impl Editor {
             }
             Message::Transformed(Ok((document, count, image))) => {
                 self.interaction.selected = None;
-                self.interaction.object_drag = None;
+                self.interaction.gesture = Gesture::Idle;
                 self.document = document;
                 self.preview.revision += 1;
                 self.preview
@@ -116,7 +112,7 @@ impl Editor {
             Message::Cropped(document, image) => {
                 let count = document.marks.len();
                 self.interaction.selected = None;
-                self.interaction.object_drag = None;
+                self.interaction.gesture = Gesture::Idle;
                 self.document = document;
                 self.preview.revision += 1;
                 self.preview
@@ -130,11 +126,11 @@ impl Editor {
             }
             Message::Image(Ok(Some(image))) => {
                 self.interaction.selected = None;
-                self.interaction.object_drag = None;
+                self.interaction.gesture = Gesture::Idle;
                 self.document = Document::new(image);
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);
-                self.interaction.draft = None;
+                self.interaction.gesture = Gesture::Idle;
                 self.preview.mark_count = usize::MAX;
                 self.preview.waiting = true;
                 self.changed();

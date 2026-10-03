@@ -133,7 +133,7 @@ impl Render for Editor {
         if !window.is_window_active() {
             self.viewport.space_down = false;
             self.viewport.zoom_down = false;
-            self.viewport.pan_start = None;
+            self.end_pan();
         }
         for image in self.preview.retired.drain(..) {
             let _ = window.drop_image(image);
@@ -265,7 +265,7 @@ impl Render for Editor {
                 match e.keystroke.key.as_str() {
                     "space" => {
                         this.viewport.space_down = false;
-                        this.viewport.pan_start = None;
+                        this.end_pan();
                     }
                     "z" => this.viewport.zoom_down = false,
                     _ => {}
@@ -283,7 +283,7 @@ impl Render for Editor {
             )
             .on_mouse_up(
                 MouseButton::Right,
-                cx.listener(|this, _, _, _| this.viewport.pan_start = None),
+                cx.listener(|this, _, _, _| this.end_pan()),
             )
             .child(
                 div()

@@ -12,29 +12,29 @@ impl Editor {
             .marks
             .iter()
             .skip(self.preview.mark_count)
-            .chain(self.interaction.draft.iter())
+            .chain(self.interaction.gesture.draft())
             .map(|mark| {
-                if let Some((index, _, moved)) = &self.interaction.object_drag
-                    && std::ptr::eq(mark, &self.document.marks[*index])
+                if let Some((drag, _)) = self.interaction.gesture.drag()
+                    && std::ptr::eq(mark, &self.document.marks[drag.index])
                 {
-                    return moved.clone();
+                    return drag.moved.clone();
                 }
                 mark.clone()
             })
             .collect();
         let selected_mark = self.interaction.selected.and_then(|index| {
             self.interaction
-                .object_drag
-                .as_ref()
-                .map(|(_, _, m)| m)
+                .gesture
+                .drag()
+                .map(|(drag, _)| &drag.moved)
                 .or_else(|| self.document.marks.get(index))
                 .cloned()
         });
         let selection_bounds = self.interaction.selected.and_then(|index| {
             self.interaction
-                .object_drag
-                .as_ref()
-                .map(|(_, _, m)| m)
+                .gesture
+                .drag()
+                .map(|(drag, _)| &drag.moved)
                 .or_else(|| self.document.marks.get(index))
                 .map(Mark::bounds)
         });
@@ -63,7 +63,7 @@ impl Editor {
                 if let Some(path) = files.paths().first() {
                     let path = path.clone();
                     this.commit_text(cx);
-                    this.cancel_move();
+                    this.cancel_gesture();
                     this.busy = true;
                     let sender = this.sender.clone();
                     std::thread::spawn(move || {
@@ -87,9 +87,7 @@ impl Editor {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::begin))
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(|this, e: &MouseDownEvent, _, _| {
-                    this.viewport.pan_start = Some(e.position)
-                }),
+                cx.listener(|this, e: &MouseDownEvent, _, cx| this.begin_pan(e.position, cx)),
             )
             .child(
                 canvas(
