@@ -11,7 +11,8 @@ impl OperationId {
         self.0
     }
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(super) enum OperationKind {
     Capture,
     Open,

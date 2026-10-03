@@ -3,7 +3,7 @@ use super::actions::Action;
 use super::state::{AnnotationDrag, Gesture};
 use crate::{
     arrow,
-    document::{Mark, Tool},
+    document::{Mark, Tool, actions::DocumentAction},
     navigation, text,
 };
 use gpui::*;
@@ -129,9 +129,12 @@ impl Editor {
                 .unwrap_or(0)
                 .saturating_add(1))
             .to_string();
-            self.document.commit(mark);
-            self.interaction.selected = self.document.marks.len().checked_sub(1);
-            self.changed();
+            self.dispatch_ui(
+                Action::Edit {
+                    edit: DocumentAction::AddAnnotation { mark },
+                },
+                cx,
+            );
             cx.notify();
             return;
         }
@@ -247,20 +250,29 @@ impl Editor {
                         return;
                     }
                 }
-                if matches!(mark.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight)
-                    && mark.points.len() > 2
-                {
+                if mark.tool != Tool::Pen && mark.points.len() > 2 {
                     let end = *mark.points.last().unwrap();
                     mark.points.truncate(1);
                     mark.points.push(end);
                 }
-                if mark.tool == Tool::Crop {
-                    self.crop(mark, cx);
+                let edit = if mark.tool == Tool::Crop {
+                    let first = mark.points[0];
+                    let last = *mark.points.last().unwrap();
+                    let rectangle = (
+                        first.0.min(last.0),
+                        first.1.min(last.1),
+                        (first.0 - last.0).abs(),
+                        (first.1 - last.1).abs(),
+                    );
+                    if rectangle.2 < 2. || rectangle.3 < 2. {
+                        cx.notify();
+                        return;
+                    }
+                    DocumentAction::Crop { rectangle }
                 } else {
-                    self.document.commit(mark);
-                    self.interaction.selected = self.document.marks.len().checked_sub(1);
-                    self.changed();
-                }
+                    DocumentAction::AddAnnotation { mark }
+                };
+                self.dispatch_ui(Action::Edit { edit }, cx);
                 cx.notify();
                 return;
             }
@@ -276,10 +288,19 @@ impl Editor {
         if let Some(original) = self.document.marks.get(drag.index)
             && (drag.moved.points != original.points || drag.moved.curve != original.curve)
         {
-            self.document.remember();
-            self.document.marks[drag.index] = drag.moved;
+            self.dispatch_ui(
+                Action::Edit {
+                    edit: DocumentAction::UpdateAnnotation {
+                        index: drag.index,
+                        mark: drag.moved,
+                    },
+                },
+                cx,
+            );
+        } else {
+            // Restore the complete preview even when a selection click did not move.
+            self.changed();
         }
-        self.changed();
         cx.notify();
     }
     pub(super) fn start_annotation_drag(

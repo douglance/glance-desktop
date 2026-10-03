@@ -2,6 +2,7 @@ use ab_glyph::Font;
 use image::{Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_circle_mut, draw_text_mut};
 use std::sync::Arc;
+pub(crate) mod actions;
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,7 +36,7 @@ impl Tool {
         }
     }
 }
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mark {
     pub tool: Tool,
     /// Quadratic control point; None is a straight arrow.

@@ -2,8 +2,7 @@
 use crate::{
     animation::Motion,
     automation::{self, Snapshot},
-    backdrop::Backdrop,
-    document::{Document, Mark, Tool},
+    document::{Document, Mark},
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
@@ -23,6 +22,31 @@ pub fn tools() -> Vec<Value> {
     let revision = json!({"type":"integer","minimum":0});
     let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]). All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","minimum":0.5,"maximum":64},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
     vec![
+        tool(
+            "get_editor_state",
+            "Read live tool, selection, zoom, panels, busy state, operation ID/progress and status. Available while workers are busy. Use this after dispatch_action to inspect background work.",
+            json!({}),
+            &[],
+            true,
+        ),
+        tool(
+            "dispatch_action",
+            "Dispatch the same typed action as the native toolbar and shortcuts. Example: action={\"type\":\"select_tool\",\"tool\":\"arrow\"}. Other examples: fit, copy_image, copy_remote, resize (scale, smart), set_backdrop (backdrop), export_animation (format: mp4/gif). Copy/paste/undo/redo/delete are contextual to inline text. Image actions commit inline text. Returns revision and operation_id: a non-null ID means background work was accepted, not completed. Capture/open/save/export may show native dialogs. Existing revision-scoped annotation tools are also available.",
+            json!({"action":{"type":"object","properties":{
+                "type":{"type":"string","enum":["show","capture","open_image","open_path","save_image","copy_image","copy_remote","paste_image","copy","cut","paste","undo","redo","delete","duplicate_selection","select_tool","set_color","set_stroke_width","cycle_stroke_width","cycle_magnifier_zoom","nudge_selection","fit","actual_size","zoom","zoom_at","toggle_backdrop","toggle_enhance","close_panel","set_resize_scale","toggle_smart_resize","apply_resize","resize","rotate","set_backdrop","set_backdrop_fill","select_motion","set_backdrop_preset","set_backdrop_control","toggle_playback","export_animation","cancel_export","reveal_export","commit_text","cancel","help","quit"]},
+                "area":{"type":"boolean"}, "path":path, "tool":{"type":"string"},
+                "color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},
+                "width":number,"factor":number,"scale":number,"smart":{"type":"boolean"},
+                "delta":{"type":"array","items":number,"minItems":2,"maxItems":2},
+                "anchor":{"type":"array","items":number,"minItems":2,"maxItems":2},
+                "remember":{"type":"boolean"}, "panel":{"type":"string","enum":["backdrop","enhance"]},
+                "backdrop":{"type":["object","null"]},"gradient":{"type":"boolean"},"motion":{"type":"string"},
+                "preset":{"type":"integer","minimum":0},"control":{"type":"string"},"value":{"type":"integer","minimum":0},
+                "format":{"type":"string","enum":["mp4","gif"]}
+            },"required":["type"],"additionalProperties":false},"expected_revision":revision}),
+            &["action"],
+            false,
+        ),
         tool(
             "open_editor",
             "Show the connected native Glance window. Start Glance --automation first.",
@@ -154,45 +178,11 @@ fn num(args: &Value, name: &str) -> Result<f32, String> {
     Ok(n as f32)
 }
 fn mark(args: &Value) -> Result<Mark, String> {
-    let m: Mark = serde_json::from_value(args["mark"].clone()).map_err(|e| e.to_string())?;
-    if matches!(m.tool, Tool::Select | Tool::Crop)
-        || m.points.is_empty()
-        || m.points.len() > 2000
-        || !m.width.is_finite()
-        || !(0.5..=64.).contains(&m.width)
-        || m.text.len() > 8000
-    {
-        return Err("Invalid mark tool, points, width or text".into());
-    }
-    if m.points
-        .iter()
-        .chain(m.curve.iter())
-        .any(|p| !p.0.is_finite() || !p.1.is_finite() || p.0.abs() > 32768. || p.1.abs() > 32768.)
-    {
-        return Err("Invalid mark coordinates".into());
-    }
-    let length: f32 = m
-        .points
-        .windows(2)
-        .map(|p| (p[1].0 - p[0].0).hypot(p[1].1 - p[0].1))
-        .sum();
-    if length > 100_000. {
-        return Err("Drawing path too long".into());
-    }
-    if matches!(
-        m.tool,
-        Tool::Arrow
-            | Tool::Rectangle
-            | Tool::Highlight
-            | Tool::Pixelate
-            | Tool::Spotlight
-            | Tool::Magnifier
-    ) && m.points.len() != 2
-    {
-        return Err("This tool requires two endpoints".into());
-    }
-    Ok(m)
+    let mark: Mark = serde_json::from_value(args["mark"].clone()).map_err(|e| e.to_string())?;
+    crate::document::actions::validate_mark(&mark)?;
+    Ok(mark)
 }
+
 fn object(args: &Value, s: &Snapshot) -> Result<usize, String> {
     let id = args["id"].as_str().ok_or("Missing object id")?;
     let (r, i) = id.split_once(':').ok_or("Invalid object id")?;
@@ -263,7 +253,9 @@ fn decode(bytes: Vec<u8>) -> Result<image::RgbaImage, String> {
 }
 pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, bool, bool), String> {
     validate_tool(name, args)?;
+    use crate::document::actions::DocumentAction;
     let mut replace = false;
+    let mut edit = None;
     match name {
         "get_document" => return Ok((automation::state(s), false, false)),
         "read_image" => {
@@ -303,112 +295,54 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
             s.document = Document::new(image);
             replace = true;
         }
-        "add_annotation" => {
-            if s.document.marks.len() >= 500 {
-                return Err("Maximum 500 annotations".into());
-            }
-            let m = mark(args)?;
-            if s.document
-                .marks
-                .iter()
-                .map(|m| m.points.len())
-                .sum::<usize>()
-                + m.points.len()
-                > 10000
-            {
-                return Err("Maximum 10000 drawing points".into());
-            }
-            s.document.commit(m);
-        }
+        "add_annotation" => edit = Some(DocumentAction::AddAnnotation { mark: mark(args)? }),
         "update_annotation" => {
-            let i = object(args, s)?;
-            let m = mark(args)?;
-            if s.document
-                .marks
-                .iter()
-                .map(|m| m.points.len())
-                .sum::<usize>()
-                - s.document.marks[i].points.len()
-                + m.points.len()
-                > 10000
-            {
-                return Err("Maximum 10000 drawing points".into());
-            }
-            s.document.remember();
-            s.document.marks[i] = m;
+            edit = Some(DocumentAction::UpdateAnnotation {
+                index: object(args, s)?,
+                mark: mark(args)?,
+            })
         }
         "move_annotation" => {
-            let i = object(args, s)?;
-            let dx = num(args, "dx")?;
-            let dy = num(args, "dy")?;
-            let mut m = s.document.marks[i].clone();
-            m.translate(dx, dy);
-            let check = json!({"mark":m});
-            let m = mark(&check)?;
-            s.document.remember();
-            s.document.marks[i] = m;
+            edit = Some(DocumentAction::MoveAnnotation {
+                index: object(args, s)?,
+                delta: (num(args, "dx")?, num(args, "dy")?),
+                remember: true,
+            })
         }
         "delete_annotation" => {
-            let i = object(args, s)?;
-            s.document.remember();
-            s.document.marks.remove(i);
+            edit = Some(DocumentAction::DeleteAnnotation {
+                index: object(args, s)?,
+            })
         }
         "crop_image" => {
-            let x = num(args, "x")?;
-            let y = num(args, "y")?;
-            let w = num(args, "width")?;
-            let h = num(args, "height")?;
-            if x < 0.
-                || y < 0.
-                || w < 2.
-                || h < 2.
-                || x + w > s.document.base.width() as f32
-                || y + h > s.document.base.height() as f32
-            {
-                return Err("Crop must lie inside the source image and be at least 2×2".into());
-            }
-            s.document.commit(Mark {
-                tool: Tool::Crop,
-                points: vec![(x, y), (x + w, y + h)],
-                curve: None,
-                color: [0; 4],
-                width: 1.,
-                text: String::new(),
-            });
-            replace = true;
+            edit = Some(DocumentAction::Crop {
+                rectangle: (
+                    num(args, "x")?,
+                    num(args, "y")?,
+                    num(args, "width")?,
+                    num(args, "height")?,
+                ),
+            })
         }
         "resize_image" => {
-            let scale = num(args, "scale")?;
-            if !(0.1..=4.).contains(&scale) {
-                return Err("scale must be 0.1..4".into());
-            }
-            s.document
-                .resize(scale, args["smart"].as_bool().unwrap_or(true))?;
-            replace = true;
+            edit = Some(DocumentAction::Resize {
+                scale: num(args, "scale")?,
+                smart: args["smart"].as_bool().unwrap_or(true),
+            })
         }
         "set_backdrop" => {
-            let b = if args["enabled"].as_bool() == Some(false) {
+            let backdrop = if args["enabled"].as_bool() == Some(false) {
                 None
             } else {
-                let b: Backdrop =
+                Some(
                     serde_json::from_value(args.get("backdrop").cloned().unwrap_or(json!({})))
-                        .map_err(|e| e.to_string())?;
-                if b.preset >= 8
-                    || b.padding > 512
-                    || b.inner_radius > 256
-                    || b.outer_radius > 256
-                    || b.shadow > 128
-                    || !(2..=15).contains(&b.seconds)
-                {
-                    return Err("Backdrop values out of range".into());
-                }
-                Some(b)
+                        .map_err(|e| e.to_string())?,
+                )
             };
-            s.document.remember();
-            s.document.backdrop = b;
+            edit = Some(DocumentAction::SetBackdrop { backdrop });
         }
-        "undo" => s.document.undo(),
-        "redo" => s.document.redo(),
+        "undo" => edit = Some(DocumentAction::Undo),
+        "redo" => edit = Some(DocumentAction::Redo),
         "export_png" => {
             let image = s.document.export_at(phase(args, s.phase)?);
             let path = output(args, "png")?;
@@ -494,6 +428,10 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
         }
         _ => return Err(format!("Unknown tool: {name}")),
     }
+    if let Some(edit) = edit {
+        let outcome = edit.apply(&mut s.document)?;
+        return Ok((Value::Null, outcome.changed, outcome.reset_view));
+    }
     Ok((Value::Null, true, replace))
 }
 fn helper(name: &str) -> Result<PathBuf, String> {
@@ -556,7 +494,7 @@ pub fn run() -> Result<(), String> {
     Ok(())
 }
 
-fn validate_tool(name: &str, args: &Value) -> Result<(), String> {
+pub(crate) fn validate_tool(name: &str, args: &Value) -> Result<(), String> {
     let tool = tools()
         .into_iter()
         .find(|t| t["name"] == name)
@@ -744,7 +682,10 @@ mod tests {
         let initialized=response(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})).unwrap();
         assert_eq!(initialized["result"]["serverInfo"]["name"], "glance");
         let list = response(json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).unwrap();
-        assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
+        assert_eq!(
+            list["result"]["tools"].as_array().unwrap().len(),
+            tools().len()
+        );
         assert!(response(json!({"jsonrpc":"2.0","method":"notifications/initialized"})).is_none());
         assert_eq!(
             response(json!({"id":3,"method":"bad"})).unwrap()["error"]["code"],

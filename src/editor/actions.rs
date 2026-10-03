@@ -6,9 +6,19 @@ use crate::{
 };
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Action {
+    Edit {
+        edit: crate::document::actions::DocumentAction,
+    },
+    /// Prepared by a worker; optimistic revision checking prevents lost edits.
+    #[serde(skip)]
+    ApplyPreparedDocument {
+        document: Box<crate::document::Document>,
+        revision: u64,
+        replace: bool,
+    },
     Show,
     Capture {
         area: bool,

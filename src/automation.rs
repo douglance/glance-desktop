@@ -19,6 +19,12 @@ pub struct Snapshot {
     pub phase: f32,
 }
 pub enum Request {
+    State(mpsc::Sender<Result<Value, String>>),
+    Dispatch {
+        action: crate::editor::actions::Action,
+        expected_revision: Option<u64>,
+        reply: mpsc::Sender<Result<crate::editor::actions::ActionReceipt, String>>,
+    },
     Snapshot(mpsc::Sender<Result<Snapshot, String>>),
     Apply {
         document: Document,
@@ -61,6 +67,20 @@ pub fn dispatch(
     name: &str,
     args: Value,
 ) -> Result<Value, String> {
+    if name == "get_editor_state" {
+        crate::mcp::validate_tool(name, &args)?;
+        return wait(sender, Request::State);
+    }
+    if name == "dispatch_action" {
+        crate::mcp::validate_tool(name, &args)?;
+        let action = serde_json::from_value(args["action"].clone()).map_err(|e| e.to_string())?;
+        let receipt = wait(sender, |reply| Request::Dispatch {
+            action,
+            expected_revision: args.get("expected_revision").and_then(Value::as_u64),
+            reply,
+        })?;
+        return serde_json::to_value(receipt).map_err(|e| e.to_string());
+    }
     if name == "open_editor" {
         return wait(sender, Request::Show);
     }
@@ -168,6 +188,12 @@ mod tests {
             let mut revision = 0;
             while let Ok(Message::Automation(request)) = receiver.recv_blocking() {
                 match request {
+                    Request::State(reply) => {
+                        let _ = reply.send(Ok(json!({"revision":revision})));
+                    }
+                    Request::Dispatch { reply, .. } => {
+                        let _ = reply.send(Err("No live editor in this transport fixture".into()));
+                    }
                     Request::Snapshot(reply) => {
                         reply
                             .send(Ok(Snapshot {

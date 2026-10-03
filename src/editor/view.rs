@@ -47,7 +47,7 @@ impl Editor {
         };
         div()
             .id(SharedString::from(format!("tool-{name}")))
-            .debug_selector(move || format!("tool-{name}").into())
+            .debug_selector(move || format!("tool-{name}"))
             .size(px(30.))
             .flex_shrink_0()
             .flex()

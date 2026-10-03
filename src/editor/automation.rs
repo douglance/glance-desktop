@@ -1,16 +1,43 @@
 use super::Editor;
-use crate::{
-    automation::{Request, Snapshot, state},
-    document::Tool,
-};
+use super::actions::Action;
+use crate::automation::{Request, Snapshot, state};
 use gpui::Context;
 use serde_json::json;
 impl Editor {
     pub fn automation(&mut self, request: Request, cx: &mut Context<Self>) {
         match request {
+            Request::State(reply) => {
+                let operation = self.operations.active.as_ref().map(|op| {
+                    json!({
+                        "id":op.id.value(), "kind":op.kind, "progress":self.video_export.progress,
+                    })
+                });
+                let _ = reply.send(Ok(json!({
+                    "revision":self.preview.revision, "busy":self.is_busy(), "operation":operation,
+                    "tool":self.interaction.tool, "selected":self.interaction.selected,
+                    "text_editing":self.interaction.text_edit.is_some(), "gesture_active":self.interaction.gesture.is_active(),
+                    "zoom":self.viewport.zoom, "pan":self.viewport.pan,
+                    "panels":{"backdrop":self.panels.backdrop,"enhance":self.panels.enhance},
+                    "status":self.feedback.status,
+                })));
+            }
+            Request::Dispatch {
+                action,
+                expected_revision,
+                reply,
+            } => {
+                let result = if expected_revision.is_some_and(|r| r != self.preview.revision) {
+                    Err("Stale expected_revision; read state and retry".into())
+                } else {
+                    self.dispatch(action, cx)
+                };
+                let _ = reply.send(result);
+            }
             Request::Show(reply) => {
-                cx.activate(true);
-                let _ = reply.send(Ok(json!({"native_window":true})));
+                let result = self
+                    .dispatch(Action::Show, cx)
+                    .map(|_| json!({"native_window":true}));
+                let _ = reply.send(result);
             }
             Request::Snapshot(reply) => {
                 if self.is_busy()
@@ -32,33 +59,23 @@ impl Editor {
                 replace,
                 reply,
             } => {
-                if self.preview.revision != revision
-                    || self.is_busy()
-                    || self.interaction.gesture.is_active()
-                    || self.interaction.text_edit.is_some()
-                {
-                    let _ = reply.send(Err(
-                        "Editor changed during operation. Read state and retry.".into(),
-                    ));
-                    return;
-                }
-                self.document = document;
-                self.interaction.selected = self.document.marks.len().checked_sub(1);
-                self.interaction.tool = Tool::Select;
-                if replace {
-                    self.viewport.zoom = None;
-                    self.viewport.pan = (0., 0.);
-                }
-                self.playback.position = 0.;
-                self.playback.epoch = std::time::Instant::now();
-                self.preview.mark_count = usize::MAX;
-                self.changed();
-                cx.notify();
-                let _ = reply.send(Ok(state(&Snapshot {
-                    document: self.document.render_snapshot(),
-                    revision: self.preview.revision,
-                    phase: 0.,
-                })));
+                let result = self
+                    .dispatch(
+                        Action::ApplyPreparedDocument {
+                            document: Box::new(document),
+                            revision,
+                            replace,
+                        },
+                        cx,
+                    )
+                    .map(|_| {
+                        state(&Snapshot {
+                            document: self.document.render_snapshot(),
+                            revision: self.preview.revision,
+                            phase: 0.,
+                        })
+                    });
+                let _ = reply.send(result);
             }
         }
     }

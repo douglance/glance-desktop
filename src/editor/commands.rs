@@ -6,7 +6,10 @@ use super::{
 use crate::{
     animation::Motion,
     backdrop::Backdrop,
-    document::{Mark, Tool},
+    document::{
+        Tool,
+        actions::{DocumentAction, Selection},
+    },
     glance, platform, video,
 };
 use gpui::Context;
@@ -18,12 +21,15 @@ impl Editor {
     pub(super) fn commit_text(&mut self, cx: &mut Context<Self>) {
         if let Some(edit) = self.interaction.text_edit.take() {
             if !edit.buffer.text().trim().is_empty() {
-                let mut mark = edit.mark;
+                let mut mark = edit.mark.clone();
                 mark.text = edit.buffer.text().into();
-                self.document.commit(mark);
-                self.interaction.selected = self.document.marks.len().checked_sub(1);
-                self.changed();
-                self.feedback.status = "Text label added".into();
+                match self.edit_document(DocumentAction::AddAnnotation { mark }, cx) {
+                    Ok(()) => self.feedback.status = "Text label added".into(),
+                    Err(error) => {
+                        self.interaction.text_edit = Some(edit);
+                        self.feedback.status = error;
+                    }
+                }
             } else {
                 self.feedback.status = "Empty label discarded".into();
             }
@@ -120,17 +126,15 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_gesture();
-        self.interaction.selected = None;
-        if redo {
-            self.document.redo();
+        let edit = if redo {
+            DocumentAction::Redo
         } else {
-            self.document.undo();
+            DocumentAction::Undo
+        };
+        if let Err(error) = self.edit_document(edit, cx) {
+            self.feedback.status = error;
+            cx.notify();
         }
-        self.preview.mark_count = usize::MAX;
-        self.preview.waiting = true;
-        self.feedback.status = "Updating image…".into();
-        self.changed();
-        cx.notify();
     }
     pub(super) fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.commit_text(cx);
@@ -153,9 +157,9 @@ impl Editor {
         if let Some(index) = self.interaction.selected {
             let mut mark = self.document.marks[index].clone();
             mark.translate(10., 10.);
-            self.document.commit(mark);
-            self.interaction.selected = Some(self.document.marks.len() - 1);
-            self.changed();
+            if let Err(error) = self.edit_document(DocumentAction::AddAnnotation { mark }, cx) {
+                self.feedback.status = error;
+            }
             cx.notify();
         }
     }
@@ -165,18 +169,16 @@ impl Editor {
         }
         self.cancel_gesture();
         if let Some(index) = self.interaction.selected {
-            let m = &self.document.marks[index];
-            if (color && m.color != self.interaction.color)
-                || (!color && m.width != self.interaction.width)
+            let mut mark = self.document.marks[index].clone();
+            if color {
+                mark.color = self.interaction.color;
+            } else {
+                mark.width = self.interaction.width;
+            }
+            if let Err(error) =
+                self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)
             {
-                self.document.remember();
-                let m = &mut self.document.marks[index];
-                if color {
-                    m.color = self.interaction.color;
-                } else {
-                    m.width = self.interaction.width;
-                }
-                self.changed();
+                self.feedback.status = error;
             }
         }
         cx.notify();
@@ -186,11 +188,10 @@ impl Editor {
             return;
         }
         self.cancel_gesture();
-        if let Some(index) = self.interaction.selected.take() {
-            self.document.delete_mark(index);
-            self.preview.mark_count = usize::MAX;
-            self.preview.waiting = true;
-            self.changed();
+        if let Some(index) = self.interaction.selected {
+            if let Err(error) = self.edit_document(DocumentAction::DeleteAnnotation { index }, cx) {
+                self.feedback.status = error;
+            }
             cx.notify();
         }
     }
@@ -205,8 +206,15 @@ impl Editor {
             self.panels.enhance = false;
         }
         if self.panels.backdrop && self.document.backdrop.is_none() {
-            self.document.remember();
-            self.document.backdrop = Some(Backdrop::default());
+            if let Err(error) = self.edit_document(
+                DocumentAction::SetBackdrop {
+                    backdrop: Some(Backdrop::default()),
+                },
+                cx,
+            ) {
+                self.feedback.status = error;
+                return;
+            }
             self.feedback.status = "Backdrop added • style it in the panel • ⌘Z to undo".into();
         }
         cx.notify();
@@ -219,26 +227,17 @@ impl Editor {
         if self.is_busy() {
             return;
         }
-        if let Some(mut b) = self.document.backdrop {
-            change(&mut b);
-            if self
-                .document
-                .backdrop
-                .is_some_and(|old| old.motion != b.motion)
-            {
-                self.playback.position = 0.;
-                self.playback.epoch = std::time::Instant::now();
-                self.playback.paused = false;
-            }
-            if self.document.backdrop != Some(b) {
-                self.document.remember();
-                self.document.backdrop = Some(b);
-            }
-        } else {
-            let mut b = Backdrop::default();
-            change(&mut b);
-            self.document.remember();
-            self.document.backdrop = Some(b);
+        self.commit_text(cx);
+        self.cancel_gesture();
+        let mut backdrop = self.document.backdrop.unwrap_or_default();
+        change(&mut backdrop);
+        if let Err(error) = self.edit_document(
+            DocumentAction::SetBackdrop {
+                backdrop: Some(backdrop),
+            },
+            cx,
+        ) {
+            self.feedback.status = error;
         }
         cx.notify();
     }
@@ -256,27 +255,18 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_gesture();
-        let Some(id) = self.start_operation(OperationKind::Transform) else {
-            return;
+        let edit = if rotate {
+            DocumentAction::Rotate
+        } else {
+            DocumentAction::Resize {
+                scale: self.panels.resize_scale,
+                smart: self.panels.resize_smart,
+            }
         };
-        let mut document = self.document.clone();
-        let scale = self.panels.resize_scale;
-        let smart = self.panels.resize_smart;
-        self.spawn_operation(id, move || {
-            let result = if rotate {
-                document.rotate();
-                Ok(())
-            } else {
-                document.resize(scale, smart)
-            };
-            let result = result.map(|()| {
-                let count = document.marks.len();
-                let preview = render_image(preview_base(&document));
-                (document, count, preview)
-            });
-            OperationResult::Transformed(result)
-        });
-        cx.notify();
+        if let Err(error) = self.edit_document(edit, cx) {
+            self.feedback.status = error;
+            cx.notify();
+        }
     }
     pub(super) fn paste_image(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
@@ -388,17 +378,79 @@ impl Editor {
         });
         cx.notify();
     }
-    pub(super) fn crop(&mut self, mark: Mark, cx: &mut Context<Self>) {
-        let Some(id) = self.start_operation(OperationKind::Crop) else {
-            return;
-        };
-        self.feedback.status = "Cropping…".into();
-        let mut document = self.document.clone();
-        self.spawn_operation(id, move || {
-            document.commit(mark);
-            let image = render_image(preview_base(&document));
-            OperationResult::Cropped(document, image)
-        });
+
+    pub(super) fn edit_document(
+        &mut self,
+        edit: DocumentAction,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if matches!(
+            edit,
+            DocumentAction::Resize { .. } | DocumentAction::Rotate | DocumentAction::Crop { .. }
+        ) {
+            let crop = matches!(edit, DocumentAction::Crop { .. });
+            let id = self
+                .start_operation(if crop {
+                    OperationKind::Crop
+                } else {
+                    OperationKind::Transform
+                })
+                .ok_or("Editor is busy")?;
+            if crop {
+                self.feedback.status = "Cropping…".into();
+            }
+            let mut document = self.document.clone();
+            self.spawn_operation(id, move || match edit.apply(&mut document) {
+                Ok(_) => {
+                    let count = document.marks.len();
+                    let image = render_image(preview_base(&document));
+                    if crop {
+                        OperationResult::Cropped(document, image)
+                    } else {
+                        OperationResult::Transformed(Ok((document, count, image)))
+                    }
+                }
+                Err(error) => OperationResult::Failed(error),
+            });
+        } else {
+            let wait_for_preview = matches!(
+                edit,
+                DocumentAction::DeleteAnnotation { .. }
+                    | DocumentAction::Undo
+                    | DocumentAction::Redo
+            );
+            let backdrop = matches!(edit, DocumentAction::SetBackdrop { .. });
+            let previous_motion = self.document.backdrop.map(|b| b.motion);
+            let outcome = edit.apply(&mut self.document)?;
+            match outcome.selection {
+                Selection::Keep => {}
+                Selection::Clear => self.interaction.selected = None,
+                Selection::Select(index) => self.interaction.selected = Some(index),
+            }
+            if outcome.reset_view {
+                self.viewport.zoom = None;
+                self.viewport.pan = (0., 0.);
+            }
+            if outcome.changed {
+                if backdrop {
+                    if previous_motion != self.document.backdrop.map(|b| b.motion) {
+                        self.playback.position = 0.;
+                        self.playback.epoch = std::time::Instant::now();
+                        self.playback.paused = false;
+                    }
+                    // Framing is painted separately; invalidate in-flight snapshots
+                    // without re-rasterizing the unchanged foreground on each slider tick.
+                    self.preview.revision += 1;
+                } else {
+                    if wait_for_preview {
+                        self.preview.mark_count = usize::MAX;
+                        self.preview.waiting = true;
+                    }
+                    self.changed();
+                }
+            }
+        }
         cx.notify();
+        Ok(())
     }
 }

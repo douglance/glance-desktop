@@ -6,7 +6,7 @@ use super::{
 use crate::{
     animation::Motion,
     backdrop::{Backdrop, Control, PRESETS},
-    document::Tool,
+    document::{Tool, actions::DocumentAction},
 };
 use gpui::{Bounds, ClipboardItem, Context, point, px, size};
 
@@ -23,6 +23,20 @@ impl Editor {
         action: Action,
         cx: &mut Context<Self>,
     ) -> Result<ActionReceipt, String> {
+        if matches!(action, Action::Edit { .. })
+            && (self.interaction.text_edit.is_some() || self.interaction.gesture.is_active())
+        {
+            return Err(
+                "Finish the current text edit or gesture before editing the document.".into(),
+            );
+        }
+        if let Action::ApplyPreparedDocument { revision, .. } = &action
+            && (*revision != self.preview.revision
+                || self.interaction.gesture.is_active()
+                || self.interaction.text_edit.is_some())
+        {
+            return Err("Editor changed during operation. Read state and retry.".into());
+        }
         let editing_text = self.interaction.text_edit.is_some();
         let contextual_text = editing_text
             && matches!(
@@ -103,6 +117,22 @@ impl Editor {
         }
         let previous_operation = self.operations.active.as_ref().map(|op| op.id);
         match action {
+            Action::Edit { edit } => self.edit_document(edit, cx)?,
+            Action::ApplyPreparedDocument {
+                document, replace, ..
+            } => {
+                self.document = *document;
+                self.interaction.selected = self.document.marks.len().checked_sub(1);
+                self.interaction.tool = Tool::Select;
+                if replace {
+                    self.viewport.zoom = None;
+                    self.viewport.pan = (0., 0.);
+                }
+                self.playback.position = 0.;
+                self.playback.epoch = std::time::Instant::now();
+                self.preview.mark_count = usize::MAX;
+                self.changed();
+            }
             Action::Show => cx.activate(true),
             Action::Capture { area } => self.capture(area, cx),
             Action::OpenImage => self.open(cx),
@@ -182,9 +212,9 @@ impl Editor {
                         3 => 4,
                         _ => 2,
                     };
-                    self.document.remember();
-                    self.document.marks[index].text = next.to_string();
-                    self.changed();
+                    let mut mark = self.document.marks[index].clone();
+                    mark.text = next.to_string();
+                    self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
                 }
             }
             Action::NudgeSelection { delta, remember } => {
@@ -194,11 +224,14 @@ impl Editor {
                     .selected
                     .filter(|i| *i < self.document.marks.len())
                 {
-                    if remember {
-                        self.document.remember();
-                    }
-                    self.document.marks[index].translate(delta.0, delta.1);
-                    self.changed();
+                    self.edit_document(
+                        DocumentAction::MoveAnnotation {
+                            index,
+                            delta,
+                            remember,
+                        },
+                        cx,
+                    )?;
                 }
             }
             Action::Fit | Action::ActualSize => {
@@ -228,8 +261,7 @@ impl Editor {
                 if let Some(b) = backdrop {
                     self.backdrop_style(|current| *current = b, cx);
                 } else if self.document.backdrop.is_some() {
-                    self.document.remember();
-                    self.document.backdrop = None;
+                    self.edit_document(DocumentAction::SetBackdrop { backdrop: None }, cx)?;
                     self.feedback.status = "Backdrop removed • ⌘Z to restore".into();
                     self.panels.backdrop = false;
                 }
@@ -266,10 +298,15 @@ impl Editor {
                     self.document.remember();
                 }
                 let b = self.document.backdrop.get_or_insert(Backdrop::default());
+                let previous = *b;
                 control.set(b, value);
+                let changed = previous != *b;
                 if control == Control::Duration {
                     self.playback.position = phase * b.seconds as f32;
                     self.playback.epoch = std::time::Instant::now();
+                }
+                if changed {
+                    self.preview.revision += 1;
                 }
             }
             Action::BeginBackdropAdjustment {
