@@ -4,8 +4,10 @@ mod document;
 mod drawing;
 mod enhance;
 mod enhance_panel;
+mod gestures;
 mod icons;
 mod menus;
+mod navigation;
 #[cfg(test)]
 mod performance;
 mod platform;
@@ -29,6 +31,7 @@ struct Layout {
     height: f32,
 }
 enum Message {
+    Magnify(f32, (f32, f32), bool),
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
     Cropped(Document, Arc<RenderImage>),
@@ -59,6 +62,10 @@ struct Editor {
     resize_scale: f32,
     resize_smart: bool,
 
+    canvas_bounds: Rc<Cell<Bounds<Pixels>>>,
+    space_down: bool,
+    zoom_down: bool,
+    _gestures: gestures::Monitor,
     zoom: Option<f32>,
     pan: (f32, f32),
     pan_start: Option<Point<Pixels>>,
@@ -148,6 +155,8 @@ impl Editor {
             }
         })
         .detach();
+        let canvas_bounds = Rc::new(Cell::new(Bounds::default()));
+        let gestures = gestures::Monitor::new(sender.clone(), canvas_bounds.clone());
         Self {
             document,
             revision: 0,
@@ -170,6 +179,10 @@ impl Editor {
             resize_scale: 2.,
             resize_smart: true,
 
+            canvas_bounds,
+            space_down: false,
+            zoom_down: false,
+            _gestures: gestures,
             zoom: None,
             pan: (0., 0.),
             pan_start: None,
@@ -212,6 +225,31 @@ impl Editor {
                 | Message::Transformed(Err(_))
         );
         match message {
+            Message::Magnify(delta, position, smart) => {
+                if self.busy
+                    || self.draft.is_some()
+                    || self.object_drag.is_some()
+                    || self.pan_start.is_some()
+                {
+                    return;
+                }
+                if smart {
+                    if self.zoom.is_some_and(|z| z >= 1.) {
+                        self.zoom = None;
+                        self.pan = (0., 0.);
+                    } else {
+                        self.zoom_at(
+                            1. / self.zoom.unwrap_or(self.layout.get().scale).max(0.01),
+                            position,
+                            cx,
+                        );
+                    }
+                } else {
+                    self.zoom_at(1. + delta, position, cx);
+                }
+                cx.notify();
+                return;
+            }
             Message::Transformed(Ok((document, count, image))) => {
                 self.selected = None;
                 self.object_drag = None;
@@ -447,6 +485,19 @@ impl Editor {
         if self.busy {
             return;
         }
+        if self.space_down {
+            self.pan_start = Some(e.position);
+            cx.notify();
+            return;
+        }
+        if self.zoom_down {
+            self.zoom_at(
+                if e.modifiers.shift { 0.5 } else { 2. },
+                (f32::from(e.position.x), f32::from(e.position.y)),
+                cx,
+            );
+            return;
+        }
         if let Some(edit) = &mut self.text_edit
             && edit
                 .bounds
@@ -460,12 +511,17 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        let Some(p) = self.coordinate(e.position, false) else {
+        let Some(mut p) = self.coordinate(e.position, false) else {
             return;
         };
+        if self.tool == Tool::Crop {
+            p = navigation::endpoint(Tool::Crop, p, p, false, self.layout.get());
+        }
         if self.tool == Tool::Select {
             self.selected = self.document.pick(p, 5. / self.layout.get().scale);
             if let Some(index) = self.selected {
+                self.color = self.document.marks[index].color;
+                self.width = self.document.marks[index].width;
                 self.object_drag = Some((index, p, self.document.marks[index].clone()));
                 self.changed();
             }
@@ -554,7 +610,8 @@ impl Editor {
         if let Some((index, start, _)) = self.object_drag.as_ref() {
             if let Some(p) = self.coordinate(e.position, true) {
                 let mut moved = self.document.marks[*index].clone();
-                moved.translate(p.0 - start.0, p.1 - start.1);
+                let d = navigation::translation(*start, p, e.modifiers.shift);
+                moved.translate(d.0, d.1);
                 self.object_drag.as_mut().unwrap().2 = moved;
                 cx.notify();
             }
@@ -576,16 +633,27 @@ impl Editor {
                 mark.points.push(p);
             } else {
                 mark.points.truncate(1);
-                mark.points.push(p);
+                mark.points.push(navigation::endpoint(
+                    mark.tool,
+                    mark.points[0],
+                    p,
+                    e.modifiers.shift,
+                    self.layout.get(),
+                ));
             }
             cx.notify();
         }
     }
     fn finish(&mut self, e: &MouseUpEvent, cx: &mut Context<Self>) {
+        if self.pan_start.take().is_some() {
+            cx.notify();
+            return;
+        }
         if let Some((index, start, mut moved)) = self.object_drag.take() {
             if let Some(p) = self.coordinate(e.position, true) {
                 moved = self.document.marks[index].clone();
-                moved.translate(p.0 - start.0, p.1 - start.1);
+                let d = navigation::translation(start, p, e.modifiers.shift);
+                moved.translate(d.0, d.1);
             }
             if moved.points != self.document.marks[index].points {
                 self.document.remember();
@@ -605,7 +673,13 @@ impl Editor {
         if let Some(p) = self.coordinate(e.position, true)
             && let Some(mark) = &mut self.draft
         {
-            mark.points.push(p);
+            mark.points.push(navigation::endpoint(
+                mark.tool,
+                mark.points[0],
+                p,
+                e.modifiers.shift,
+                self.layout.get(),
+            ));
         }
         if let Some(mark) = self.draft.take() {
             if mark.tool == Tool::Crop {
@@ -708,6 +782,43 @@ impl Editor {
                 return;
             }
         }
+        if !m.platform && !m.alt && !m.control {
+            if key == "space" {
+                self.space_down = true;
+                cx.notify();
+                cx.stop_propagation();
+                return;
+            }
+            if key == "z" {
+                self.zoom_down = true;
+                cx.notify();
+                cx.stop_propagation();
+                return;
+            }
+            if matches!(key, "left" | "right" | "up" | "down")
+                && self.selected.is_some()
+                && !self.busy
+            {
+                self.cancel_move();
+                if let Some(index) = self.selected {
+                    if !e.is_held {
+                        self.document.remember();
+                    }
+                    let step = if m.shift { 10. } else { 1. };
+                    let d = match key {
+                        "left" => (-step, 0.),
+                        "right" => (step, 0.),
+                        "up" => (0., -step),
+                        _ => (0., step),
+                    };
+                    self.document.marks[index].translate(d.0, d.1);
+                    self.changed();
+                    cx.notify();
+                }
+                cx.stop_propagation();
+                return;
+            }
+        }
         if m.platform && m.alt && matches!(key, "2" | "3") {
             self.capture(key == "2", cx);
         } else if m.platform {
@@ -717,6 +828,7 @@ impl Editor {
                 "s" => self.export(true, cx),
                 "o" => self.open(cx),
                 "v" => self.paste_image(cx),
+                "d" => self.duplicate_selected(cx),
                 "z" => self.history(m.shift, cx),
                 "1" => {
                     self.zoom = None;
@@ -760,6 +872,40 @@ impl Editor {
             self.changed();
         }
     }
+    fn duplicate_selected(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.cancel_move();
+        if let Some(index) = self.selected {
+            let mut mark = self.document.marks[index].clone();
+            mark.translate(10., 10.);
+            self.document.commit(mark);
+            self.selected = Some(self.document.marks.len() - 1);
+            self.changed();
+            cx.notify();
+        }
+    }
+    fn apply_style(&mut self, color: bool, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.cancel_move();
+        if let Some(index) = self.selected {
+            let m = &self.document.marks[index];
+            if (color && m.color != self.color) || (!color && m.width != self.width) {
+                self.document.remember();
+                let m = &mut self.document.marks[index];
+                if color {
+                    m.color = self.color;
+                } else {
+                    m.width = self.width;
+                }
+                self.changed();
+            }
+        }
+        cx.notify();
+    }
     fn delete_selected(&mut self, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -774,9 +920,59 @@ impl Editor {
             cx.notify();
         }
     }
+    fn zoom_at(&mut self, factor: f32, anchor: (f32, f32), cx: &mut Context<Self>) {
+        if self.draft.is_some() || self.object_drag.is_some() || self.pan_start.is_some() {
+            return;
+        }
+        let bounds = self.canvas_bounds.get();
+        let center = (
+            f32::from(bounds.origin.x + bounds.size.width * 0.5),
+            f32::from(bounds.origin.y + bounds.size.height * 0.5),
+        );
+        if let Some((zoom, pan)) = navigation::anchored_zoom(
+            self.zoom.unwrap_or(self.layout.get().scale),
+            self.pan,
+            center,
+            anchor,
+            factor,
+        ) {
+            self.zoom = Some(zoom);
+            self.pan = pan;
+            cx.notify();
+        }
+    }
     fn change_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
-        self.zoom = Some((self.zoom.unwrap_or(self.layout.get().scale) * factor).clamp(0.1, 4.));
-        cx.notify();
+        let b = self.canvas_bounds.get();
+        self.zoom_at(
+            factor,
+            (
+                f32::from(b.origin.x + b.size.width * 0.5),
+                f32::from(b.origin.y + b.size.height * 0.5),
+            ),
+            cx,
+        );
+    }
+    fn scroll(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
+        if self.draft.is_some() || self.object_drag.is_some() || self.pan_start.is_some() {
+            return;
+        }
+        let delta = e.delta.pixel_delta(px(24.));
+        if e.modifiers.platform {
+            self.zoom_at(
+                (f32::from(delta.y) * 0.008).exp(),
+                (f32::from(e.position.x), f32::from(e.position.y)),
+                cx,
+            );
+        } else {
+            if e.modifiers.shift && f32::from(delta.x).abs() < 0.01 {
+                self.pan.0 += f32::from(delta.y);
+            } else {
+                self.pan.0 += f32::from(delta.x);
+                self.pan.1 += f32::from(delta.y);
+            }
+            cx.notify();
+        }
+        cx.stop_propagation();
     }
     fn tool_button(&self, tool: Tool, cx: &Context<Self>) -> impl IntoElement {
         let (name, key) = match tool {
@@ -883,6 +1079,11 @@ impl Editor {
 }
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !window.is_window_active() {
+            self.space_down = false;
+            self.zoom_down = false;
+            self.pan_start = None;
+        }
         for image in self.retired.drain(..) {
             let _ = window.drop_image(image);
         }
@@ -910,6 +1111,7 @@ impl Render for Editor {
                 .or_else(|| self.document.marks.get(index))
                 .map(Mark::bounds)
         });
+        let canvas_bounds = self.canvas_bounds.clone();
         let layout = self.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
@@ -1022,7 +1224,19 @@ impl Render for Editor {
             .on_action(|_: &menus::Help, _, cx| {
                 cx.open_url("https://github.com/benvinegar/pachiri#workflow")
             })
+            .on_action(cx.listener(|this, _: &menus::Duplicate, _, cx| this.duplicate_selected(cx)))
             .on_key_down(cx.listener(Self::key))
+            .on_key_up(cx.listener(|this, e: &KeyUpEvent, _, cx| {
+                match e.keystroke.key.as_str() {
+                    "space" => {
+                        this.space_down = false;
+                        this.pan_start = None;
+                    }
+                    "z" => this.zoom_down = false,
+                    _ => {}
+                }
+                cx.notify();
+            }))
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(|this, e, _, cx| this.outside_text(e, cx)),
@@ -1110,7 +1324,7 @@ impl Render for Editor {
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.color = color;
-                                        cx.notify();
+                                        this.apply_style(true, cx);
                                     }))
                             }))
                             .child(self.button(
@@ -1123,7 +1337,7 @@ impl Render for Editor {
                                         5 => 9.,
                                         _ => 3.,
                                     };
-                                    cx.notify();
+                                    this.apply_style(false, cx);
                                 },
                             )),
                     )
@@ -1178,11 +1392,31 @@ impl Render for Editor {
             .child(
                 div()
                     .relative()
+                    .on_scroll_wheel(cx.listener(|this, e, _, cx| this.scroll(e, cx)))
+                    .on_drop(cx.listener(|this, files: &ExternalPaths, _, cx| {
+                        if this.busy {
+                            return;
+                        }
+                        if let Some(path) = files.paths().first() {
+                            let path = path.clone();
+                            this.commit_text(cx);
+                            this.cancel_move();
+                            this.busy = true;
+                            let sender = this.sender.clone();
+                            std::thread::spawn(move || {
+                                let _ = sender
+                                    .send_blocking(Message::Image(platform::load(&path).map(Some)));
+                            });
+                            cx.notify();
+                        }
+                    }))
                     .flex()
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .cursor(if self.tool == Tool::Select {
+                    .cursor(if self.space_down {
+                        CursorStyle::OpenHand
+                    } else if self.tool == Tool::Select {
                         CursorStyle::Arrow
                     } else {
                         CursorStyle::Crosshair
@@ -1198,6 +1432,7 @@ impl Render for Editor {
                         canvas(
                             move |bounds, _, _| bounds,
                             move |bounds, _, window, cx| {
+                                canvas_bounds.set(bounds);
                                 window.paint_quad(fill(bounds, rgb(0xeff0f4)));
                                 let fit = ((f32::from(bounds.size.width) - 80.)
                                     / output_dimensions.0 as f32)

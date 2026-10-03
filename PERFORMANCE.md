@@ -71,3 +71,9 @@ and subsequent layers render as GPU overlays during pointer movement. Release
 commits one history snapshot and schedules the normal composed preview. Pixelation
 regions above that prefix use their selection outline during dragging and are
 fully recomposited on release. No screenshot rasterization runs in mouse-move.
+
+Pinch, wheel zoom and pan update only the viewport transform and request a GPUI
+redraw. AppKit magnify/smart-magnify events are bridged into the editor channel
+because GPUI 0.2.2 does not expose these events. The monitor is local to the app,
+filters to canvas bounds, and is removed when the editor drops. No timer polling,
+screenshot recomposition or texture upload is used by zoom or pan handlers.

@@ -9,6 +9,7 @@ actions!(
         Undo,
         Redo,
         Delete,
+        Duplicate,
         Select,
         Pen,
         Arrow,
@@ -38,6 +39,7 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("cmd-z", Undo, None),
         KeyBinding::new("cmd-shift-z", Redo, None),
         KeyBinding::new("backspace", Delete, None),
+        KeyBinding::new("cmd-d", Duplicate, None),
         KeyBinding::new("v", Select, None),
         KeyBinding::new("p", Pen, None),
         KeyBinding::new("a", Arrow, None),
@@ -78,6 +80,7 @@ pub fn install(cx: &mut App) {
                 MenuItem::action("Copy", Copy),
                 MenuItem::action("Paste", Paste),
                 MenuItem::action("Delete", Delete),
+                MenuItem::action("Duplicate", Duplicate),
             ],
         },
         Menu {

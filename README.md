@@ -44,7 +44,13 @@ not configured.
   Crop and resize preserve editable annotations; rotation still flattens them.
 - Mark up with **P** pen, **A** arrow, **R** rectangle, **T** text, **H** highlight,
   **B** pixelation or **X** crop. Drag to crop immediately; undo restores it.
-- Click a color or the stroke-width button (3, 5, 9 px) to change the next mark.
+- Click a color or the stroke-width button (3, 5, 9 px) to change the selected
+  annotation, or the next mark when nothing is selected. **⌘D** duplicates the
+  selected annotation. **Arrow keys** nudge it 1 pixel; **Shift + arrows** move
+  10 pixels. Held key repeats are grouped into one undo step.
+- **Shift-drag:** arrows snap to 45° angles; boxes, highlights, pixelation and
+  crops become squares; moving an object locks to the dominant axis. Crop
+  endpoints snap to image edges within 8 screen pixels.
 - **Text:** click the canvas and type directly into the outlined box. Enter or
   clicking outside finishes the label; Escape cancels. Selection, copy/paste,
   text undo/redo and native macOS input methods work while editing. Labels are
@@ -57,7 +63,13 @@ not configured.
   transparent in the PNG.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
-  Right-drag pans. Escape cancels an unfinished mark. **⌘Q** quits.
+  Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
+  scroll** zooms; **Shift + wheel** pans horizontally. Hold **Space** and drag
+  to pan, or right-drag. Hold **Z** and click to zoom in at that spot; Shift-click
+  zooms out. Trackpad smart zoom (two-finger double-tap) toggles 100%/fit.
+  Escape cancels an unfinished mark. **⌘Q** quits.
+- Drag an image file from Finder onto the canvas to open it. This replaces the
+  current image, like Open; save or copy your work first.
 - The starter image is a practice canvas. Capture or open replaces it.
 - **N** places sequential numbered callouts. Undo removes the last step.
 - **⌘V** loads an image from the clipboard when you are not editing text.

@@ -147,3 +147,13 @@ undoable deletion. V activates the picker. Crop translates marks into the new
 image coordinates instead of flattening them. The 48 px toolbar uses Lucide
 icons and tooltips; native File/Edit/Draw/Zoom/Help menus reuse editor commands
 and preserve the text editor’s clipboard and undo behavior.
+
+## Navigation and interaction polish
+
+Implemented native trackpad pinch/smart zoom, anchored wheel/Z-click zoom,
+two-finger and Space-drag pan, 1/10 px annotation nudges, duplication, selected
+object styling, Shift constraints and crop edge snapping, and file drop to open.
+References: [Shottr tips](https://shottr.cc/#tips) and
+[CleanShot features](https://cleanshot.com/features). Direct Shottr inspection
+was blocked by computer-use access; behavior above is our implementation based
+on the published descriptions, not a verified pixel-for-pixel reproduction.
