@@ -133,6 +133,15 @@ impl Document {
         }
         out
     }
+    pub fn export_at(&self, phase: f32) -> RgbaImage {
+        if let Some(b) = self.backdrop
+            && b.motion != crate::animation::Motion::Still
+        {
+            crate::animation::Renderer::new(&self.render(None), b, None).frame(phase)
+        } else {
+            self.export()
+        }
+    }
     pub fn export(&self) -> RgbaImage {
         let image = self.render(None);
         if let Some(b) = self.backdrop {

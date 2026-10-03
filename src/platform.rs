@@ -116,3 +116,14 @@ pub fn clipboard_image() -> Result<RgbaImage, String> {
     )
     .ok_or_else(|| "Invalid clipboard image.".into())
 }
+
+pub fn video_destination() -> Result<Option<PathBuf>, String> {
+    let Some(mut path) = dialog(
+        "POSIX path of (choose file name with prompt \"Export animated backdrop video\" default name \"Pachiri.mp4\")",
+    )?
+    else {
+        return Ok(None);
+    };
+    path.set_extension("mp4");
+    Ok(Some(path))
+}

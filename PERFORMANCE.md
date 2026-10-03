@@ -83,3 +83,20 @@ GPU path with a filled triangular head. The midpoint lies on the visible curve;
 export uses the same geometry with a supersampled coverage mask to avoid colored
 alpha fringes. The mask is allocated only on the compositor worker. Curved-arrow
 path preparation measured p50 0.005 ms / p95 0.006 ms over 1,000 release samples.
+
+## Animated backdrops
+
+Display-frame requests run only for an active window with a playing motion
+backdrop. Preview paints GPUI Metal gradient, Gaussian shadow and star primitives;
+the screenshot texture stays constant. Animation ticks allocate no screenshot
+pixels, upload no image textures, launch no compositor workers and create no
+undo snapshots. Pause, window deactivation and static backgrounds stop frame
+requests. Drawing and normal object edits retain the existing GPU overlay path.
+
+Video export composites the screenshot/annotations once, caches the foreground
+and shadow coverage, then streams one bounded frame at a time to an AVFoundation
+helper. Soft-blob export shading uses a cached lookup of GPUI's Gaussian
+integration. Opaque foreground pixels bypass animated shading. H.264 output is
+30 fps with a maximum 1920 px edge; no frame sequence is retained in memory.
+Encoding speed varies with output size and effect; native desktop preview frame
+times/input latency have not been measured because app control remains denied.

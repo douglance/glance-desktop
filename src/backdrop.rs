@@ -4,6 +4,8 @@ use image::{Rgba, RgbaImage};
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Backdrop {
     pub gradient: bool,
+    pub motion: crate::animation::Motion,
+    pub seconds: u32,
     pub preset: usize,
     pub padding: u32,
     pub inner_radius: u32,
@@ -24,6 +26,8 @@ impl Default for Backdrop {
     fn default() -> Self {
         Self {
             gradient: false,
+            motion: crate::animation::Motion::Still,
+            seconds: 5,
             preset: 0,
             padding: 64,
             inner_radius: 18,
@@ -49,6 +53,9 @@ impl Backdrop {
         }
     }
     pub fn apply(self, source: &RgbaImage) -> RgbaImage {
+        if self.motion != crate::animation::Motion::Still {
+            return crate::animation::Renderer::new(source, self, None).frame(0.);
+        }
         let (w, h) = self.dimensions(source.dimensions());
         let mut out = RgbaImage::new(w, h);
         let (_, from, to) = PRESETS[self.preset];
@@ -113,10 +120,10 @@ impl Backdrop {
         out
     }
 }
-fn coverage(distance: f32) -> f32 {
+pub(crate) fn coverage(distance: f32) -> f32 {
     (0.5 - distance).clamp(0., 1.)
 }
-fn distance(x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
+pub(crate) fn distance(x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
     let radius = radius.min(w * 0.5).min(h * 0.5);
     let qx = (x - w * 0.5).abs() - w * 0.5 + radius;
     let qy = (y - h * 0.5).abs() - h * 0.5 + radius;
@@ -129,6 +136,7 @@ pub enum Control {
     InnerRadius,
     OuterRadius,
     Shadow,
+    Duration,
 }
 impl Control {
     pub fn label(self) -> &'static str {
@@ -137,12 +145,17 @@ impl Control {
             Self::InnerRadius => "Image corners",
             Self::OuterRadius => "Backdrop corners",
             Self::Shadow => "Shadow",
+            Self::Duration => "Duration",
         }
+    }
+    pub fn min(self) -> u32 {
+        if self == Self::Duration { 2 } else { 0 }
     }
     pub fn max(self) -> u32 {
         match self {
             Self::Padding => 200,
             Self::Shadow => 60,
+            Self::Duration => 15,
             _ => 80,
         }
     }
@@ -152,6 +165,7 @@ impl Control {
             Self::InnerRadius => b.inner_radius,
             Self::OuterRadius => b.outer_radius,
             Self::Shadow => b.shadow,
+            Self::Duration => b.seconds,
         }
     }
     pub fn set(self, b: &mut Backdrop, value: u32) {
@@ -160,6 +174,7 @@ impl Control {
             Self::InnerRadius => b.inner_radius = value,
             Self::OuterRadius => b.outer_radius = value,
             Self::Shadow => b.shadow = value,
+            Self::Duration => b.seconds = value.clamp(2, 15),
         }
     }
 }

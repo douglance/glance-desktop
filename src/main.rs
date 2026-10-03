@@ -1,3 +1,4 @@
+mod animation;
 mod arrow;
 mod backdrop;
 mod backdrop_panel;
@@ -18,6 +19,7 @@ mod selection;
 #[cfg(test)]
 mod stress_tests;
 mod text;
+mod video;
 actions!(pachiri, [Quit]);
 use document::{Document, Mark, Tool};
 use global_hotkey::{
@@ -41,6 +43,8 @@ enum Message {
     Preview(u64, usize, Arc<RenderImage>),
     Cropped(Document, Arc<RenderImage>),
     Image(Result<Option<image::RgbaImage>, String>),
+    VideoProgress(u32),
+    VideoSaved(Result<Option<std::path::PathBuf>, String>),
     Saved(Result<Option<std::path::PathBuf>, String>),
     Copied(Result<(), String>),
     Transformed(Result<(Document, usize, Arc<RenderImage>), String>),
@@ -62,6 +66,12 @@ struct Editor {
     draft: Option<Mark>,
     text_edit: Option<text::Edit>,
     text_session: u64,
+    animation_epoch: std::time::Instant,
+    animation_paused: bool,
+    animation_position: f32,
+    last_video: Option<std::path::PathBuf>,
+    video_progress: Option<u32>,
+    video_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     backdrop_panel: bool,
     backdrop_drag: Option<(backdrop::Control, Bounds<Pixels>)>,
     enhance_panel: bool,
@@ -190,6 +200,12 @@ impl Editor {
             draft: None,
             text_edit: None,
             text_session: 0,
+            animation_epoch: std::time::Instant::now(),
+            animation_paused: false,
+            animation_position: 0.,
+            last_video: None,
+            video_progress: None,
+            video_cancel: None,
             backdrop_panel: false,
             backdrop_drag: None,
             enhance_panel: false,
@@ -237,6 +253,7 @@ impl Editor {
         let failed = matches!(
             &message,
             Message::Image(Err(_))
+                | Message::VideoSaved(Err(_))
                 | Message::Saved(Err(_))
                 | Message::Copied(Err(_))
                 | Message::Transformed(Err(_))
@@ -338,6 +355,24 @@ impl Editor {
                 self.busy = false;
                 self.status = e;
             }
+            Message::VideoProgress(percent) => {
+                self.video_progress = Some(percent);
+                cx.notify();
+                return;
+            }
+            Message::VideoSaved(result) => {
+                self.busy = false;
+                self.video_progress = None;
+                self.video_cancel = None;
+                self.status = match result {
+                    Ok(Some(path)) => {
+                        self.last_video = Some(path.clone());
+                        format!("Video saved to {}", path.display())
+                    }
+                    Ok(None) => "Video export canceled".into(),
+                    Err(e) => e,
+                };
+            }
             Message::Saved(result) => {
                 self.busy = false;
                 self.status = match result {
@@ -437,6 +472,7 @@ impl Editor {
         self.commit_text(cx);
         self.busy = true;
         let document = self.document.render_snapshot();
+        let phase = self.animation_phase();
         let sender = self.sender.clone();
         self.status = if save {
             "Choose where to save…"
@@ -445,7 +481,7 @@ impl Editor {
         }
         .into();
         std::thread::spawn(move || {
-            let image = document.export();
+            let image = document.export_at(phase);
             let message = if save {
                 Message::Saved(platform::save(image))
             } else {
@@ -758,6 +794,11 @@ impl Editor {
     }
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
+        if key == "escape" && self.video_cancel.is_some() {
+            self.cancel_video(cx);
+            cx.stop_propagation();
+            return;
+        }
         let m = e.keystroke.modifiers;
         if self.text_edit.is_some() {
             if matches!(key, "enter" | "escape")
@@ -1100,6 +1141,10 @@ impl Editor {
             Some("rotate-cw")
         } else if label.starts_with("Copy") {
             Some("copy")
+        } else if label.starts_with("Export MP4") {
+            Some("video")
+        } else if label == "Cancel export" {
+            Some("square")
         } else if label.starts_with("Save") {
             Some("save")
         } else {
@@ -1172,6 +1217,14 @@ impl Render for Editor {
         let layout = self.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let animation_phase = self.animation_phase();
+        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
+            && !self.animation_paused
+            && !self.busy
+            && window.is_window_active()
+        {
+            window.request_animation_frame();
+        }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
         let viewport = window.viewport_size();
         let fit_zoom = ((f32::from(viewport.width)
@@ -1281,6 +1334,7 @@ impl Render for Editor {
             .on_action(
                 cx.listener(|this, _: &menus::Counter, _, cx| this.set_tool(Tool::Counter, cx)),
             )
+            .on_action(cx.listener(|this, _: &menus::ExportVideo, _, cx| this.export_video(cx)))
             .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| this.toggle_backdrop(cx)))
             .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| this.toggle_enhance(cx)))
             .on_action(|_: &menus::Help, _, cx| {
@@ -1532,6 +1586,21 @@ impl Render for Editor {
                                         rgb(0xffffff),
                                         Default::default(),
                                     ));
+                                    if b.motion != animation::Motion::Still {
+                                        window.with_content_mask(
+                                            Some(ContentMask {
+                                                bounds: frame_bounds.intersect(&bounds),
+                                            }),
+                                            |window| {
+                                                animation::paint(
+                                                    b,
+                                                    animation_phase,
+                                                    frame_bounds,
+                                                    window,
+                                                )
+                                            },
+                                        );
+                                    }
                                     if b.shadow > 0 {
                                         window.with_content_mask(
                                             Some(ContentMask {

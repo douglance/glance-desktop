@@ -4,6 +4,7 @@ actions!(
     [
         Open,
         Save,
+        ExportVideo,
         Copy,
         Paste,
         Undo,
@@ -69,6 +70,7 @@ pub fn install(cx: &mut App) {
                 MenuItem::separator(),
                 MenuItem::action("Open Image…", Open),
                 MenuItem::action("Save PNG…", Save),
+                MenuItem::action("Export Backdrop Video…", ExportVideo),
             ],
         },
         Menu {

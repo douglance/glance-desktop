@@ -362,3 +362,52 @@ fn arrow_handles_edit_independently_and_new_marks_stay_selected(cx: &mut TestApp
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn motion_controls_pause_duration_and_history(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.backdrop_style(
+            |b| {
+                b.motion = crate::animation::Motion::Lava;
+                b.seconds = 5;
+            },
+            cx,
+        );
+        let base = e.document.base.clone();
+        e.animation_paused = true;
+        e.animation_position = 1.25;
+        assert!((e.animation_phase() - 0.25).abs() < 0.001);
+        let track = Bounds::new(point(px(0.), px(0.)), size(px(130.), px(24.)));
+        e.backdrop_drag = Some((crate::backdrop::Control::Duration, track));
+        e.backdrop_slider_move(point(px(80.), px(12.)), cx);
+        assert_eq!(e.document.backdrop.unwrap().seconds, 10);
+        assert!(
+            (e.animation_phase() - 0.25).abs() < 0.001,
+            "duration preserves current phase"
+        );
+        e.backdrop_slider_move(point(px(-20.), px(12.)), cx);
+        assert_eq!(e.document.backdrop.unwrap().seconds, 2);
+        e.backdrop_slider_move(point(px(200.), px(12.)), cx);
+        assert_eq!(e.document.backdrop.unwrap().seconds, 15);
+        e.backdrop_drag = None;
+        e.toggle_animation(cx);
+        assert!(!e.animation_paused);
+        e.toggle_animation(cx);
+        assert!(e.animation_paused);
+        let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        e.video_cancel = Some(cancel.clone());
+        e.key(&key("escape"), w, cx);
+        assert!(cancel.load(std::sync::atomic::Ordering::Relaxed));
+        e.video_cancel = None;
+        e.document.undo();
+        assert!(e.document.backdrop.is_none());
+        e.document.redo();
+        assert_eq!(
+            e.document.backdrop.unwrap().motion,
+            crate::animation::Motion::Lava
+        );
+        assert!(Arc::ptr_eq(&base, &e.document.base));
+    })
+    .unwrap();
+}

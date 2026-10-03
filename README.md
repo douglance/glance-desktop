@@ -11,6 +11,8 @@ Requires macOS 12+, Xcode Command Line Tools and a current stable Rust toolchain
 cargo run --locked
 ```
 
+For video export, run the bundle build below once to compile the native encoder.
+
 Build a locally signed app bundle:
 
 ```sh
@@ -65,6 +67,15 @@ not configured.
   restores the original framing. Each slider gesture is one undo step. Copy and
   PNG save include the backdrop at full resolution; rounded outer corners are
   transparent in the PNG.
+- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Lava,
+  Starfield or Painterly. Screenshot and annotations stay fixed while the
+  background moves. Set a **2–15 second** duration (5 seconds by default),
+  pause/play the preview, and choose **Export MP4…**. Export streams 30 fps
+  H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
+  1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
+  is one seamless cycle; duration also controls the preview's cycle speed.
+  **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
+  in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
   Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
@@ -100,7 +111,7 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 Implemented: global area/full-screen capture, pen, arrows, rectangles, text,
 highlights, pixelation, crop, backdrops, numbered callouts, smart upscale/resize,
 rotation, object selection/movement/deletion, undo/redo, fit/zoom/pan, open,
-clipboard import and PNG save. A single icon toolbar keeps image dimensions and
+clipboard import, PNG save and animated backdrop MP4 export. A single icon toolbar keeps image dimensions and
 zoom visible; native File, Edit, Draw, Zoom and Help menus expose the commands.
 See [PLAN.md](PLAN.md) for architecture and the intended proof-of-concept scope.
 
