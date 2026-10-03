@@ -22,6 +22,42 @@ pub fn load(path: &std::path::Path) -> Result<RgbaImage, String> {
         .map(|i| i.to_rgba8())
         .map_err(|e| e.to_string())
 }
+#[cfg(target_os = "macos")]
+#[link(name = "CoreGraphics", kind = "framework")]
+unsafe extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+}
+/// Called only when the user requests capture, before hiding the editor.
+pub fn screen_capture_permission() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    unsafe {
+        if CGPreflightScreenCaptureAccess() {
+            return Ok(());
+        }
+        // Let macOS present its normal permission request for a first-time grant.
+        let _ = CGRequestScreenCaptureAccess();
+        if CGPreflightScreenCaptureAccess() {
+            return Ok(());
+        }
+    }
+    Err("macOS is not authorizing this Pachiri build to record the screen. Open System Settings → Privacy & Security → Screen & System Audio Recording. If Pachiri is already enabled, quit Pachiri, remove its entry with −, add /Applications/Pachiri.app with +, enable it, then reopen. Rebuilding an ad-hoc signed app can invalidate an older permission.".into())
+}
+fn capture_failure(area: bool, stderr: &[u8], code: Option<i32>) -> Option<String> {
+    let detail = String::from_utf8_lossy(stderr);
+    let detail = detail.trim();
+    if area && detail.is_empty() && matches!(code, Some(0 | 1)) {
+        return None;
+    }
+    Some(if detail.is_empty() {
+        format!(
+            "Screen capture produced no image (exit {}). Try again with the screen unlocked.",
+            code.map_or("unknown".into(), |c| c.to_string())
+        )
+    } else {
+        format!("Screen capture failed: {detail}")
+    })
+}
 pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     // Unique paths avoid mistaking a canceled selection for a previous capture.
     let path = std::env::temp_dir().join(format!(
@@ -40,8 +76,8 @@ pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     let output = command.arg(&path).output().map_err(|e| e.to_string())?;
     let result = if path.exists() {
         load(&path).map(Some)
-    } else if !output.stderr.is_empty() || !area {
-        Err("Capture failed. Allow Pachiri in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch.".into())
+    } else if let Some(error) = capture_failure(area, &output.stderr, output.status.code()) {
+        Err(error)
     } else {
         Ok(None)
     };
@@ -126,4 +162,25 @@ pub fn video_destination() -> Result<Option<PathBuf>, String> {
     };
     path.set_extension("mp4");
     Ok(Some(path))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::capture_failure;
+    #[test]
+    fn capture_errors_preserve_real_cause_and_cancellation_is_quiet() {
+        assert!(capture_failure(true, b"", Some(1)).is_none());
+        assert!(capture_failure(true, b" \n", Some(0)).is_none());
+        assert!(
+            capture_failure(false, b"", Some(1))
+                .unwrap()
+                .contains("produced no image")
+        );
+        assert!(
+            capture_failure(true, b"could not create image from display", Some(1))
+                .unwrap()
+                .contains("could not create image from display")
+        );
+        assert!(capture_failure(true, b"", None).is_some());
+    }
 }

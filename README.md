@@ -35,6 +35,25 @@ Settings → Privacy & Security → Screen & System Audio Recording**, then rela
 This local bundle uses an ad-hoc signature; distribution signing/notarization is
 not configured.
 
+### Screen Recording enabled but capture fails
+
+Ad-hoc signing gives each changed executable a different designated requirement.
+macOS may display the old grant as enabled while rejecting the rebuilt app.
+Quit Pachiri, remove its entry from **Screen & System Audio Recording** with **−**,
+add `/Applications/Pachiri.app` again with **+**, enable it and reopen. Re-grant
+only after the final rebuild; another changed ad-hoc build may require it again.
+The app now checks permission before hiding and preserves other capture errors.
+
+For development with a stable code-signing certificate already in your Keychain:
+
+```sh
+PACHIRI_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
+```
+
+Use the same certificate for subsequent builds. The default remains ad-hoc;
+no certificate or Keychain trust is installed automatically. See Apple's
+[code-signing requirement explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
 ## Workflow
 
 - **⌘⌥2** captures an area using the native macOS selector. Escape cancels.

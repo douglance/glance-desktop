@@ -2,7 +2,7 @@
 
 ## Result
 
-39 automated tests pass. Native desktop testing remains blocked: computer-use
+40 automated tests pass. Native desktop testing remains blocked: computer-use
 access to Pachiri was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -98,3 +98,19 @@ cargo test --release --locked drawing_preparation_benchmark -- --ignored --nocap
 ```
 
 The benchmark measures CPU preparation, not input-to-display latency.
+
+## Screen Recording grant after a rebuild
+
+macOS tccd logs reported “Failed to match existing code requirement” for
+`dev.benv.pachiri` / `kTCCServiceScreenCapture`. `codesign -d -r-` showed a
+build-specific cdhash designated requirement, and no code-signing identities
+were available in the local Keychain. This confirms the enabled Settings entry
+was not authorizing the installed build.
+
+Capture now preflights permission and requests the standard macOS grant before
+hiding the editor. Rejected grants show remove/re-add instructions; unrelated
+capture failures preserve screencapture stderr rather than alleging a missing
+permission. Regression coverage checks cancellation and error classification.
+The bundle script accepts PACHIRI_CODESIGN_IDENTITY for stable certificate
+signing and warns when falling back to ad-hoc. Permission removal/re-granting
+remains a manual System Settings action; it was not automated or verified here.

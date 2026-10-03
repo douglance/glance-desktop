@@ -441,6 +441,10 @@ impl Editor {
         if self.busy {
             return;
         }
+        if let Err(error) = platform::screen_capture_permission() {
+            self.receive(Message::Image(Err(error)), cx);
+            return;
+        }
         self.commit_text(cx);
         self.draft = None;
         self.busy = true;

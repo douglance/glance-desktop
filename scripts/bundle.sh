@@ -33,5 +33,11 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </dict></plist>
 PLIST
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$APP/Contents/Info.plist"
-codesign --force --deep --sign - "$APP"
+# Use the same certificate across builds to retain macOS privacy permissions.
+# Ad-hoc signing has a build-specific designated requirement and needs re-grants.
+SIGN_IDENTITY="${PACHIRI_CODESIGN_IDENTITY:--}"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    printf 'Ad-hoc signature: Screen Recording permission may need re-granting after rebuilding.\n'
+fi
 printf 'Built %s\n' "$APP"
