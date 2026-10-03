@@ -6,12 +6,16 @@ mod enhance;
 mod enhance_panel;
 mod gestures;
 mod icons;
+#[cfg(test)]
+mod interaction_tests;
 mod menus;
 mod navigation;
 #[cfg(test)]
 mod performance;
 mod platform;
 mod selection;
+#[cfg(test)]
+mod stress_tests;
 mod text;
 actions!(pachiri, [Quit]);
 use document::{Document, Mark, Tool};
@@ -65,7 +69,7 @@ struct Editor {
     canvas_bounds: Rc<Cell<Bounds<Pixels>>>,
     space_down: bool,
     zoom_down: bool,
-    _gestures: gestures::Monitor,
+    _gestures: Option<gestures::Monitor>,
     zoom: Option<f32>,
     pan: (f32, f32),
     pan_start: Option<Point<Pixels>>,
@@ -112,6 +116,9 @@ fn icon(name: &'static str, color: u32) -> impl IntoElement {
 }
 impl Editor {
     fn new(cx: &mut Context<Self>) -> Self {
+        Self::with_native(cx, true)
+    }
+    fn with_native(cx: &mut Context<Self>, native: bool) -> Self {
         let document = Document::new(document::demo());
         let base = preview_base(&document);
         let preview = render_image(base.clone());
@@ -119,31 +126,37 @@ impl Editor {
         let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
         let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
         let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
-        let hotkeys = match GlobalHotKeyManager::new() {
-            Ok(manager) => {
-                for key in [area, full] {
-                    if let Err(e) = manager.register(key) {
-                        status = format!("Shortcut unavailable: {e}. Use the capture buttons.");
+        let hotkeys = if !native {
+            None
+        } else {
+            match GlobalHotKeyManager::new() {
+                Ok(manager) => {
+                    for key in [area, full] {
+                        if let Err(e) = manager.register(key) {
+                            status = format!("Shortcut unavailable: {e}. Use the capture buttons.");
+                        }
                     }
+                    Some(manager)
                 }
-                Some(manager)
-            }
-            Err(e) => {
-                status = format!("Global shortcuts unavailable: {e}");
-                None
+                Err(e) => {
+                    status = format!("Global shortcuts unavailable: {e}");
+                    None
+                }
             }
         };
         let hotkey_sender = sender.clone();
-        GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
-            if event.state == HotKeyState::Pressed {
-                if event.id == area.id() {
-                    let _ = hotkey_sender.try_send(Message::Hotkey(true));
+        if native {
+            GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+                if event.state == HotKeyState::Pressed {
+                    if event.id == area.id() {
+                        let _ = hotkey_sender.try_send(Message::Hotkey(true));
+                    }
+                    if event.id == full.id() {
+                        let _ = hotkey_sender.try_send(Message::Hotkey(false));
+                    }
                 }
-                if event.id == full.id() {
-                    let _ = hotkey_sender.try_send(Message::Hotkey(false));
-                }
-            }
-        }));
+            }));
+        }
         cx.spawn(async move |view, cx| {
             while let Ok(message) = receiver.recv().await {
                 if view
@@ -156,7 +169,8 @@ impl Editor {
         })
         .detach();
         let canvas_bounds = Rc::new(Cell::new(Bounds::default()));
-        let gestures = gestures::Monitor::new(sender.clone(), canvas_bounds.clone());
+        let gestures =
+            native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
             document,
             revision: 0,
@@ -545,8 +559,10 @@ impl Editor {
                 .marks
                 .iter()
                 .filter(|m| m.tool == Tool::Counter)
-                .count()
-                + 1)
+                .filter_map(|m| m.text.parse::<usize>().ok())
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1))
             .to_string();
             self.document.commit(mark);
             self.changed();
@@ -1157,6 +1173,11 @@ impl Render for Editor {
             .text_color(rgb(0x272831))
             .font_family(".AppleSystemUIFont")
             .track_focus(&self.focus)
+            .key_context(if self.text_edit.is_some() {
+                "PachiriText"
+            } else {
+                "PachiriCanvas"
+            })
             .on_action(
                 cx.listener(|this, _: &menus::Open, window, cx| this.menu_key("cmd-o", window, cx)),
             )

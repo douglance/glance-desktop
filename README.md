@@ -110,7 +110,8 @@ cargo fmt --check
 ```
 
 See [PERFORMANCE.md](PERFORMANCE.md) for the reproducible drawing benchmark and
-its measurement boundaries.
+its measurement boundaries, and [QA.md](QA.md) for interaction/stress test coverage
+and the remaining native desktop checks.
 
 ## Icons
 

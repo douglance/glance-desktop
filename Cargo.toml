@@ -20,6 +20,9 @@ cocoa = "0.26"
 objc = "0.2"
 block = "0.1"
 
+[dev-dependencies]
+gpui = { version = "=0.2.2", features = ["test-support", "runtime_shaders"] }
+
 [profile.release]
 lto = "thin"
 strip = true

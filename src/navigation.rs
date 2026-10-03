@@ -34,6 +34,7 @@ pub fn endpoint(
     if tool == Tool::Crop && layout.scale > 0. {
         let tolerance = 8. / layout.scale;
         for (value, edge) in [(&mut p.0, w), (&mut p.1, h)] {
+            let tolerance = tolerance.min(edge * 0.25);
             if value.abs() <= tolerance {
                 *value = 0.;
             } else if (*value - edge).abs() <= tolerance {
