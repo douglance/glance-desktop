@@ -1,93 +1,13 @@
 //! Bounded, streaming video export using the bundled AVFoundation encoder.
-use crate::{
-    Editor, Message,
-    animation::{Motion, Renderer},
-    document::Document,
-};
-use gpui::Context;
+#[cfg(test)]
+use crate::animation::Motion;
+use crate::{animation::Renderer, document::Document};
 use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
-impl Editor {
-    pub fn animation_phase(&self) -> f32 {
-        let seconds = self.document.backdrop.map_or(5, |b| b.seconds).max(2) as f32;
-        let elapsed = if self.animation_paused {
-            0.
-        } else {
-            self.animation_epoch.elapsed().as_secs_f32()
-        };
-        ((self.animation_position + elapsed) / seconds).rem_euclid(1.)
-    }
-    pub fn toggle_animation(&mut self, cx: &mut Context<Self>) {
-        if self.animation_paused {
-            self.animation_epoch = std::time::Instant::now();
-            self.animation_paused = false;
-        } else {
-            self.animation_position += self.animation_epoch.elapsed().as_secs_f32();
-            self.animation_paused = true;
-        }
-        cx.notify();
-    }
-    pub fn cancel_video(&mut self, cx: &mut Context<Self>) {
-        if let Some(cancel) = &self.video_cancel {
-            cancel.store(true, Ordering::Relaxed);
-            self.status = "Canceling video export…".into();
-            cx.notify();
-        }
-    }
-    pub fn export_video(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.cancel_move();
-        self.draft = None;
-        if !self
-            .document
-            .backdrop
-            .is_some_and(|b| b.motion != Motion::Still)
-        {
-            self.toggle_backdrop(cx);
-            self.backdrop_style(
-                |b| {
-                    b.motion = Motion::Flow;
-                    b.gradient = true;
-                },
-                cx,
-            );
-            self.backdrop_panel = true;
-            cx.notify();
-            return;
-        }
-        let document = self.document.render_snapshot();
-        let phase = self.animation_phase();
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.video_cancel = Some(cancel.clone());
-        self.video_progress = Some(0);
-        self.busy = true;
-        self.backdrop_panel = true;
-        let sender = self.sender.clone();
-        cx.notify();
-        std::thread::spawn(move || {
-            let result = crate::platform::video_destination().and_then(|path| {
-                let Some(path) = path else {
-                    return Ok(None);
-                };
-                encode(&document, &path, phase, &cancel, |percent| {
-                    let _ = sender.try_send(Message::VideoProgress(percent));
-                })
-                .map(|finished| finished.then_some(path))
-            });
-            let _ = sender.send_blocking(Message::VideoSaved(result));
-        });
-    }
-}
 struct Encoder(Child);
 impl Drop for Encoder {
     fn drop(&mut self) {

@@ -1,56 +1,6 @@
-use crate::{Editor, HoverLabel, Message, icon, preview_base, render_image};
-use gpui::{prelude::*, *};
-
+use super::super::*;
 impl Editor {
-    pub fn toggle_enhance(&mut self, cx: &mut Context<Self>) {
-        self.commit_text(cx);
-        self.enhance_panel = !self.enhance_panel;
-        if self.enhance_panel {
-            self.backdrop_panel = false;
-        }
-        cx.notify();
-    }
-    pub fn resize_image(&mut self, rotate: bool, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.draft = None;
-        self.busy = true;
-        let mut document = self.document.clone();
-        let scale = self.resize_scale;
-        let smart = self.resize_smart;
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let result = if rotate {
-                document.rotate();
-                Ok(())
-            } else {
-                document.resize(scale, smart)
-            };
-            let result = result.map(|()| {
-                let count = document.marks.len();
-                let preview = render_image(preview_base(&document));
-                (document, count, preview)
-            });
-            let _ = sender.send_blocking(Message::Transformed(result));
-        });
-        cx.notify();
-    }
-    pub fn paste_image(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.busy = true;
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let _ =
-                sender.send_blocking(Message::Image(crate::platform::clipboard_image().map(Some)));
-        });
-        cx.notify();
-    }
-    pub fn enhance_controls(&self, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn enhance_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let target = crate::enhance::dimensions(self.document.base.dimensions(), self.resize_scale);
         div()
             .id("image-panel")

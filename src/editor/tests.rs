@@ -1,5 +1,5 @@
 //! Tests use GPUI's virtual platform. No desktop interaction or capture permission.
-use crate::{CopyFeedback, Document, Editor, Layout, Message, Tool, render_image};
+use super::{CopyFeedback, Document, Editor, Layout, Message, Tool, render_image};
 use gpui::{
     Bounds, EntityInputHandler, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, TestAppContext, WindowHandle, point, px, size,

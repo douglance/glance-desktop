@@ -1,86 +1,6 @@
-use crate::{
-    Editor, HoverLabel,
-    animation::Motion,
-    backdrop::{Backdrop, Control, PRESETS},
-    icon,
-};
-use gpui::{prelude::*, *};
-use std::{cell::Cell, rc::Rc};
-
+use super::super::*;
 impl Editor {
-    pub fn toggle_backdrop(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.draft = None;
-        self.backdrop_panel = !self.backdrop_panel;
-        if self.backdrop_panel {
-            self.enhance_panel = false;
-        }
-        if self.backdrop_panel && self.document.backdrop.is_none() {
-            self.document.remember();
-            self.document.backdrop = Some(Backdrop::default());
-            self.status = "Backdrop added • style it in the panel • ⌘Z to undo".into();
-        }
-        cx.notify();
-    }
-    pub(crate) fn backdrop_style(
-        &mut self,
-        change: impl FnOnce(&mut Backdrop),
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy {
-            return;
-        }
-        if let Some(mut b) = self.document.backdrop {
-            change(&mut b);
-            if self
-                .document
-                .backdrop
-                .is_some_and(|old| old.motion != b.motion)
-            {
-                self.animation_position = 0.;
-                self.animation_epoch = std::time::Instant::now();
-                self.animation_paused = false;
-            }
-            if self.document.backdrop != Some(b) {
-                self.document.remember();
-                self.document.backdrop = Some(b);
-            }
-        } else {
-            let mut b = Backdrop::default();
-            change(&mut b);
-            self.document.remember();
-            self.document.backdrop = Some(b);
-        }
-        cx.notify();
-    }
-    pub fn backdrop_slider_move(
-        &mut self,
-        position: Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some((control, bounds)) = self.backdrop_drag else {
-            return false;
-        };
-        let phase = self.animation_phase();
-        if let Some(b) = &mut self.document.backdrop {
-            let ratio = f32::from(position.x - bounds.left()) / f32::from(bounds.size.width);
-            control.set(
-                b,
-                control.min()
-                    + (ratio.clamp(0., 1.) * (control.max() - control.min()) as f32).round() as u32,
-            );
-            if control == Control::Duration {
-                self.animation_position = phase * b.seconds as f32;
-                self.animation_epoch = std::time::Instant::now();
-            }
-            cx.notify();
-        }
-        true
-    }
-    fn backdrop_slider(
+    pub(in crate::editor) fn backdrop_slider(
         &self,
         control: Control,
         b: Backdrop,
@@ -179,7 +99,7 @@ impl Editor {
                     ),
             )
     }
-    pub fn backdrop_controls(&self, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn backdrop_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let b = self.document.backdrop.unwrap_or_default();
         div()
             .id("backdrop-panel")
