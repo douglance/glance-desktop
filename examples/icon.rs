@@ -8,7 +8,7 @@ fn main() {
     let directory = std::env::args().nth(1).expect("iconset directory");
     let directory = Path::new(&directory);
     std::fs::create_dir_all(directory).unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons/pachiri-monogram.png");
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons/pachiri-teal-p.png");
     let icon = image::open(source)
         .expect("Pachiri icon master")
         .into_rgba32f();

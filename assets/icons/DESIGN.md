@@ -1,8 +1,9 @@
 # Pachiri app icon
 
-`pachiri-monogram.png` is the active generated master with transparent margins.
-Its pencil forms the stem of a capital P. `pachiri.png` retains the original
-pencil-only design. The
+`pachiri-teal-p.png` is the active generated master with transparent margins.
+It combines a thick, smooth ivory p with thinner capture brackets on a teal tile.
+The p has rounded terminals and no arrowhead. `pachiri.png` and
+`pachiri-monogram.png` retain the earlier pencil designs. The
 bundle's `examples/icon.rs` creates all ten standard macOS iconset PNGs (16–1024
 physical pixels), filtering premultiplied colors to preserve clean alpha edges.
 `scripts/bundle.sh` packages them into `Pachiri.icns` for Dock, Finder, Spotlight
@@ -11,6 +12,12 @@ and the app switcher.
 Generated using the built-in image_gen tool on 2026-10-03.
 
 ## Generation prompt
+
+### Final teal P (built-in image_gen edit)
+
+Reference: `explorations/07-arrow-bold-p.png`.
+
+Use case: precise-object-edit / logo-brand. Make ONE extremely minimal edit to the supplied selected Pachiri macOS app icon: REMOVE the arrowhead at the bottom of the central handwritten p. Replace that arrowhead with a simple smoothly rounded end-cap of the same thickness as the p stroke. Preserve the exact centerline and ending position of the descending p stem; do not bend it into a new direction, extend it, shorten it appreciably or make it look like a pencil. The result is a single thick flowing ivory p with an open loop and round terminals, surrounded by the existing four thinner ivory capture brackets. EVERYTHING ELSE must remain unchanged: exact thick p stroke weight, loop shape and angle, thinner bracket thickness, bracket positions and shape, teal tile color and shading, macOS rounded-square silhouette, image dimensions, transparent margins, ivory material, subtle bevel and shadows. No arrowhead, no tiny arrow remnant, no serif or extra ornament, no pencil, no new details. Output the actual finished icon with genuine alpha transparency outside the rounded-square tile.
 
 ### Monogram revision (built-in image_gen edit)
 
