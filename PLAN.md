@@ -24,7 +24,8 @@ macOS area selection supports multiple displays; full-screen capture targets the
 main display. Captures preserve physical Retina pixel dimensions.
 
 ## Architecture
-- main.rs: GPUI view, controls, input, capture worker and global hotkeys.
+- main.rs: application startup and window creation.
+- editor/: GPUI entity, grouped state, commands, input, worker lifecycles and views.
 - document.rs: image document, annotation geometry, pixelation, crop and history.
 - platform.rs: native macOS capture, dialogs and clipboard integration.
 - scripts/bundle.sh: reproducible app packaging.

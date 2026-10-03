@@ -185,16 +185,16 @@ mod visual_qa {
     #[ignore = "writes a real focus/magnifier GIF and MP4 demo; requires native encoder"]
     fn focus_and_loop_demo_qa() {
         let mut d = Document::new(crate::document::demo());
-        d.commit(crate::Mark {
-            tool: crate::Tool::Spotlight,
+        d.commit(crate::document::Mark {
+            tool: crate::document::Tool::Spotlight,
             points: vec![(62., 258.), (1137., 423.)],
             color: [255, 184, 46, 255],
             width: 2.,
             curve: None,
             text: String::new(),
         });
-        d.commit(crate::Mark {
-            tool: crate::Tool::Magnifier,
+        d.commit(crate::document::Mark {
+            tool: crate::document::Tool::Magnifier,
             points: vec![(240., 279.), (936., 545.)],
             color: [76, 141, 255, 255],
             width: 15.,

@@ -1,104 +1,13 @@
 //! Bounded, streaming video export using the bundled AVFoundation encoder.
-use crate::{
-    Editor, Message,
-    animation::{Motion, Renderer},
-    document::Document,
-};
-use gpui::Context;
+#[cfg(test)]
+use crate::animation::Motion;
+use crate::{animation::Renderer, document::Document};
 use std::{
     io::Write,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
-impl Editor {
-    pub fn animation_phase(&self) -> f32 {
-        let seconds = self.document.backdrop.map_or(5, |b| b.seconds).max(2) as f32;
-        let elapsed = if self.animation_paused {
-            0.
-        } else {
-            self.animation_epoch.elapsed().as_secs_f32()
-        };
-        ((self.animation_position + elapsed) / seconds).rem_euclid(1.)
-    }
-    pub fn toggle_animation(&mut self, cx: &mut Context<Self>) {
-        if self.animation_paused {
-            self.animation_epoch = std::time::Instant::now();
-            self.animation_paused = false;
-        } else {
-            self.animation_position += self.animation_epoch.elapsed().as_secs_f32();
-            self.animation_paused = true;
-        }
-        cx.notify();
-    }
-    pub fn cancel_video(&mut self, cx: &mut Context<Self>) {
-        if let Some(cancel) = &self.video_cancel {
-            cancel.store(true, Ordering::Relaxed);
-            self.status = "Canceling video export…".into();
-            cx.notify();
-        }
-    }
-    pub fn export_video(&mut self, cx: &mut Context<Self>) {
-        self.export_animation(false, cx);
-    }
-    pub fn export_gif(&mut self, cx: &mut Context<Self>) {
-        self.export_animation(true, cx);
-    }
-    fn export_animation(&mut self, gif: bool, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.cancel_move();
-        self.draft = None;
-        if !self
-            .document
-            .backdrop
-            .is_some_and(|b| b.motion != Motion::Still)
-        {
-            self.toggle_backdrop(cx);
-            self.backdrop_style(
-                |b| {
-                    b.motion = Motion::Flow;
-                    b.gradient = true;
-                },
-                cx,
-            );
-            self.backdrop_panel = true;
-            cx.notify();
-            return;
-        }
-        let document = self.document.render_snapshot();
-        let phase = self.animation_phase();
-        let cancel = Arc::new(AtomicBool::new(false));
-        self.video_cancel = Some(cancel.clone());
-        self.video_progress = Some(0);
-        self.busy = true;
-        self.backdrop_panel = true;
-        let sender = self.sender.clone();
-        cx.notify();
-        std::thread::spawn(move || {
-            let result = crate::platform::animation_destination(gif).and_then(|path| {
-                let Some(path) = path else {
-                    return Ok(None);
-                };
-                let progress = |percent| {
-                    let _ = sender.try_send(Message::VideoProgress(percent));
-                };
-                let result = if gif {
-                    crate::gif_export::encode(&document, &path, phase, &cancel, progress)
-                } else {
-                    encode(&document, &path, phase, &cancel, progress)
-                };
-                result.map(|finished| finished.then_some(path))
-            });
-            let _ = sender.send_blocking(Message::VideoSaved(result));
-        });
-    }
-}
 struct Encoder(Child);
 impl Drop for Encoder {
     fn drop(&mut self) {
@@ -229,6 +138,50 @@ fn read_error(child: &mut Child) -> String {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "requires native encoder; produces Liquid shader demo videos"]
+    fn liquid_video_qa() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/liquid-qa");
+        std::fs::create_dir_all(&directory).unwrap();
+        for (name, source, padding) in [
+            ("liquid", image::RgbaImage::new(1280, 720), 0),
+            (
+                "liquid-backdrop",
+                image::imageops::resize(
+                    &crate::document::demo(),
+                    480,
+                    270,
+                    image::imageops::FilterType::Lanczos3,
+                ),
+                100,
+            ),
+        ] {
+            let mut d = Document::new(source);
+            d.backdrop = Some(crate::backdrop::Backdrop {
+                motion: Motion::Liquid,
+                preset: 1,
+                seconds: 10,
+                padding,
+                shadow: if padding == 0 { 0 } else { 24 },
+                ..Default::default()
+            });
+            let path = directory.join(format!("{name}.mp4"));
+            assert!(encode(&d, &path, 0., &AtomicBool::new(false), |_| {}).unwrap());
+            assert!(std::fs::metadata(&path).unwrap().len() > 1000);
+            let original = std::fs::read(&path).unwrap();
+            let cancel = AtomicBool::new(false);
+            assert!(
+                !encode(&d, &path, 0., &cancel, |p| {
+                    if p >= 5 {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                })
+                .unwrap()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            println!("Liquid shader demo → {}", path.display());
+        }
+    }
+    #[test]
     fn cancellation_and_invalid_duration_leave_destination_untouched() {
         let mut d = Document::new(image::RgbaImage::new(10, 10));
         d.backdrop = Some(crate::backdrop::Backdrop::default());
@@ -259,11 +212,7 @@ mod tests {
                 motion,
                 padding: 100,
                 seconds: if motion == Motion::Stars { 10 } else { 5 },
-                preset: if matches!(motion, Motion::Paint | Motion::Lava) {
-                    3
-                } else {
-                    1
-                },
+                preset: motion.suggested_preset().unwrap_or(1),
                 ..Default::default()
             });
             let path = directory.join(format!("{}.mp4", motion.label()));

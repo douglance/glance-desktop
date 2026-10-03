@@ -1,14 +1,17 @@
+use super::super::{
+    Editor,
+    state::Gesture,
+    view::{HoverLabel, icon},
+};
 use crate::{
-    Editor, HoverLabel,
     animation::Motion,
     backdrop::{Backdrop, Control, Format, PRESETS},
-    icon,
 };
 use gpui::{prelude::*, *};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Popup {
+pub(in crate::editor) enum Popup {
     Format,
     Export,
 }
@@ -17,93 +20,12 @@ impl Editor {
     fn popup_count(&self, popup: Popup) -> usize {
         match popup {
             Popup::Format => Format::ALL.len(),
-            Popup::Export if self.video_progress.is_some() => 1,
-            Popup::Export => 3 + usize::from(self.last_video.is_some()),
+            Popup::Export if self.video_export.progress.is_some() => 1,
+            Popup::Export => 3 + usize::from(self.video_export.last_video.is_some()),
         }
     }
 
-    pub fn toggle_backdrop(&mut self, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        self.commit_text(cx);
-        self.draft = None;
-        self.popup = None;
-        self.backdrop_panel = !self.backdrop_panel;
-        if self.backdrop_panel {
-            self.enhance_panel = false;
-        }
-        if self.backdrop_panel && self.document.backdrop.is_none() {
-            self.document.remember();
-            self.document.backdrop = Some(self.backdrop_disabled.take().unwrap_or_default());
-            self.status = "Backdrop added • style it in the panel • ⌘Z to undo".into();
-        }
-        cx.notify();
-    }
-    pub(crate) fn backdrop_style(
-        &mut self,
-        change: impl FnOnce(&mut Backdrop),
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy {
-            return;
-        }
-        if let Some(mut b) = self.document.backdrop {
-            change(&mut b);
-            if self
-                .document
-                .backdrop
-                .is_some_and(|old| old.motion != b.motion)
-            {
-                self.animation_position = 0.;
-                self.animation_epoch = std::time::Instant::now();
-                self.animation_paused = false;
-            }
-            if self
-                .document
-                .backdrop
-                .is_some_and(|old| old.format != b.format)
-            {
-                self.zoom = None;
-                self.pan = (0., 0.);
-            }
-            if self.document.backdrop != Some(b) {
-                self.document.remember();
-                self.document.backdrop = Some(b);
-            }
-        } else {
-            let mut b = self.backdrop_disabled.take().unwrap_or_default();
-            change(&mut b);
-            self.document.remember();
-            self.document.backdrop = Some(b);
-        }
-        cx.notify();
-    }
-    pub fn backdrop_slider_move(
-        &mut self,
-        position: Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some((control, bounds)) = self.backdrop_drag else {
-            return false;
-        };
-        let phase = self.animation_phase();
-        if let Some(b) = &mut self.document.backdrop {
-            let ratio = f32::from(position.x - bounds.left()) / f32::from(bounds.size.width);
-            control.set(
-                b,
-                control.min()
-                    + (ratio.clamp(0., 1.) * (control.max() - control.min()) as f32).round() as u32,
-            );
-            if control == Control::Duration {
-                self.animation_position = phase * b.seconds as f32;
-                self.animation_epoch = std::time::Instant::now();
-            }
-            cx.notify();
-        }
-        true
-    }
-    fn backdrop_slider(
+    pub(in crate::editor) fn backdrop_slider(
         &self,
         control: Control,
         b: Backdrop,
@@ -150,7 +72,7 @@ impl Editor {
                         MouseButton::Left,
                         cx.listener(move |this, e: &MouseDownEvent, _, cx| {
                             cx.stop_propagation();
-                            if this.busy {
+                            if this.is_busy() {
                                 return;
                             }
                             this.commit_text(cx);
@@ -158,7 +80,9 @@ impl Editor {
                             if this.document.backdrop.is_none() {
                                 this.document.backdrop = Some(b);
                             }
-                            this.backdrop_drag = Some((control, bounds.get()));
+                            this.cancel_gesture();
+                            this.interaction.gesture =
+                                Gesture::AdjustingBackdrop(control, bounds.get());
                             this.backdrop_slider_move(e.position, cx);
                         }),
                     )
@@ -212,23 +136,23 @@ impl Editor {
             )
     }
     fn open_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
-        if self.busy && self.video_progress.is_none() {
+        if self.is_busy() && self.video_export.progress.is_none() {
             return;
         }
         self.commit_text(cx);
-        self.popup = if self.popup == Some(popup) {
+        self.panels.popup = if self.panels.popup == Some(popup) {
             None
         } else {
             Some(popup)
         };
-        self.popup_index = match popup {
+        self.panels.popup_index = match popup {
             Popup::Format => Format::ALL
                 .iter()
                 .position(|f| {
                     *f == self
                         .document
                         .backdrop
-                        .or(self.backdrop_disabled)
+                        .or(self.panels.backdrop_disabled)
                         .unwrap_or_default()
                         .format
                 })
@@ -238,16 +162,16 @@ impl Editor {
         cx.notify();
     }
     fn choose_popup(&mut self, popup: Popup, index: usize, cx: &mut Context<Self>) {
-        self.popup = None;
+        self.panels.popup = None;
         match popup {
             Popup::Format => self.backdrop_style(|b| b.format = Format::ALL[index], cx),
             Popup::Export => match index {
-                0 if self.video_progress.is_some() => self.cancel_video(cx),
+                0 if self.video_export.progress.is_some() => self.cancel_video(cx),
                 0 => self.export(true, cx),
                 1 => self.export_video(cx),
                 2 => self.export_gif(cx),
                 _ => {
-                    if let Some(path) = &self.last_video {
+                    if let Some(path) = &self.video_export.last_video {
                         let _ = std::process::Command::new("/usr/bin/open")
                             .arg("-R")
                             .arg(path)
@@ -258,20 +182,22 @@ impl Editor {
         }
         cx.notify();
     }
-    pub(crate) fn popup_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
-        let Some(popup) = self.popup else {
+    pub(in crate::editor) fn popup_key(&mut self, key: &str, cx: &mut Context<Self>) -> bool {
+        let Some(popup) = self.panels.popup else {
             return false;
         };
         match key {
-            "escape" => self.popup = None,
+            "escape" => self.panels.popup = None,
             "up" => {
-                self.popup_index =
-                    (self.popup_index + self.popup_count(popup) - 1) % self.popup_count(popup)
+                self.panels.popup_index = (self.panels.popup_index + self.popup_count(popup) - 1)
+                    % self.popup_count(popup)
             }
-            "down" => self.popup_index = (self.popup_index + 1) % self.popup_count(popup),
-            "enter" => self.choose_popup(popup, self.popup_index, cx),
+            "down" => {
+                self.panels.popup_index = (self.panels.popup_index + 1) % self.popup_count(popup)
+            }
+            "enter" => self.choose_popup(popup, self.panels.popup_index, cx),
             _ => {
-                self.popup = None;
+                self.panels.popup = None;
                 cx.notify();
                 return false;
             }
@@ -285,7 +211,7 @@ impl Editor {
         let b = self
             .document
             .backdrop
-            .or(self.backdrop_disabled)
+            .or(self.panels.backdrop_disabled)
             .unwrap_or_default();
         div()
             .relative()
@@ -302,7 +228,7 @@ impl Editor {
                 .absolute()
                 .size_full(),
             )
-            .when(self.popup == Some(popup), |el| {
+            .when(self.panels.popup == Some(popup), |el| {
                 el.child(
                     deferred(
                         anchored()
@@ -330,9 +256,9 @@ impl Editor {
                                     .on_mouse_down_out(cx.listener(
                                         move |this, e: &MouseDownEvent, _, cx| {
                                             if !trigger_bounds.get().contains(&e.position)
-                                                && this.popup == Some(popup)
+                                                && this.panels.popup == Some(popup)
                                             {
-                                                this.popup = None;
+                                                this.panels.popup = None;
                                                 cx.notify();
                                             }
                                         },
@@ -341,7 +267,7 @@ impl Editor {
                                         let label = match popup {
                                             Popup::Format => Format::ALL[index].label(),
                                             Popup::Export => match index {
-                                                0 if self.video_progress.is_some() => {
+                                                0 if self.video_export.progress.is_some() => {
                                                     "Cancel export"
                                                 }
                                                 0 => "Save PNG…",
@@ -365,7 +291,7 @@ impl Editor {
                                                     .rounded_md()
                                                     .text_xs()
                                                     .cursor_pointer()
-                                                    .bg(rgb(if self.popup_index == index {
+                                                    .bg(rgb(if self.panels.popup_index == index {
                                                         0xe5f4f0
                                                     } else {
                                                         0xffffff
@@ -397,7 +323,7 @@ impl Editor {
                 )
             })
     }
-    pub(crate) fn export_menu(&self, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn export_menu(&self, cx: &Context<Self>) -> impl IntoElement {
         // A single toolbar control replaces the separate sidebar export buttons.
         div()
             .id("export-menu")
@@ -419,7 +345,7 @@ impl Editor {
                         .cursor_pointer()
                         .hover(|s| s.bg(rgb(0xf0f1f5)))
                         .child(icon(
-                            if self.video_progress.is_some() {
+                            if self.video_export.progress.is_some() {
                                 "square"
                             } else {
                                 "save"
@@ -444,11 +370,11 @@ impl Editor {
                 ),
             )
     }
-    pub fn backdrop_controls(&self, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn backdrop_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let b = self
             .document
             .backdrop
-            .or(self.backdrop_disabled)
+            .or(self.panels.backdrop_disabled)
             .unwrap_or_default();
         div()
             .id("backdrop-panel")
@@ -484,8 +410,8 @@ impl Editor {
                             .child("Backdrop"),
                     )
                     .child(self.button("Done", false, cx, |this, cx| {
-                        this.backdrop_panel = false;
-                        this.popup = None;
+                        this.panels.backdrop = false;
+                        this.panels.popup = None;
                         cx.notify();
                     })),
             )
@@ -616,7 +542,19 @@ impl Editor {
                                 motion.label(),
                                 b.motion == motion,
                                 cx,
-                                move |this, cx| this.backdrop_style(|b| b.motion = motion, cx),
+                                move |this, cx| {
+                                    this.backdrop_style(
+                                        |b| {
+                                            if b.motion != motion
+                                                && let Some(preset) = motion.suggested_preset()
+                                            {
+                                                b.preset = preset;
+                                            }
+                                            b.motion = motion;
+                                        },
+                                        cx,
+                                    )
+                                },
                             ))
                         })),
                 )
@@ -656,12 +594,12 @@ impl Editor {
                                 .child(self.backdrop_slider(Control::Duration, b, cx)),
                         )
                         .child(self.compact_button(
-                            if self.animation_paused {
+                            if self.playback.paused {
                                 "Play"
                             } else {
                                 "Pause"
                             },
-                            if self.animation_paused {
+                            if self.playback.paused {
                                 "play"
                             } else {
                                 "pause"
@@ -672,7 +610,7 @@ impl Editor {
                         )),
                 )
             })
-            .when_some(self.video_progress, |el, progress| {
+            .when_some(self.video_export.progress, |el, progress| {
                 el.child(
                     div()
                         .text_xs()
@@ -710,15 +648,15 @@ impl Editor {
                     )
                     .child("Enable backdrop")
                     .on_click(cx.listener(|this, _, _, cx| {
-                        if this.busy {
+                        if this.is_busy() {
                             return;
                         }
                         this.document.remember();
                         if let Some(b) = this.document.backdrop.take() {
-                            this.backdrop_disabled = Some(b);
+                            this.panels.backdrop_disabled = Some(b);
                         } else {
                             this.document.backdrop =
-                                Some(this.backdrop_disabled.take().unwrap_or_default());
+                                Some(this.panels.backdrop_disabled.take().unwrap_or_default());
                         }
                         cx.notify();
                     })),

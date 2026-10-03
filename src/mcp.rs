@@ -89,7 +89,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "set_backdrop",
             "Set framing and animation. Preset 0 teal, 1 ocean, 2 lavender, 3 sunset, 4 rose, 5 cream, 6 slate, 7 white. Omitted properties use defaults. enabled=false removes it.",
-            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","lava","stars","paint"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"outer_radius":{"type":"integer","minimum":0,"maximum":256},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
+            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"outer_radius":{"type":"integer","minimum":0,"maximum":256},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
             &[],
             false,
         ),
@@ -721,7 +721,17 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.document.export_at(0.).dimensions(), (120, 100));
+        operate(
+            "set_backdrop",
+            &json!({"backdrop":{"format":"shorts","motion":"liquid","padding":10}}),
+            &mut s,
+        )
+        .unwrap();
+        assert_eq!(automation::state(&s)["backdrop"]["format"], "shorts");
+        let (w, h) = s.document.export_at(0.37).dimensions();
+        assert_eq!(w * 16, h * 9);
         for (name, args) in [
+            ("set_backdrop", json!({"backdrop":{"format":"unknown"}})),
             ("set_backdrop", json!({"backdrop":{"preset":8}})),
             ("resize_image", json!({"scale":2,"smart":"yes"})),
             ("crop_image", json!({"x":-1,"y":0,"width":5,"height":5})),

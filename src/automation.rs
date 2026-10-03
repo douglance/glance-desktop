@@ -1,6 +1,5 @@
 //! Opt-in local IPC. Only the UI thread owns/mutates the live editor.
-use crate::{Document, Editor, Message};
-use gpui::Context;
+use crate::{Message, document::Document};
 use serde_json::{Value, json};
 use std::{
     io::{BufRead, BufReader, Read, Write},
@@ -45,66 +44,6 @@ pub fn state(snapshot: &Snapshot) -> Value {
     json!({"revision":snapshot.revision,"width":d.base.width(),"height":d.base.height(),
         "coordinate_space":"source image pixels; backdrop padding excluded", "backdrop":d.backdrop,
         "objects":d.marks.iter().enumerate().map(|(i,m)| json!({"id":format!("{}:{i}",snapshot.revision),"mark":m})).collect::<Vec<_>>()})
-}
-impl Editor {
-    pub fn automation(&mut self, request: Request, cx: &mut Context<Self>) {
-        match request {
-            Request::Show(reply) => {
-                cx.activate(true);
-                let _ = reply.send(Ok(json!({"native_window":true})));
-            }
-            Request::Snapshot(reply) => {
-                if self.busy
-                    || self.draft.is_some()
-                    || self.object_drag.is_some()
-                    || self.text_edit.is_some()
-                {
-                    let _ = reply.send(Err("Editor is busy or has an unfinished gesture/text edit. Finish it and retry.".into()));
-                    return;
-                }
-                let _ = reply.send(Ok(Snapshot {
-                    document: self.document.clone(),
-                    revision: self.revision,
-                    phase: self.animation_phase(),
-                }));
-            }
-            Request::Apply {
-                document,
-                revision,
-                replace,
-                reply,
-            } => {
-                if self.revision != revision
-                    || self.busy
-                    || self.draft.is_some()
-                    || self.object_drag.is_some()
-                    || self.text_edit.is_some()
-                {
-                    let _ = reply.send(Err(
-                        "Editor changed during operation. Read state and retry.".into(),
-                    ));
-                    return;
-                }
-                self.document = document;
-                self.selected = self.document.marks.len().checked_sub(1);
-                self.tool = crate::Tool::Select;
-                if replace {
-                    self.zoom = None;
-                    self.pan = (0., 0.);
-                }
-                self.animation_position = 0.;
-                self.animation_epoch = std::time::Instant::now();
-                self.preview_count = usize::MAX;
-                self.changed();
-                cx.notify();
-                let _ = reply.send(Ok(state(&Snapshot {
-                    document: self.document.render_snapshot(),
-                    revision: self.revision,
-                    phase: 0.,
-                })));
-            }
-        }
-    }
 }
 fn wait<T>(
     sender: &async_channel::Sender<Message>,

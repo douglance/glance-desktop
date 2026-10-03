@@ -1,5 +1,8 @@
 //! Non-destructive focus effects; pointer handlers only change object geometry.
-use crate::{Editor, Layout, Mark, Message, Tool, render_image};
+use crate::{
+    Layout,
+    document::{Mark, Tool},
+};
 use gpui::{Bounds, BoxShadow, RenderImage, Window, fill, point, px, quad, rgb, rgba, size};
 use image::{Pixel, Rgba, RgbaImage};
 use std::sync::Arc;
@@ -251,28 +254,6 @@ impl LensKey {
         }
     }
 }
-impl Editor {
-    pub fn prepare_lens(&mut self, overlays: &[Mark]) {
-        let Some(mark) = overlays.iter().find(|m| m.tool == Tool::Magnifier) else {
-            self.lens_wanted = None;
-            return;
-        };
-        let key = LensKey::new(self.revision, mark);
-        self.lens_wanted = Some(key);
-        if self.lens_rendering || self.lens.as_ref().is_some_and(|(cached, _)| *cached == key) {
-            return;
-        }
-        self.lens_rendering = true;
-        let document = self.document.render_snapshot();
-        let mark = mark.clone();
-        let sender = self.sender.clone();
-        std::thread::spawn(move || {
-            let source = document.plain(None);
-            let image = render_image(tile(&source, &mark));
-            let _ = sender.send_blocking(Message::Lens(key, image));
-        });
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -288,8 +269,11 @@ mod tests {
     }
     #[test]
     fn spotlights_union_and_history() {
-        let mut d =
-            crate::Document::new(RgbaImage::from_pixel(100, 100, Rgba([200, 200, 200, 255])));
+        let mut d = crate::document::Document::new(RgbaImage::from_pixel(
+            100,
+            100,
+            Rgba([200, 200, 200, 255]),
+        ));
         d.commit(mark(Tool::Spotlight, (10., 10.), (30., 30.)));
         d.commit(mark(Tool::Spotlight, (60., 60.), (80., 80.)));
         let out = d.render(None);
@@ -307,7 +291,7 @@ mod tests {
                 base.put_pixel(x, y, Rgba([0, 255, 0, 255]));
             }
         }
-        let mut d = crate::Document::new(base);
+        let mut d = crate::document::Document::new(base);
         d.commit(mark(Tool::Spotlight, (100., 80.), (150., 115.)));
         let mut lens = mark(Tool::Magnifier, (20., 20.), (100., 45.));
         d.commit(lens.clone());

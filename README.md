@@ -106,8 +106,8 @@ See Apple's
   Each slider gesture is one undo step. Copy and
   PNG save include the backdrop at full resolution; rounded outer corners are
   transparent in the PNG.
-- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Lava,
-  Starfield or Painterly. Screenshot and annotations stay fixed while the
+- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Starfield,
+  Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations stay fixed while the
   background moves. Set a **2–15 second** duration (5 seconds by default),
   pause/play the preview, and use the toolbar **Export** menu to save PNG,
   MP4 or GIF. Effect and duration controls appear only in Motion mode. Export streams 30 fps
@@ -116,6 +116,15 @@ See Apple's
   is one seamless cycle; duration also controls the preview's cycle speed.
   **Export → Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
+  Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
+  and separate; Aurora has rippling light curtains; Contours has terrain lines
+  that ripple, swell and curl; Prism has flexing facets and traveling reflections;
+  Painterly has brush strokes that sweep, bloom and fade. These
+  six effects use distinct procedural Metal shaders. Flow keeps a gentle cloud
+  gradient, and Starfield has drifting stars. Each effect starts with a suggested
+  palette, and all eight palettes remain available. Shader preview is capped at
+  960 pixels and 30 fps, with the same renderer used for full-resolution PNG and
+  MP4 export. A CPU fallback preserves the effect when Metal is unavailable.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
   Copy shows a brief **Copied!** confirmation and a checkmark on its button.
   Save dialogs suggest `Screenshot YYYY-MM-DD at HH.MM.SS.png` in **Pictures**.
@@ -199,5 +208,25 @@ Glance can expose its native editor to ChatGPT and local MCP clients: import ima
 
 - **S — Spotlight:** drag a focus rectangle. The surrounding image dims; multiple focus windows share one dimming mask in exports. Drag the object to move it, or drag either corner handle to resize it. Undo/Delete work as with other annotations.
 - **M — Magnifier:** drag from a detail to where its enlarged lens should appear. The source and lens have separate handles. The toolbar's **2× / 3× / 4×** button changes a selected lens's magnification; **Ø** changes its diameter. It samples the original annotated foreground, so the enlarged detail stays bright even with a spotlight.
-- **Backdrop → Motion → GIF…** or **File → Export Looping GIF…** exports an infinitely repeating GIF. MP4 export remains available beside it. GIF uses 20 fps and a maximum edge of 960 pixels; MP4 uses 30 fps and 1920 pixels. Both render one complete cycle, excluding a duplicate endpoint frame. GIF's fixed palette keeps foreground colors stable across frames; rounded corners use the same ivory matte as MP4.
+- **Export → GIF…** or **File → Export Looping GIF…** exports an infinitely repeating GIF. MP4 export is available in the same menu. GIF uses 20 fps and a maximum edge of 960 pixels; MP4 uses 30 fps and 1920 pixels. Both render one complete cycle, excluding a duplicate endpoint frame. GIF's fixed palette keeps foreground colors stable across frames; rounded corners use the same ivory matte as MP4.
 - Spotlight and magnifier remain editable objects and appear in PNG, clipboard, GIF, and MP4 output. Animated backdrops loop while the foreground stays fixed. MP4 repeats when the player is configured to loop; GIF includes infinite-repeat metadata.
+
+## Editor architecture
+
+`main.rs` only launches the app and opens its window. The GPUI editor lives in
+`src/editor/`: `mod.rs` constructs the entity, `state.rs` groups its state,
+`commands.rs` owns edits and external actions, and `input.rs` translates pointer
+and keyboard events into those actions. `view.rs`, `canvas.rs`, and `panels/`
+build and paint the interface. `text_input.rs` implements native text input;
+`text.rs` owns the Unicode buffer and text history independently of the editor.
+
+One `Gesture` enum represents the active pointer interaction. `jobs.rs` owns
+worker dispatch and completion: each external operation has an ID, and stale
+results or video progress cannot affect a newer operation. Preview rendering
+has its own revision checks and remains independent of external operations.
+`feedback.rs` owns transient copy confirmations. `automation.rs` applies local
+MCP requests on the UI thread, and `lens.rs` schedules magnifier previews.
+
+The document, geometry, compositors, macOS integration, Glance protocol, and
+video encoder remain separate modules. Interaction tests use GPUI's virtual
+platform in `src/editor/tests.rs`, without controlling the user's desktop.
