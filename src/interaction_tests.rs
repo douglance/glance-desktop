@@ -69,6 +69,58 @@ fn key(k: &str) -> KeyDownEvent {
     }
 }
 #[gpui::test]
+fn remote_copy_toolbar_fits_at_minimum_window_width(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    for selector in ["copy-remote", "header-zoom"] {
+        let bounds = visual.debug_bounds(selector).unwrap();
+        assert!(bounds.size.width > px(0.));
+        assert!(bounds.origin.x >= px(0.));
+        assert!(
+            bounds.right() <= px(1050.),
+            "{selector} overflows: {bounds:?}"
+        );
+    }
+}
+#[gpui::test]
+fn remote_copy_updates_clipboard_only_after_upload_success(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("existing clipboard".into()));
+        e.busy = true;
+        e.copy_remote(cx); // A second request must not start another upload.
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "existing clipboard"
+        );
+        e.receive(
+            Message::RemoteCopied(Ok(crate::glance::Share {
+                url: "https://glance.sh/example.png".into(),
+                expires_at: u64::MAX,
+            })),
+            cx,
+        );
+        assert!(!e.busy);
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "Screenshot: https://glance.sh/example.png"
+        );
+        assert!(e.status.contains("Glance link copied"));
+        cx.write_to_clipboard(gpui::ClipboardItem::new_string("keep on failure".into()));
+        e.busy = true;
+        e.receive(Message::RemoteCopied(Err("Offline".into())), cx);
+        assert!(!e.busy);
+        assert_eq!(e.status, "Offline");
+        assert_eq!(
+            cx.read_from_clipboard().unwrap().text().unwrap(),
+            "keep on failure"
+        );
+    })
+    .unwrap();
+}
+#[gpui::test]
 fn drawing_pick_move_duplicate_delete_and_undo(cx: &mut TestAppContext) {
     let view = editor(cx);
     view.update(cx, |e, w, cx| {

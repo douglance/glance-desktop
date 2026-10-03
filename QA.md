@@ -2,7 +2,7 @@
 
 ## Result
 
-40 automated tests pass. Native desktop testing remains blocked: computer-use
+46 automated tests pass. Native desktop testing remains blocked: computer-use
 access to Pachiri was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -78,6 +78,29 @@ Reproduce the native integration pass after building the app:
 ```sh
 ./scripts/bundle.sh release
 cargo test --release --locked native_motion_export_qa -- --ignored --nocapture
+```
+
+## Glance remote copy
+
+Copy (remote), Edit → Copy (remote), and Cmd-Shift-C share the composed PNG
+through Glance's existing client-upload protocol. The native flow hasn't been
+manually exercised. Virtual GPUI tests verify that upload completion copies
+`Screenshot: <url>`, failure preserves the clipboard, concurrent requests are
+ignored, and the toolbar fits at its minimum 1050-pixel width.
+
+An independent Node crypto fixture verifies byte-for-byte HKDF/AES-GCM and
+storage-path compatibility with Glance. A local HTTP integration test verifies
+clock synchronization, proof issuance, client-token exchange, private Blob
+headers, encrypted PNG round-trip and absence of the share token from upload
+requests. Additional checks cover size boundaries, rate limits, malformed
+responses, server errors and invalid clocks/lifetimes.
+
+The opt-in live test uploaded a generated 3×2 PNG to production `glance.sh` and
+fetched the returned share link, verifying identical decoded pixels. This test
+is excluded from the default suite so routine tests do not upload anything.
+
+```sh
+cargo test --locked live_upload_round_trips_through_glance -- --ignored
 ```
 
 ## Remaining desktop pass

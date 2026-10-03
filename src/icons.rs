@@ -44,6 +44,10 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/lucide/copy.svg"),
     ),
     (
+        "icons/cloud-upload.svg",
+        include_bytes!("../assets/lucide/cloud-upload.svg"),
+    ),
+    (
         "icons/crop.svg",
         include_bytes!("../assets/lucide/crop.svg"),
     ),
