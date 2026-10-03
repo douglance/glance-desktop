@@ -1,0 +1,116 @@
+use gpui::*;
+actions!(
+    pachiri,
+    [
+        Open,
+        Save,
+        Copy,
+        Paste,
+        Undo,
+        Redo,
+        Delete,
+        Select,
+        Pen,
+        Arrow,
+        Rectangle,
+        Text,
+        Highlight,
+        Pixelate,
+        Crop,
+        Counter,
+        CaptureArea,
+        CaptureScreen,
+        Fit,
+        ActualSize,
+        ZoomIn,
+        ZoomOut,
+        Backdrop,
+        ImageTools,
+        Help
+    ]
+);
+pub fn install(cx: &mut App) {
+    cx.bind_keys([
+        KeyBinding::new("cmd-o", Open, None),
+        KeyBinding::new("cmd-s", Save, None),
+        KeyBinding::new("cmd-c", Copy, None),
+        KeyBinding::new("cmd-v", Paste, None),
+        KeyBinding::new("cmd-z", Undo, None),
+        KeyBinding::new("cmd-shift-z", Redo, None),
+        KeyBinding::new("backspace", Delete, None),
+        KeyBinding::new("v", Select, None),
+        KeyBinding::new("p", Pen, None),
+        KeyBinding::new("a", Arrow, None),
+        KeyBinding::new("r", Rectangle, None),
+        KeyBinding::new("t", Text, None),
+        KeyBinding::new("h", Highlight, None),
+        KeyBinding::new("b", Pixelate, None),
+        KeyBinding::new("x", Crop, None),
+        KeyBinding::new("n", Counter, None),
+        KeyBinding::new("cmd-alt-2", CaptureArea, None),
+        KeyBinding::new("cmd-alt-3", CaptureScreen, None),
+        KeyBinding::new("cmd-1", Fit, None),
+        KeyBinding::new("cmd-0", ActualSize, None),
+        KeyBinding::new("cmd-=", ZoomIn, None),
+        KeyBinding::new("cmd--", ZoomOut, None),
+    ]);
+    cx.set_menus(vec![
+        Menu {
+            name: "Pachiri".into(),
+            items: vec![MenuItem::action("Quit Pachiri", crate::Quit)],
+        },
+        Menu {
+            name: "File".into(),
+            items: vec![
+                MenuItem::action("Capture Area", CaptureArea),
+                MenuItem::action("Capture Screen", CaptureScreen),
+                MenuItem::separator(),
+                MenuItem::action("Open Image…", Open),
+                MenuItem::action("Save PNG…", Save),
+            ],
+        },
+        Menu {
+            name: "Edit".into(),
+            items: vec![
+                MenuItem::action("Undo", Undo),
+                MenuItem::action("Redo", Redo),
+                MenuItem::separator(),
+                MenuItem::action("Copy", Copy),
+                MenuItem::action("Paste", Paste),
+                MenuItem::action("Delete", Delete),
+            ],
+        },
+        Menu {
+            name: "Draw".into(),
+            items: vec![
+                MenuItem::action("Select Objects", Select),
+                MenuItem::separator(),
+                MenuItem::action("Arrow", Arrow),
+                MenuItem::action("Text", Text),
+                MenuItem::action("Rectangle", Rectangle),
+                MenuItem::action("Freehand Drawing", Pen),
+                MenuItem::action("Highlighter", Highlight),
+                MenuItem::action("Pixelate", Pixelate),
+                MenuItem::action("Counter", Counter),
+                MenuItem::separator(),
+                MenuItem::action("Crop", Crop),
+                MenuItem::action("Backdrop", Backdrop),
+                MenuItem::action("Resize & Rotate", ImageTools),
+            ],
+        },
+        Menu {
+            name: "Zoom".into(),
+            items: vec![
+                MenuItem::action("Fit to Window", Fit),
+                MenuItem::action("Actual Size", ActualSize),
+                MenuItem::separator(),
+                MenuItem::action("Zoom In", ZoomIn),
+                MenuItem::action("Zoom Out", ZoomOut),
+            ],
+        },
+        Menu {
+            name: "Help".into(),
+            items: vec![MenuItem::action("Pachiri Help", Help)],
+        },
+    ]);
+}

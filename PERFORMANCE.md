@@ -64,3 +64,10 @@ Resize, adaptive sharpening and rotation run on the existing worker channel.
 Image edits swap in completed previews; normal canvas pointer events retain the
 GPU overlay path. Upscale redraws vector annotations instead of enlarging their
 rasterized pixels. Output limits are checked before allocating resized buffers.
+
+Object dragging retains the original document until mouse-up. A worker prepares
+the raster prefix below the selected object once per gesture; the selected mark
+and subsequent layers render as GPU overlays during pointer movement. Release
+commits one history snapshot and schedules the normal composed preview. Pixelation
+regions above that prefix use their selection outline during dragging and are
+fully recomposited on release. No screenshot rasterization runs in mouse-move.

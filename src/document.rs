@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Tool {
+    Select,
     Pen,
     Arrow,
     Rectangle,
@@ -17,6 +18,7 @@ pub enum Tool {
 impl Tool {
     pub fn label(self) -> &'static str {
         match self {
+            Self::Select => "Select",
             Self::Text => "Text",
             Self::Counter => "Step",
             Self::Pen => "Pen",
@@ -93,9 +95,10 @@ impl Document {
                 return;
             }
             self.remember();
-            self.base =
-                Arc::new(image::imageops::crop_imm(&self.render(None), x, y, w, h).to_image());
-            self.marks.clear();
+            self.base = Arc::new(image::imageops::crop_imm(&*self.base, x, y, w, h).to_image());
+            for mark in &mut self.marks {
+                mark.translate(-(x as f32), -(y as f32));
+            }
         } else {
             self.remember();
             self.marks.push(mark);
@@ -196,6 +199,7 @@ fn paint(out: &mut RgbaImage, mark: &Mark) {
     let a = mark.points[0];
     let b = *mark.points.last().unwrap();
     match mark.tool {
+        Tool::Select => {}
         Tool::Counter => {
             let radius = (mark.width * 3.6).max(1.);
             draw_filled_circle_mut(
@@ -462,7 +466,7 @@ mod tests {
         d.commit(mark(Tool::Rectangle, (2., 2.), (15., 15.)));
         d.commit(mark(Tool::Crop, (18., 18.), (1., 1.)));
         assert_eq!(d.base.dimensions(), (17, 17));
-        assert!(d.marks.is_empty());
+        assert_eq!(d.marks[0].points[0], (1., 1.));
         d.undo();
         assert_eq!(d.base.dimensions(), (20, 20));
         assert_eq!(d.marks.len(), 1);

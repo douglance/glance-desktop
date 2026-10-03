@@ -139,3 +139,11 @@ app reports capture failures instead of assuming permission was granted.
 - Native preview verified Lucide controls, numbered callouts and 2× smart resize
   (1200×760 to 2400×1520). The user began editing the test preview during checks;
   further UI automation stopped and the preview was left open to preserve work.
+
+## Editable annotations and compact native controls
+
+Annotations have geometry hit tests, topmost selection, drag translation and
+undoable deletion. V activates the picker. Crop translates marks into the new
+image coordinates instead of flattening them. The 48 px toolbar uses Lucide
+icons and tooltips; native File/Edit/Draw/Zoom/Help menus reuse editor commands
+and preserve the text editor’s clipboard and undo behavior.

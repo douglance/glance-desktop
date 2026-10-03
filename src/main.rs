@@ -5,9 +5,11 @@ mod drawing;
 mod enhance;
 mod enhance_panel;
 mod icons;
+mod menus;
 #[cfg(test)]
 mod performance;
 mod platform;
+mod selection;
 mod text;
 actions!(pachiri, [Quit]);
 use document::{Document, Mark, Tool};
@@ -43,6 +45,8 @@ struct Editor {
     waiting_preview: bool,
     preview: Arc<RenderImage>,
     retired: Vec<Arc<RenderImage>>,
+    selected: Option<usize>,
+    object_drag: Option<(usize, (f32, f32), Mark)>,
     tool: Tool,
     color: [u8; 4],
     width: f32,
@@ -152,7 +156,9 @@ impl Editor {
             waiting_preview: false,
             preview,
             retired: vec![],
-            tool: Tool::Pen,
+            selected: None,
+            object_drag: None,
+            tool: Tool::Select,
             color: [255, 56, 100, 255],
             width: 5.,
             draft: None,
@@ -181,7 +187,10 @@ impl Editor {
             return;
         }
         self.rendering = true;
-        let document = self.document.render_snapshot();
+        let mut document = self.document.render_snapshot();
+        if let Some((index, _, _)) = &self.object_drag {
+            document.marks.truncate(*index);
+        }
         let revision = self.revision;
         let count = document.marks.len();
         let sender = self.sender.clone();
@@ -204,6 +213,8 @@ impl Editor {
         );
         match message {
             Message::Transformed(Ok((document, count, image))) => {
+                self.selected = None;
+                self.object_drag = None;
                 self.document = document;
                 self.revision += 1;
                 self.retired
@@ -239,17 +250,22 @@ impl Editor {
                 return;
             }
             Message::Cropped(document, image) => {
+                let count = document.marks.len();
+                self.selected = None;
+                self.object_drag = None;
                 self.document = document;
                 self.revision += 1;
                 self.retired
                     .push(std::mem::replace(&mut self.preview, image));
-                self.preview_count = 0;
+                self.preview_count = count;
                 self.zoom = None;
                 self.pan = (0., 0.);
                 self.busy = false;
                 self.status = "Cropped • ⌘Z to restore".into();
             }
             Message::Image(Ok(Some(image))) => {
+                self.selected = None;
+                self.object_drag = None;
                 self.document = Document::new(image);
                 self.zoom = None;
                 self.pan = (0., 0.);
@@ -389,6 +405,8 @@ impl Editor {
         }
         self.commit_text(cx);
         self.draft = None;
+        self.selected = None;
+        self.object_drag = None;
         if redo {
             self.document.redo();
         } else {
@@ -403,6 +421,8 @@ impl Editor {
     }
     fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.commit_text(cx);
+        self.cancel_move();
+        self.selected = None;
         self.tool = tool;
         self.draft = None;
         cx.notify();
@@ -443,6 +463,15 @@ impl Editor {
         let Some(p) = self.coordinate(e.position, false) else {
             return;
         };
+        if self.tool == Tool::Select {
+            self.selected = self.document.pick(p, 5. / self.layout.get().scale);
+            if let Some(index) = self.selected {
+                self.object_drag = Some((index, p, self.document.marks[index].clone()));
+                self.changed();
+            }
+            cx.notify();
+            return;
+        }
         let mut mark = Mark {
             tool: self.tool,
             points: vec![p],
@@ -522,6 +551,15 @@ impl Editor {
             cx.notify();
             return;
         }
+        if let Some((index, start, _)) = self.object_drag.as_ref() {
+            if let Some(p) = self.coordinate(e.position, true) {
+                let mut moved = self.document.marks[*index].clone();
+                moved.translate(p.0 - start.0, p.1 - start.1);
+                self.object_drag.as_mut().unwrap().2 = moved;
+                cx.notify();
+            }
+            return;
+        }
         if self.draft.is_none() {
             return;
         }
@@ -544,6 +582,19 @@ impl Editor {
         }
     }
     fn finish(&mut self, e: &MouseUpEvent, cx: &mut Context<Self>) {
+        if let Some((index, start, mut moved)) = self.object_drag.take() {
+            if let Some(p) = self.coordinate(e.position, true) {
+                moved = self.document.marks[index].clone();
+                moved.translate(p.0 - start.0, p.1 - start.1);
+            }
+            if moved.points != self.document.marks[index].points {
+                self.document.remember();
+                self.document.marks[index] = moved;
+            }
+            self.changed();
+            cx.notify();
+            return;
+        }
         if self.backdrop_drag.take().is_some() {
             cx.notify();
             return;
@@ -573,6 +624,13 @@ impl Editor {
             }
             cx.notify();
         }
+    }
+    fn menu_key(&mut self, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        let e = KeyDownEvent {
+            keystroke: Keystroke::parse(key).expect("valid menu shortcut"),
+            is_held: false,
+        };
+        self.key(&e, window, cx);
     }
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
@@ -676,6 +734,8 @@ impl Editor {
             }
         } else if !m.alt && !m.control {
             match key {
+                "v" => self.set_tool(Tool::Select, cx),
+                "backspace" | "delete" => self.delete_selected(cx),
                 "p" => self.set_tool(Tool::Pen, cx),
                 "a" => self.set_tool(Tool::Arrow, cx),
                 "r" => self.set_tool(Tool::Rectangle, cx),
@@ -685,11 +745,33 @@ impl Editor {
                 "t" => self.set_tool(Tool::Text, cx),
                 "n" => self.set_tool(Tool::Counter, cx),
                 "escape" => {
+                    self.cancel_move();
+                    self.selected = None;
                     self.draft = None;
                     cx.notify();
                 }
                 _ => {}
             }
+        }
+        cx.stop_propagation();
+    }
+    fn cancel_move(&mut self) {
+        if self.object_drag.take().is_some() {
+            self.changed();
+        }
+    }
+    fn delete_selected(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.cancel_move();
+        if let Some(index) = self.selected.take() {
+            self.document.delete_mark(index);
+            self.preview_count = usize::MAX;
+            self.waiting_preview = true;
+            self.busy = true;
+            self.changed();
+            cx.notify();
         }
     }
     fn change_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
@@ -698,6 +780,7 @@ impl Editor {
     }
     fn tool_button(&self, tool: Tool, cx: &Context<Self>) -> impl IntoElement {
         let (name, key) = match tool {
+            Tool::Select => ("mouse-pointer-2", "V"),
             Tool::Pen => ("pen-line", "P"),
             Tool::Arrow => ("arrow-up-right", "A"),
             Tool::Rectangle => ("square", "R"),
@@ -711,7 +794,8 @@ impl Editor {
         let label: SharedString = format!("{} · {}", tool.label(), key).into();
         div()
             .id(SharedString::from(format!("tool-{name}")))
-            .size(px(36.))
+            .size(px(30.))
+            .flex_shrink_0()
             .flex()
             .items_center()
             .justify_center()
@@ -723,6 +807,29 @@ impl Editor {
             .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone())).into())
             .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
+    }
+    fn compact_button(
+        &self,
+        label: &'static str,
+        name: &'static str,
+        active: bool,
+        cx: &Context<Self>,
+        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> impl IntoElement {
+        div()
+            .id(label)
+            .size(px(30.))
+            .flex_shrink_0()
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .cursor_pointer()
+            .bg(rgb(if active { 0xffe9e4 } else { 0xfcfcfd }))
+            .hover(|s| s.bg(rgb(0xf0f1f5)))
+            .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
+            .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.into())).into())
+            .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
     }
     fn button(
         &self,
@@ -787,8 +894,22 @@ impl Render for Editor {
             .iter()
             .skip(self.preview_count)
             .chain(self.draft.iter())
-            .cloned()
+            .map(|mark| {
+                if let Some((index, _, moved)) = &self.object_drag
+                    && std::ptr::eq(mark, &self.document.marks[*index])
+                {
+                    return moved.clone();
+                }
+                mark.clone()
+            })
             .collect();
+        let selection_bounds = self.selected.and_then(|index| {
+            self.object_drag
+                .as_ref()
+                .map(|(_, _, m)| m)
+                .or_else(|| self.document.marks.get(index))
+                .map(Mark::bounds)
+        });
         let layout = self.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
@@ -802,12 +923,13 @@ impl Render for Editor {
             }
             - 80.)
             / output_dimensions.0 as f32)
-            .min((f32::from(viewport.height) - 108. - 70.) / output_dimensions.1 as f32)
+            .min((f32::from(viewport.height) - 48. - 70.) / output_dimensions.1 as f32)
             .clamp(0.01, 1.);
         let zoom_label = format!("{:.0}%", self.zoom.unwrap_or(fit_zoom) * 100.);
         let zoom = self.zoom;
         let pan = self.pan;
         let tools = [
+            Tool::Select,
             Tool::Pen,
             Tool::Arrow,
             Tool::Rectangle,
@@ -833,6 +955,73 @@ impl Render for Editor {
             .text_color(rgb(0x272831))
             .font_family(".AppleSystemUIFont")
             .track_focus(&self.focus)
+            .on_action(
+                cx.listener(|this, _: &menus::Open, window, cx| this.menu_key("cmd-o", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Save, window, cx| this.menu_key("cmd-s", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Copy, window, cx| this.menu_key("cmd-c", window, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Paste, window, cx| {
+                    this.menu_key("cmd-v", window, cx)
+                }),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Undo, window, cx| this.menu_key("cmd-z", window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::Redo, window, cx| {
+                this.menu_key("cmd-shift-z", window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::Delete, window, cx| {
+                this.menu_key("backspace", window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::CaptureArea, window, cx| {
+                this.menu_key("cmd-alt-2", window, cx)
+            }))
+            .on_action(cx.listener(|this, _: &menus::CaptureScreen, window, cx| {
+                this.menu_key("cmd-alt-3", window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menus::Fit, window, cx| this.menu_key("cmd-1", window, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::ActualSize, window, cx| {
+                this.menu_key("cmd-0", window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menus::ZoomIn, window, cx| {
+                    this.menu_key("cmd-=", window, cx)
+                }),
+            )
+            .on_action(cx.listener(|this, _: &menus::ZoomOut, window, cx| {
+                this.menu_key("cmd--", window, cx)
+            }))
+            .on_action(
+                cx.listener(|this, _: &menus::Select, _, cx| this.set_tool(Tool::Select, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::Pen, _, cx| this.set_tool(Tool::Pen, cx)))
+            .on_action(cx.listener(|this, _: &menus::Arrow, _, cx| this.set_tool(Tool::Arrow, cx)))
+            .on_action(
+                cx.listener(|this, _: &menus::Rectangle, _, cx| this.set_tool(Tool::Rectangle, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::Text, _, cx| this.set_tool(Tool::Text, cx)))
+            .on_action(
+                cx.listener(|this, _: &menus::Highlight, _, cx| this.set_tool(Tool::Highlight, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Pixelate, _, cx| this.set_tool(Tool::Pixelate, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::Crop, _, cx| this.set_tool(Tool::Crop, cx)))
+            .on_action(
+                cx.listener(|this, _: &menus::Counter, _, cx| this.set_tool(Tool::Counter, cx)),
+            )
+            .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| this.toggle_backdrop(cx)))
+            .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| this.toggle_enhance(cx)))
+            .on_action(|_: &menus::Help, _, cx| {
+                cx.open_url("https://github.com/benvinegar/pachiri#workflow")
+            })
             .on_key_down(cx.listener(Self::key))
             .on_mouse_down(
                 MouseButton::Left,
@@ -849,118 +1038,58 @@ impl Render for Editor {
             )
             .child(
                 div()
-                    .h(px(56.))
+                    .h(px(48.))
                     .flex_shrink_0()
-                    .px_5()
+                    .px_3()
                     .flex()
                     .items_center()
-                    .justify_between()
-                    .border_b_1()
-                    .border_color(rgb(0xe9e9ee))
-                    .child(
-                        div().flex().gap_3().items_center().child(
-                            div()
-                                .text_xl()
-                                .font_weight(FontWeight::BOLD)
-                                .text_color(rgb(0xf35d45))
-                                .child("pachiri"),
-                        ),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .gap_2()
-                            .items_center()
-                            .child(self.button("Area  ⌘⌥2", false, cx, |this, cx| {
-                                this.capture(true, cx)
-                            }))
-                            .child(self.button("Screen  ⌘⌥3", false, cx, |this, cx| {
-                                this.capture(false, cx)
-                            }))
-                            .child(self.button("Open", false, cx, |this, cx| this.open(cx)))
-                            .child(
-                                self.button("Copy  ⌘C", true, cx, |this, cx| {
-                                    this.export(false, cx)
-                                }),
-                            )
-                            .child(
-                                self.button("Save  ⌘S", false, cx, |this, cx| {
-                                    this.export(true, cx)
-                                }),
-                            )
-                            .child(div().h(px(24.)).w(px(1.)).mx_2().bg(rgb(0xe5e5ec)))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap_3()
-                                    .text_xs()
-                                    .text_color(rgb(0x555966))
-                                    .child(
-                                        div()
-                                            .id("image-size")
-                                            .child(format!(
-                                                "{}×{}",
-                                                output_dimensions.0, output_dimensions.1
-                                            ))
-                                            .tooltip(|_, cx| {
-                                                cx.new(|_| {
-                                                    HoverLabel("Image size in pixels".into())
-                                                })
-                                                .into()
-                                            }),
-                                    )
-                                    .child(div().h(px(20.)).w(px(1.)).bg(rgb(0xe5e5ec)))
-                                    .child(
-                                        div()
-                                            .id("header-zoom")
-                                            .min_w(px(36.))
-                                            .cursor_pointer()
-                                            .child(zoom_label)
-                                            .tooltip(|_, cx| {
-                                                cx.new(|_| {
-                                                    HoverLabel("Zoom · ⌘+/⌘− · Click to fit".into())
-                                                })
-                                                .into()
-                                            })
-                                            .on_click(cx.listener(|this, _, _, cx| {
-                                                this.zoom = None;
-                                                this.pan = (0., 0.);
-                                                cx.notify();
-                                            })),
-                                    ),
-                            ),
-                    ),
-            )
-            .child(
-                div()
-                    .h(px(52.))
-                    .flex_shrink_0()
-                    .px_5()
-                    .flex()
-                    .items_center()
-                    .justify_between()
+                    .gap_1()
                     .border_b_1()
                     .border_color(rgb(0xe9e9ee))
                     .child(
                         div()
-                            .flex()
-                            .gap_1()
-                            .items_center()
-                            .children(tools.into_iter().map(|tool| self.tool_button(tool, cx)))
-                            .child(div().w(px(1.)).h(px(20.)).mx_2().bg(rgb(0xe5e5ec)))
-                            .child(
-                                self.button("Backdrop", self.backdrop_panel, cx, |this, cx| {
-                                    this.toggle_backdrop(cx)
-                                }),
-                            )
-                            .child(self.button(
-                                "Image tools",
-                                self.enhance_panel,
-                                cx,
-                                |this, cx| this.toggle_enhance(cx),
-                            )),
+                            .text_sm()
+                            .font_weight(FontWeight::BOLD)
+                            .text_color(rgb(0xf35d45))
+                            .mr_2()
+                            .child("pachiri"),
                     )
+                    .child(
+                        self.compact_button("Area · ⌘⌥2", "scan", false, cx, |this, cx| {
+                            this.capture(true, cx)
+                        }),
+                    )
+                    .child(self.compact_button(
+                        "Screen · ⌘⌥3",
+                        "monitor",
+                        false,
+                        cx,
+                        |this, cx| this.capture(false, cx),
+                    ))
+                    .child(self.compact_button(
+                        "Open · ⌘O",
+                        "folder-open",
+                        false,
+                        cx,
+                        |this, cx| this.open(cx),
+                    ))
+                    .child(div().w(px(1.)).h(px(18.)).mx_1().bg(rgb(0xe5e5ec)))
+                    .children(tools.into_iter().map(|tool| self.tool_button(tool, cx)))
+                    .child(div().w(px(1.)).h(px(18.)).mx_1().bg(rgb(0xe5e5ec)))
+                    .child(self.compact_button(
+                        "Backdrop",
+                        "square",
+                        self.backdrop_panel,
+                        cx,
+                        |this, cx| this.toggle_backdrop(cx),
+                    ))
+                    .child(self.compact_button(
+                        "Image tools",
+                        "sparkles",
+                        self.enhance_panel,
+                        cx,
+                        |this, cx| this.toggle_enhance(cx),
+                    ))
                     .child(
                         div()
                             .flex()
@@ -969,7 +1098,7 @@ impl Render for Editor {
                             .children(colors.into_iter().map(|(hex, color)| {
                                 div()
                                     .id(("color", hex))
-                                    .size(px(22.))
+                                    .size(px(16.))
                                     .rounded_full()
                                     .border_2()
                                     .border_color(rgb(if self.color == color {
@@ -997,6 +1126,53 @@ impl Render for Editor {
                                     cx.notify();
                                 },
                             )),
+                    )
+                    .child(div().flex_1())
+                    .child(
+                        self.compact_button("Copy · ⌘C", "copy", false, cx, |this, cx| {
+                            this.export(false, cx)
+                        }),
+                    )
+                    .child(
+                        self.compact_button("Save · ⌘S", "save", false, cx, |this, cx| {
+                            this.export(true, cx)
+                        }),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_3()
+                            .text_xs()
+                            .text_color(rgb(0x555966))
+                            .child(
+                                div()
+                                    .id("image-size")
+                                    .child(format!(
+                                        "{}×{}",
+                                        output_dimensions.0, output_dimensions.1
+                                    ))
+                                    .tooltip(|_, cx| {
+                                        cx.new(|_| HoverLabel("Image size in pixels".into())).into()
+                                    }),
+                            )
+                            .child(div().h(px(20.)).w(px(1.)).bg(rgb(0xe5e5ec)))
+                            .child(
+                                div()
+                                    .id("header-zoom")
+                                    .min_w(px(36.))
+                                    .cursor_pointer()
+                                    .child(zoom_label)
+                                    .tooltip(|_, cx| {
+                                        cx.new(|_| HoverLabel("Zoom · ⌘+/⌘− · Click to fit".into()))
+                                            .into()
+                                    })
+                                    .on_click(cx.listener(|this, _, _, cx| {
+                                        this.zoom = None;
+                                        this.pan = (0., 0.);
+                                        cx.notify();
+                                    })),
+                            ),
                     ),
             )
             .child(
@@ -1006,7 +1182,11 @@ impl Render for Editor {
                     .flex_1()
                     .min_h_0()
                     .overflow_hidden()
-                    .cursor(CursorStyle::Crosshair)
+                    .cursor(if self.tool == Tool::Select {
+                        CursorStyle::Arrow
+                    } else {
+                        CursorStyle::Crosshair
+                    })
                     .on_mouse_down(MouseButton::Left, cx.listener(Self::begin))
                     .on_mouse_down(
                         MouseButton::Right,
@@ -1123,6 +1303,28 @@ impl Render for Editor {
                                         for mark in &overlays {
                                             drawing::paint(mark, layout.get(), window, cx);
                                         }
+                                        if let Some((left, top, right, bottom)) = selection_bounds {
+                                            let l = layout.get();
+                                            let b = Bounds::new(
+                                                point(
+                                                    px(l.x + left * l.scale),
+                                                    px(l.y + top * l.scale),
+                                                ),
+                                                size(
+                                                    px((right - left) * l.scale),
+                                                    px((bottom - top) * l.scale),
+                                                ),
+                                            )
+                                            .dilate(px(4.));
+                                            window.paint_quad(quad(
+                                                b,
+                                                px(3.),
+                                                gpui::transparent_black(),
+                                                px(1.),
+                                                rgb(0x4c8dff),
+                                                Default::default(),
+                                            ));
+                                        }
                                         text::paint(
                                             &text_entity,
                                             layout.get(),
@@ -1158,10 +1360,7 @@ fn main() {
     application.run(|cx: &mut App| {
         cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
         cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
-        cx.set_menus(vec![Menu {
-            name: "Pachiri".into(),
-            items: vec![MenuItem::action("Quit Pachiri", Quit)],
-        }]);
+        menus::install(cx);
         let bounds = Bounds::centered(None, size(px(1220.), px(860.)), cx);
         cx.open_window(
             WindowOptions {

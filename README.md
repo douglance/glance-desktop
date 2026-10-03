@@ -37,6 +37,11 @@ not configured.
 
 - **⌘⌥2** captures an area using the native macOS selector. Escape cancels.
 - **⌘⌥3** captures the main display. The app hides itself before capture.
+- **V** selects annotation objects. Click a stroke, shape, label, highlight,
+  numbered callout or pixelation region; drag to move it, then press Delete or
+  Backspace to remove it. Clicking empty canvas or Escape clears selection.
+  The topmost matching object wins. Each move/deletion is one undo step.
+  Crop and resize preserve editable annotations; rotation still flattens them.
 - Mark up with **P** pen, **A** arrow, **R** rectangle, **T** text, **H** highlight,
   **B** pixelation or **X** crop. Drag to crop immediately; undo restores it.
 - Click a color or the stroke-width button (3, 5, 9 px) to change the next mark.
@@ -78,11 +83,13 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 
 Implemented: global area/full-screen capture, pen, arrows, rectangles, text,
 highlights, pixelation, crop, backdrops, numbered callouts, smart upscale/resize,
-rotation, undo/redo, fit/zoom/pan, open, clipboard import and PNG save.
+rotation, object selection/movement/deletion, undo/redo, fit/zoom/pan, open,
+clipboard import and PNG save. A single icon toolbar keeps image dimensions and
+zoom visible; native File, Edit, Draw, Zoom and Help menus expose the commands.
 See [PLAN.md](PLAN.md) for architecture and the intended proof-of-concept scope.
 
 Deferred: OCR, scrolling capture, uploads, floating pins, image backdrops, custom
-backdrop colors, object selection/repositioning, configurable shortcuts and persistent settings.
+backdrop colors, object resizing, configurable shortcuts and persistent settings.
 Pixelation is a visual effect; crop out information you need to fully remove.
 
 ```sh
