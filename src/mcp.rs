@@ -19,13 +19,13 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str], rea
 }
 pub fn tools() -> Vec<Value> {
     let number = json!({"type":"number"});
-    let path = json!({"type":"string","description":"Absolute path on the Mac running Pachiri."});
+    let path = json!({"type":"string","description":"Absolute path on the Mac running Glance."});
     let revision = json!({"type":"integer","minimum":0});
     let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]). All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","minimum":0.5,"maximum":64},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
     vec![
         tool(
             "open_editor",
-            "Show the connected native Pachiri window. Start Pachiri --automation first.",
+            "Show the connected native Glance window. Start Glance --automation first.",
             json!({}),
             &[],
             false,
@@ -244,10 +244,7 @@ fn output(args: &Value, extension: &str) -> Result<PathBuf, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_nanos();
-    Ok(dir.join(format!(
-        "Pachiri-{}-{stamp}.{extension}",
-        std::process::id()
-    )))
+    Ok(dir.join(format!("Glance-{}-{stamp}.{extension}", std::process::id())))
 }
 fn decode(bytes: Vec<u8>) -> Result<image::RgbaImage, String> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
@@ -480,7 +477,7 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
                 return Err("seconds must be nonnegative".into());
             }
             let output = output(&json!({}), "png")?;
-            let helper = helper("pachiri-video-frame")?;
+            let helper = helper("glance-video-frame")?;
             let status = std::process::Command::new(helper)
                 .arg(path)
                 .arg(seconds.to_string())
@@ -515,7 +512,7 @@ fn response(request: Value) -> Option<Value> {
     let method = request["method"].as_str().unwrap_or("");
     let result = match method {
         "initialize" => Ok(
-            json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"pachiri","version":env!("CARGO_PKG_VERSION")},"instructions":"Drive the native Pachiri editor via structured tools. Launch Pachiri --automation first. Image coordinates exclude backdrop padding. Read get_document before object edits; IDs are revision-scoped. read_image/read_video_frame return model-visible PNGs. Local paths refer to the Mac, not ChatGPT uploaded file IDs; supply base64 bytes or stage files locally. Import replaces the current document; other edits support native undo."}),
+            json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"glance","version":env!("CARGO_PKG_VERSION")},"instructions":"Drive the native Glance editor via structured tools. Launch Glance --automation first. Image coordinates exclude backdrop padding. Read get_document before object edits; IDs are revision-scoped. read_image/read_video_frame return model-visible PNGs. Local paths refer to the Mac, not ChatGPT uploaded file IDs; supply base64 bytes or stage files locally. Import replaces the current document; other edits support native undo."}),
         ),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":tools()})),
@@ -745,7 +742,7 @@ mod tests {
     #[test]
     fn mcp_initialization_discovery_and_errors() {
         let initialized=response(json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26"}})).unwrap();
-        assert_eq!(initialized["result"]["serverInfo"]["name"], "pachiri");
+        assert_eq!(initialized["result"]["serverInfo"]["name"], "glance");
         let list = response(json!({"jsonrpc":"2.0","id":2,"method":"tools/list"})).unwrap();
         assert_eq!(list["result"]["tools"].as_array().unwrap().len(), 17);
         assert!(response(json!({"jsonrpc":"2.0","method":"notifications/initialized"})).is_none());
@@ -763,7 +760,7 @@ mod tests {
     fn exports_preserve_existing_files() {
         let mut s = snapshot();
         let path =
-            std::env::temp_dir().join(format!("pachiri-mcp-existing-{}.png", std::process::id()));
+            std::env::temp_dir().join(format!("glance-mcp-existing-{}.png", std::process::id()));
         std::fs::write(&path, b"original").unwrap();
         assert!(operate("export_png", &json!({"path":path}), &mut s).is_err());
         assert_eq!(std::fs::read(&path).unwrap(), b"original");
@@ -792,7 +789,7 @@ mod native_tests {
             &mut s,
         )
         .unwrap();
-        let dir = std::env::temp_dir().join(format!("pachiri-mcp-video-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glance-mcp-video-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("roundtrip.mp4");
         let (result, changed, _) = operate("export_mp4", &json!({"path":path}), &mut s).unwrap();

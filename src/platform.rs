@@ -41,7 +41,7 @@ pub fn screen_capture_permission() -> Result<(), String> {
             return Ok(());
         }
     }
-    Err("macOS is not authorizing this Pachiri build to record the screen. Open System Settings → Privacy & Security → Screen & System Audio Recording. If Pachiri is already enabled, quit Pachiri, remove its entry with −, add /Applications/Pachiri.app with +, enable it, then reopen. Rebuilding an ad-hoc signed app can invalidate an older permission.".into())
+    Err("macOS is not authorizing this Glance build to record the screen. Open System Settings → Privacy & Security → Screen & System Audio Recording. If Glance is already enabled, quit Glance, remove its entry with −, add /Applications/Glance.app with +, enable it, then reopen. Rebuilding an ad-hoc signed app can invalidate an older permission.".into())
 }
 fn capture_failure(area: bool, stderr: &[u8], code: Option<i32>) -> Option<String> {
     let detail = String::from_utf8_lossy(stderr);
@@ -61,7 +61,7 @@ fn capture_failure(area: bool, stderr: &[u8], code: Option<i32>) -> Option<Strin
 pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     // Unique paths avoid mistaking a canceled selection for a previous capture.
     let path = std::env::temp_dir().join(format!(
-        "pachiri-{}-{}.png",
+        "glance-{}-{}.png",
         std::process::id(),
         NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed)
     ));
@@ -102,7 +102,7 @@ fn dialog(script: &str) -> Result<Option<PathBuf>, String> {
 }
 pub fn open() -> Result<Option<RgbaImage>, String> {
     match dialog(
-        "POSIX path of (choose file with prompt \"Open an image in Pachiri\" of type {\"public.png\", \"public.jpeg\"})",
+        "POSIX path of (choose file with prompt \"Open an image in Glance\" of type {\"public.png\", \"public.jpeg\"})",
     )? {
         Some(path) => load(&path).map(Some),
         None => Ok(None),
@@ -110,7 +110,7 @@ pub fn open() -> Result<Option<RgbaImage>, String> {
 }
 pub fn save(image: RgbaImage) -> Result<Option<PathBuf>, String> {
     let Some(mut path) = dialog(
-        "POSIX path of (choose file name with prompt \"Save annotated screenshot\" default name \"Pachiri.png\")",
+        "POSIX path of (choose file name with prompt \"Save annotated screenshot\" default name \"Glance.png\")",
     )?
     else {
         return Ok(None);
@@ -156,7 +156,7 @@ pub fn clipboard_image() -> Result<RgbaImage, String> {
 pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
     let extension = if gif { "gif" } else { "mp4" };
     let script = format!(
-        "POSIX path of (choose file name with prompt \"Save animated backdrop\" default name \"Pachiri.{extension}\")"
+        "POSIX path of (choose file name with prompt \"Save animated backdrop\" default name \"Glance.{extension}\")"
     );
     let Some(mut path) = dialog(&script)? else {
         return Ok(None);

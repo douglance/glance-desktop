@@ -1,4 +1,4 @@
-# Pachiri local MCP companion
+# Glance local MCP companion
 
 ChatGPT or another MCP client can edit the **real native GPUI window** using structured tools. GPUI stays native; there is no web canvas or screenshot-click automation. The stdio companion connects to the opted-in editor over a private Unix socket.
 
@@ -6,31 +6,31 @@ ChatGPT or another MCP client can edit the **real native GPUI window** using str
 
 ```sh
 ./scripts/bundle.sh release
-./target/Pachiri.app/Contents/MacOS/Pachiri --automation
+./target/Glance.app/Contents/MacOS/Glance --automation
 ```
 
-Start this build as your editor. If another automation-enabled Pachiri is already running, stop that instance first. Ordinary launches without `--automation` do not expose the bridge. Keep the editor running while using MCP.
+Start this build as your editor. If another automation-enabled Glance is already running, stop that instance first. Ordinary launches without `--automation` do not expose the bridge. Keep the editor running while using MCP.
 
 Configure a local stdio MCP client with an **absolute path** to this checkout's `scripts/mcp.sh`:
 
 ```json
 {
   "mcpServers": {
-    "pachiri": {
-      "command": "/absolute/path/to/pachiri/scripts/mcp.sh",
+    "glance": {
+      "command": "/absolute/path/to/glance/scripts/mcp.sh",
       "args": []
     }
   }
 }
 ```
 
-For an installed bundle you can instead use `/Applications/Pachiri.app/Contents/MacOS/Pachiri` as the command with `args: ["--mcp"]`, provided that bundle contains this build. Launch that same bundle's executable with `--automation` for the native editor.
+For an installed bundle you can instead use `/Applications/Glance.app/Contents/MacOS/Glance` as the command with `args: ["--mcp"]`, provided that bundle contains this build. Launch that same bundle's executable with `--automation` for the native editor.
 
 ## Connect ChatGPT
 
 Use [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with its local stdio profile, setting the MCP command to the absolute `scripts/mcp.sh` path. Follow the official tunnel setup/login instructions, then keep `tunnel-client run` running. In ChatGPT, enable developer mode in Settings → Security and login, add a Plugin connection using **Tunnel**, and select that tunnel. Availability depends on account and workspace policy. See [Connect and test](https://developers.openai.com/plugins/deploy/connect-chatgpt).
 
-This repo supplies the MCP server and native bridge. It does not create an OpenAI tunnel, store account credentials, or automatically install a ChatGPT connection. No OpenAI API call or API key is needed by Pachiri itself. A stdio process alone cannot be reached from ChatGPT's cloud without a supported transport such as the tunnel.
+This repo supplies the MCP server and native bridge. It does not create an OpenAI tunnel, store account credentials, or automatically install a ChatGPT connection. No OpenAI API call or API key is needed by Glance itself. A stdio process alone cannot be reached from ChatGPT's cloud without a supported transport such as the tunnel.
 
 ## Tools
 
@@ -65,7 +65,7 @@ Local paths refer to the Mac. ChatGPT upload/file IDs are not native file paths;
 
 Heavy operations run on the IPC worker, not the UI thread. It snapshots the document and applies successful edits on GPUI's thread only if the revision is unchanged and no manual gesture/text edit is in progress. Native undo history is preserved. The newest object is selected for direct manual editing. Requests are serialized; a video export can delay the next MCP call while the native window remains responsive.
 
-The Unix socket is in `~/Library/Caches/dev.benv.pachiri/automation/editor.sock`, inside a mode-0700 directory, with mode-0600 socket access. This is local-account access, not isolation from other processes running as you. The bridge does not listen on a TCP port. Exports default to the private `automation/exports` folder; explicit output paths must be absolute and existing files are never overwritten.
+The Unix socket is in `~/Library/Caches/sh.glance.desktop/automation/editor.sock`, inside a mode-0700 directory, with mode-0600 socket access. This is local-account access, not isolation from other processes running as you. The bridge does not listen on a TCP port. Exports default to the private `automation/exports` folder; explicit output paths must be absolute and existing files are never overwritten.
 
 Images imported through MCP are limited to 16 MiB encoded / 32 megapixels. Drawing schemas and bounds are validated. The bridge refuses edits against stale revisions and unfinished manual operations. Import starts a new document and discards its previous undo history; export/edit tools do not prompt for save dialogs.
 

@@ -56,7 +56,7 @@ pub fn encode(
         .map_err(|e| e.to_string())?
         .as_nanos();
     let temp =
-        Temporary(path.with_file_name(format!(".pachiri-{}-{stamp}.gif", std::process::id())));
+        Temporary(path.with_file_name(format!(".glance-{}-{stamp}.gif", std::process::id())));
     let file = File::create(&temp.0).map_err(|e| e.to_string())?;
     let mut writer = BufWriter::new(file);
     {
@@ -120,7 +120,7 @@ mod tests {
             shadow: 0,
             ..Default::default()
         });
-        let path = std::env::temp_dir().join(format!("pachiri-loop-{}.gif", std::process::id()));
+        let path = std::env::temp_dir().join(format!("glance-loop-{}.gif", std::process::id()));
         assert!(encode(&d, &path, 0.31, &AtomicBool::new(false), |_| {}).unwrap());
         let mut options = gif::DecodeOptions::new();
         options.set_color_output(gif::ColorOutput::RGBA);
@@ -159,7 +159,7 @@ mod tests {
             motion: crate::animation::Motion::Flow,
             ..Default::default()
         });
-        let dir = std::env::temp_dir().join(format!("pachiri-gif-cancel-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("glance-gif-cancel-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("existing.gif");
         std::fs::write(&path, b"existing").unwrap();
