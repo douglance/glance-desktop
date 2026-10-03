@@ -10,6 +10,7 @@ mod enhance;
 mod enhance_panel;
 mod gestures;
 mod gif_export;
+mod glance;
 mod icons;
 #[cfg(test)]
 mod interaction_tests;
@@ -53,6 +54,7 @@ enum Message {
     VideoSaved(Result<Option<std::path::PathBuf>, String>),
     Saved(Result<Option<std::path::PathBuf>, String>),
     Copied(Result<(), String>),
+    RemoteCopied(Result<glance::Share, String>),
     Transformed(Result<(Document, usize, Arc<RenderImage>), String>),
 }
 struct Editor {
@@ -274,6 +276,7 @@ impl Editor {
                 | Message::VideoSaved(Err(_))
                 | Message::Saved(Err(_))
                 | Message::Copied(Err(_))
+                | Message::RemoteCopied(Err(_))
                 | Message::Transformed(Err(_))
         );
         match message {
@@ -422,6 +425,26 @@ impl Editor {
                     Err(e) => e,
                 };
             }
+            Message::RemoteCopied(result) => {
+                self.busy = false;
+                self.status = match result {
+                    Ok(share) => {
+                        cx.write_to_clipboard(ClipboardItem::new_string(format!(
+                            "Screenshot: {}",
+                            share.url
+                        )));
+                        let now = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_millis() as u64;
+                        let minutes = share.expires_at.saturating_sub(now).div_ceil(60_000);
+                        format!(
+                            "Glance link copied • expires in {minutes} min • Paste into your agent’s chat"
+                        )
+                    }
+                    Err(e) => e,
+                };
+            }
         }
         cx.activate(true);
         if failed && let Some(window) = cx.windows().first().copied() {
@@ -475,6 +498,10 @@ impl Editor {
         if self.busy {
             return;
         }
+        if let Err(error) = platform::screen_capture_permission() {
+            self.receive(Message::Image(Err(error)), cx);
+            return;
+        }
         self.commit_text(cx);
         self.draft = None;
         self.busy = true;
@@ -522,6 +549,22 @@ impl Editor {
                 Message::Copied(platform::copy(image))
             };
             let _ = sender.send_blocking(message);
+        });
+        cx.notify();
+    }
+    fn copy_remote(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.commit_text(cx);
+        self.busy = true;
+        self.status = "Uploading screenshot to Glance…".into();
+        let document = self.document.render_snapshot();
+        let phase = self.animation_phase();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let result = glance::upload(document.export_at(phase));
+            let _ = sender.send_blocking(Message::RemoteCopied(result));
         });
         cx.notify();
     }
@@ -872,7 +915,7 @@ impl Editor {
                 }
                 _ => {}
             }
-            if m.platform && matches!(key, "s" | "o" | "q") {
+            if m.platform && (matches!(key, "s" | "o" | "q") || (m.shift && key == "c")) {
                 self.commit_text(cx);
             } else {
                 let edit = self.text_edit.as_mut().unwrap();
@@ -963,6 +1006,7 @@ impl Editor {
         } else if m.platform {
             match key {
                 "q" => cx.quit(),
+                "c" if m.shift => self.copy_remote(cx),
                 "c" => self.export(false, cx),
                 "s" => self.export(true, cx),
                 "o" => self.open(cx),
@@ -1197,6 +1241,10 @@ impl Editor {
             Some("rotate-cw")
         } else if label.starts_with("Copy") {
             Some("copy")
+        } else if label.starts_with("Export MP4") {
+            Some("video")
+        } else if label == "Cancel export" {
+            Some("square")
         } else if label.starts_with("Save") {
             Some("save")
         } else {
@@ -1338,6 +1386,9 @@ impl Render for Editor {
             .on_action(
                 cx.listener(|this, _: &menus::Copy, window, cx| this.menu_key("cmd-c", window, cx)),
             )
+            .on_action(cx.listener(|this, _: &menus::CopyRemote, window, cx| {
+                this.menu_key("cmd-shift-c", window, cx)
+            }))
             .on_action(
                 cx.listener(|this, _: &menus::Paste, window, cx| {
                     this.menu_key("cmd-v", window, cx)
@@ -1567,6 +1618,19 @@ impl Render for Editor {
                         }),
                     )
                     .child(
+                        div()
+                            .id("copy-remote")
+                            .debug_selector(|| "copy-remote".into())
+                            .flex_shrink_0()
+                            .child(self.compact_button(
+                                "Copy (remote) · Upload to Glance · ⌘⇧C",
+                                "cloud-upload",
+                                false,
+                                cx,
+                                |this, cx| this.copy_remote(cx),
+                            )),
+                    )
+                    .child(
                         self.compact_button("Save · ⌘S", "save", false, cx, |this, cx| {
                             this.export(true, cx)
                         }),
@@ -1593,6 +1657,7 @@ impl Render for Editor {
                             .child(
                                 div()
                                     .id("header-zoom")
+                                    .debug_selector(|| "header-zoom".into())
                                     .min_w(px(36.))
                                     .cursor_pointer()
                                     .child(zoom_label)

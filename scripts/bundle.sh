@@ -6,7 +6,10 @@ if [ "$MODE" = "release" ]; then cargo build --release --locked; else cargo buil
 APP="$(pwd)/target/Pachiri.app"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cargo run --release --locked --example icon -- target/Pachiri.iconset
-iconutil -c icns target/Pachiri.iconset -o "$APP/Contents/Resources/Pachiri.icns"
+# A new resource name prevents macOS from reusing an earlier design's icon cache.
+ICON_HASH="$(shasum -a 256 target/Pachiri.iconset/icon_512x512@2x.png | cut -c 1-12)"
+ICON_NAME="Pachiri-$ICON_HASH.icns"
+iconutil -c icns target/Pachiri.iconset -o "$APP/Contents/Resources/$ICON_NAME"
 /usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_encoder.swift -o target/pachiri-video-encoder
 /usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_frame.swift -o target/pachiri-video-frame
 cp target/pachiri-video-frame "$APP/Contents/MacOS/pachiri-video-frame"
@@ -31,5 +34,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSScreenCaptureUsageDescription</key><string>Pachiri captures your selected screen area for annotation.</string>
 </dict></plist>
 PLIST
-codesign --force --deep --sign - "$APP"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$APP/Contents/Info.plist"
+# Use the same certificate across builds to retain macOS privacy permissions.
+# Ad-hoc signing has a build-specific designated requirement and needs re-grants.
+SIGN_IDENTITY="${PACHIRI_CODESIGN_IDENTITY:--}"
+codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
+if [ "$SIGN_IDENTITY" = "-" ]; then
+    printf 'Ad-hoc signature: Screen Recording permission may need re-granting after rebuilding.\n'
+fi
 printf 'Built %s\n' "$APP"

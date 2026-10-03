@@ -35,6 +35,25 @@ Settings → Privacy & Security → Screen & System Audio Recording**, then rela
 This local bundle uses an ad-hoc signature; distribution signing/notarization is
 not configured.
 
+### Screen Recording enabled but capture fails
+
+Ad-hoc signing gives each changed executable a different designated requirement.
+macOS may display the old grant as enabled while rejecting the rebuilt app.
+Quit Pachiri, remove its entry from **Screen & System Audio Recording** with **−**,
+add `/Applications/Pachiri.app` again with **+**, enable it and reopen. Re-grant
+only after the final rebuild; another changed ad-hoc build may require it again.
+The app now checks permission before hiding and preserves other capture errors.
+
+For development with a stable code-signing certificate already in your Keychain:
+
+```sh
+PACHIRI_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
+```
+
+Use the same certificate for subsequent builds. The default remains ad-hoc;
+no certificate or Keychain trust is installed automatically. See Apple's
+[code-signing requirement explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
+
 ## Workflow
 
 - **⌘⌥2** captures an area using the native macOS selector. Escape cancels.
@@ -77,6 +96,15 @@ not configured.
   **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
+- **Copy (remote) · ⌘⇧C** (cloud-upload icon) uploads the composed PNG (including annotations and
+  backdrop) to [Glance](https://glance.sh) and copies `Screenshot: <url>`.
+  Paste it into a remote agent’s chat; the agent can fetch the image directly.
+  Links expire after about 30 minutes. Uploads use Glance’s client encryption
+  and private Blob storage, require internet, and are limited to 15 MB and
+  30 uploads/hour per IP. Failed uploads preserve your clipboard. This shares
+  a link; it does not automatically push into an agent’s live session.
+  Glance API requests identify the app with `X-Glance-Client: pachiri` and
+  `X-Glance-Client-Version: <app version>`, alongside `User-Agent: Pachiri/<app version>`.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
   Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
   scroll** zooms; **Shift + wheel** pans horizontally. Hold **Space** and drag
@@ -111,11 +139,11 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 Implemented: global area/full-screen capture, pen, arrows, rectangles, text,
 highlights, pixelation, crop, backdrops, numbered callouts, smart upscale/resize,
 rotation, object selection/movement/deletion, undo/redo, fit/zoom/pan, open,
-clipboard import, PNG save and animated backdrop MP4 export. A single icon toolbar keeps image dimensions and
+clipboard import, PNG save, Glance remote copy, spotlight, magnifier, local MCP control and animated backdrop MP4/GIF export. A single icon toolbar keeps image dimensions and
 zoom visible; native File, Edit, Draw, Zoom and Help menus expose the commands.
 See [PLAN.md](PLAN.md) for architecture and the intended proof-of-concept scope.
 
-Deferred: OCR, scrolling capture, uploads, floating pins, image backdrops, custom
+Deferred: OCR, scrolling capture, live-session delivery, floating pins, image backdrops, custom
 backdrop colors, object resizing, configurable shortcuts and persistent settings.
 Pixelation is a visual effect; crop out information you need to fully remove.
 

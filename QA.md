@@ -2,7 +2,7 @@
 
 ## Result
 
-39 automated tests pass. Native desktop testing remains blocked: computer-use
+59 automated tests pass (5 opt-in tests ignored). Native desktop testing remains blocked: computer-use
 access to Pachiri was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -68,12 +68,39 @@ used only for independent decoding in QA, not by the app. Posters were visually
 inspected and a stepped-ring artifact was replaced with continuous Gaussian
 shading. Actual in-flight cancellation preserved each existing destination.
 The encoder streams frames with a pixel-buffer pool and temporary-file commit.
+Independent decoded foreground samples varied by a mean 0.64 RGB levels out of
+255 (maximum 14), consistent with lossy H.264; the pre-encoding foreground is
+identical. A higher bitrate budget and disabled frame reordering improved text
+stability. No canceled-export temporary files remained.
 
 Reproduce the native integration pass after building the app:
 
 ```sh
 ./scripts/bundle.sh release
 cargo test --release --locked native_motion_export_qa -- --ignored --nocapture
+```
+
+## Glance remote copy
+
+Copy (remote), Edit → Copy (remote), and Cmd-Shift-C share the composed PNG
+through Glance's existing client-upload protocol. The native flow hasn't been
+manually exercised. Virtual GPUI tests verify that upload completion copies
+`Screenshot: <url>`, failure preserves the clipboard, concurrent requests are
+ignored, and the toolbar fits at its minimum 1050-pixel width.
+
+An independent Node crypto fixture verifies byte-for-byte HKDF/AES-GCM and
+storage-path compatibility with Glance. A local HTTP integration test verifies
+clock synchronization, proof issuance, client-token exchange, private Blob
+headers, encrypted PNG round-trip and absence of the share token from upload
+requests. Additional checks cover size boundaries, rate limits, malformed
+responses, server errors and invalid clocks/lifetimes.
+
+The opt-in live test uploaded a generated 3×2 PNG to production `glance.sh` and
+fetched the returned share link, verifying identical decoded pixels. This test
+is excluded from the default suite so routine tests do not upload anything.
+
+```sh
+cargo test --locked live_upload_round_trips_through_glance -- --ignored
 ```
 
 ## Remaining desktop pass
@@ -110,3 +137,18 @@ The benchmark measures CPU preparation, not input-to-display latency.
 - GIF tests decode actual exports to verify infinite-repeat metadata, 40 frames / exact two-second duration, stable foreground pixels, cancellation and temporary-file cleanup.
 - Loop continuity tests cover all four backgrounds: phase 0 equals phase 1 exactly, and the seam is no larger than a normal animation step within the test tolerance.
 - Explicit `focus_and_loop_demo_qa` renders a five-second GIF, MP4 and full-resolution PNG with focus effects for visual inspection. Native live canvas interaction remains separate from virtual-platform tests.
+## Screen Recording grant after a rebuild
+
+macOS tccd logs reported “Failed to match existing code requirement” for
+`dev.benv.pachiri` / `kTCCServiceScreenCapture`. `codesign -d -r-` showed a
+build-specific cdhash designated requirement, and no code-signing identities
+were available in the local Keychain. This confirms the enabled Settings entry
+was not authorizing the installed build.
+
+Capture now preflights permission and requests the standard macOS grant before
+hiding the editor. Rejected grants show remove/re-add instructions; unrelated
+capture failures preserve screencapture stderr rather than alleging a missing
+permission. Regression coverage checks cancellation and error classification.
+The bundle script accepts PACHIRI_CODESIGN_IDENTITY for stable certificate
+signing and warns when falling back to ad-hoc. Permission removal/re-granting
+remains a manual System Settings action; it was not automated or verified here.

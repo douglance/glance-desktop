@@ -349,11 +349,16 @@ impl Editor {
                         div()
                             .flex()
                             .gap_2()
-                            .child(self.button(
+                            .child(self.compact_button(
                                 if self.animation_paused {
                                     "Play"
                                 } else {
                                     "Pause"
+                                },
+                                if self.animation_paused {
+                                    "play"
+                                } else {
+                                    "pause"
                                 },
                                 false,
                                 cx,
