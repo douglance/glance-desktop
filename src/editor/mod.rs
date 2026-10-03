@@ -155,6 +155,7 @@ impl Editor {
                 retired: vec![],
             },
             playback: PlaybackState {
+                motion_preview: Default::default(),
                 epoch: std::time::Instant::now(),
                 paused: false,
                 position: 0.,

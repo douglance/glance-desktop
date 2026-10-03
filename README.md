@@ -102,8 +102,8 @@ See Apple's
   restores the original framing. Each slider gesture is one undo step. Copy and
   PNG save include the backdrop at full resolution; rounded outer corners are
   transparent in the PNG.
-- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Lava,
-  Starfield or Painterly. Screenshot and annotations stay fixed while the
+- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Starfield,
+  Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations stay fixed while the
   background moves. Set a **2–15 second** duration (5 seconds by default),
   pause/play the preview, and choose **Export MP4…**. Export streams 30 fps
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
@@ -111,6 +111,15 @@ See Apple's
   is one seamless cycle; duration also controls the preview's cycle speed.
   **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
+  Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
+  and separate; Aurora has rippling light curtains; Contours has terrain lines
+  that ripple, swell and curl; Prism has flexing facets and traveling reflections;
+  Painterly has brush strokes that sweep, bloom and fade. These
+  six effects use distinct procedural Metal shaders. Flow keeps a gentle cloud
+  gradient, and Starfield has drifting stars. Each effect starts with a suggested
+  palette, and all eight palettes remain available. Shader preview is capped at
+  960 pixels and 30 fps, with the same renderer used for full-resolution PNG and
+  MP4 export. A CPU fallback preserves the effect when Metal is unavailable.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
   Copy shows a brief **Copied!** confirmation and a checkmark on its button.
 - **Copy (remote) · ⌘⇧C** (cloud-upload icon) uploads the composed PNG (including annotations and

@@ -138,6 +138,50 @@ fn read_error(child: &mut Child) -> String {
 mod tests {
     use super::*;
     #[test]
+    #[ignore = "requires native encoder; produces Liquid shader demo videos"]
+    fn liquid_video_qa() {
+        let directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/liquid-qa");
+        std::fs::create_dir_all(&directory).unwrap();
+        for (name, source, padding) in [
+            ("liquid", image::RgbaImage::new(1280, 720), 0),
+            (
+                "liquid-backdrop",
+                image::imageops::resize(
+                    &crate::document::demo(),
+                    480,
+                    270,
+                    image::imageops::FilterType::Lanczos3,
+                ),
+                100,
+            ),
+        ] {
+            let mut d = Document::new(source);
+            d.backdrop = Some(crate::backdrop::Backdrop {
+                motion: Motion::Liquid,
+                preset: 1,
+                seconds: 10,
+                padding,
+                shadow: if padding == 0 { 0 } else { 24 },
+                ..Default::default()
+            });
+            let path = directory.join(format!("{name}.mp4"));
+            assert!(encode(&d, &path, 0., &AtomicBool::new(false), |_| {}).unwrap());
+            assert!(std::fs::metadata(&path).unwrap().len() > 1000);
+            let original = std::fs::read(&path).unwrap();
+            let cancel = AtomicBool::new(false);
+            assert!(
+                !encode(&d, &path, 0., &cancel, |p| {
+                    if p >= 5 {
+                        cancel.store(true, Ordering::Relaxed);
+                    }
+                })
+                .unwrap()
+            );
+            assert_eq!(std::fs::read(&path).unwrap(), original);
+            println!("Liquid shader demo → {}", path.display());
+        }
+    }
+    #[test]
     fn cancellation_and_invalid_duration_leave_destination_untouched() {
         let mut d = Document::new(image::RgbaImage::new(10, 10));
         d.backdrop = Some(crate::backdrop::Backdrop::default());
@@ -168,11 +212,7 @@ mod tests {
                 motion,
                 padding: 100,
                 seconds: if motion == Motion::Stars { 10 } else { 5 },
-                preset: if matches!(motion, Motion::Paint | Motion::Lava) {
-                    3
-                } else {
-                    1
-                },
+                preset: motion.suggested_preset().unwrap_or(1),
                 ..Default::default()
             });
             let path = directory.join(format!("{}.mp4", motion.label()));

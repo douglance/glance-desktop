@@ -12,6 +12,7 @@ mod glance;
 mod icons;
 mod mcp;
 mod menus;
+mod motion_shader;
 mod navigation;
 #[cfg(test)]
 mod performance;

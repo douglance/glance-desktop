@@ -2,7 +2,7 @@
 
 ## Result
 
-61 automated tests pass (5 opt-in tests ignored). Native desktop testing remains blocked: computer-use
+64 automated tests pass (10 opt-in tests ignored). Native desktop testing remains blocked: computer-use
 access to the former desktop app was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -79,6 +79,49 @@ Reproduce the native integration pass after building the app:
 ./scripts/bundle.sh release
 cargo test --release --locked native_motion_export_qa -- --ignored --nocapture
 ```
+
+## Motion shaders
+
+Liquid, Lava, Aurora, Contours, Prism and Painterly are checked against their CPU evaluators in landscape and portrait, across
+all eight palettes and three phases (at most two RGB levels of difference).
+The shared animation tests verify seamless looping and unchanged opaque
+foreground pixels. Visual samples are generated in `target/liquid-qa`.
+The additional styles' portrait and landscape samples are in `target/motion-qa`.
+
+```sh
+cargo test --locked liquid_visual_qa -- --ignored --nocapture
+cargo test --locked liquid_video_qa -- --ignored --nocapture
+cargo test --release --locked motion_gallery_qa -- --ignored --nocapture
+cargo test --release --locked contours_motion_qa -- --ignored --nocapture
+cargo test --release --locked painterly_prism_motion_qa -- --ignored --nocapture
+```
+
+The second command requires the bundled native encoder. It creates a ten-second
+shader-only MP4 and a screenshot backdrop MP4, and verifies in-flight
+cancellation leaves the completed destinations untouched. Native GPUI preview
+upload/display timing and interaction feel still need a desktop pass.
+
+The expanded eight-effect export pass produced real H.264 videos for Liquid,
+Lava, Aurora, Contours, Prism, Painterly, Flow and Starfield. Cancellation
+preserved each completed destination. Independent probing of the three new
+styles confirmed 680×470, 30 fps, 150 frames and five-second duration. Samples
+were inspected in portrait and landscape; Contours uses analytic pixel coverage
+to keep steep lines continuous. CPU/Metal parity, exact loop boundaries and fixed
+foreground coverage pass for the expanded set. Compute plus readback at 960×540
+measured about 0.24–0.70 ms/frame across the six shader styles in the last pass;
+this excludes GPUI texture upload and display latency.
+
+Contours now deforms its terrain with independently traveling waves and moves
+the contour levels through that terrain. The evolving-effects continuity test checks
+both the half-cycle phase branch and the loop boundary for abrupt pixel jumps.
+`contours_motion_qa` produces a six-second frame sequence in `target/contours-qa`
+and a portrait sample for reviewing line expansion and local bending.
+
+Painterly grows curved brush strokes from anchored tails on staggered cycles.
+Prism animates shared mesh vertices and face reflections while keeping triangle
+edges straight. Both use periodic motion in their Metal and CPU evaluators.
+`painterly_prism_motion_qa` writes six-second landscape frame sequences and
+portrait samples to `target/dynamic-motion-qa`, and measures compute/readback.
 
 ## Glance remote copy
 

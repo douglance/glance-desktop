@@ -52,6 +52,10 @@ impl Editor {
         let layout = self.viewport.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let motion_preview = self.playback.motion_preview.clone();
+        if !backdrop.is_some_and(|b| b.motion.uses_shader()) {
+            motion_preview.borrow_mut().clear(window);
+        }
         let animation_phase = self.animation_phase();
         if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
             && !self.playback.paused
@@ -131,7 +135,14 @@ impl Editor {
                                         bounds: frame_bounds.intersect(&bounds),
                                     }),
                                     |window| {
-                                        animation::paint(b, animation_phase, frame_bounds, window)
+                                        animation::paint(
+                                            b,
+                                            animation_phase,
+                                            frame_bounds,
+                                            px(b.outer_radius as f32 * scale),
+                                            &mut motion_preview.borrow_mut(),
+                                            window,
+                                        )
                                     },
                                 );
                             }

@@ -45,6 +45,7 @@ pub(super) struct PreviewState {
     pub(super) retired: Vec<Arc<RenderImage>>,
 }
 pub(super) struct PlaybackState {
+    pub(super) motion_preview: Rc<std::cell::RefCell<crate::animation::Preview>>,
     pub(super) epoch: std::time::Instant,
     pub(super) paused: bool,
     pub(super) position: f32,

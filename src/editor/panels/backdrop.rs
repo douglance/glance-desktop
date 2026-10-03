@@ -242,7 +242,19 @@ impl Editor {
                             motion.label(),
                             b.motion == motion,
                             cx,
-                            move |this, cx| this.backdrop_style(|b| b.motion = motion, cx),
+                            move |this, cx| {
+                                this.backdrop_style(
+                                    |b| {
+                                        if b.motion != motion
+                                            && let Some(preset) = motion.suggested_preset()
+                                        {
+                                            b.preset = preset;
+                                        }
+                                        b.motion = motion;
+                                    },
+                                    cx,
+                                )
+                            },
                         ))
                     }),
                 ))
