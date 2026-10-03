@@ -591,3 +591,102 @@ fn spotlight_magnifier_creation_handles_and_native_undo(cx: &mut TestAppContext)
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn backdrop_grid_modes_and_format_menu_work_at_minimum_window_size(cx: &mut TestAppContext) {
+    use crate::backdrop::Format;
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| e.toggle_backdrop(cx)).unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let click = |visual: &mut gpui::VisualTestContext, selector: &'static str| {
+        let point = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_mouse_down(point, MouseButton::Left, Default::default());
+        visual.simulate_mouse_up(point, MouseButton::Left, Default::default());
+        visual.run_until_parked();
+    };
+    for (mode, selector) in [
+        ("Motion", "backdrop-mode-Motion"),
+        ("Gradient", "backdrop-mode-Gradient"),
+        ("Solid", "backdrop-mode-Solid"),
+    ] {
+        click(&mut visual, selector);
+        let actual = view
+            .read_with(&visual, |e, _| e.document.backdrop.unwrap())
+            .unwrap();
+        assert_eq!(
+            actual.motion != crate::animation::Motion::Still,
+            mode == "Motion"
+        );
+        if mode != "Motion" {
+            assert_eq!(actual.gradient, mode == "Gradient");
+        }
+        let mode_bounds = visual.debug_bounds(selector).unwrap();
+        let bounds: Vec<_> = [
+            "backdrop-Padding",
+            "backdrop-Shadow",
+            "backdrop-Image corners",
+            "backdrop-Backdrop corners",
+        ]
+        .into_iter()
+        .map(|selector| visual.debug_bounds(selector).unwrap())
+        .collect();
+        assert_eq!(bounds[0].top(), bounds[1].top());
+        assert_eq!(bounds[2].top(), bounds[3].top());
+        assert!(bounds[0].right() < bounds[1].left());
+        for bound in bounds {
+            assert!(
+                bound.bottom() < mode_bounds.top(),
+                "Shared control must be above the modes"
+            );
+            assert!(bound.right() <= px(1050.) && bound.bottom() <= px(600.));
+        }
+        // GPUI retains debug selectors from older frames; only assert presence
+        // for visible controls, and verify mode transitions through document state.
+        if mode == "Motion" {
+            assert!(visual.debug_bounds("backdrop-duration").is_some());
+            assert!(visual.debug_bounds("backdrop-motion-effects").is_some());
+        }
+    }
+    click(&mut visual, "backdrop-format");
+    assert!(visual.debug_bounds("backdrop-popup").is_some());
+    visual.simulate_keystrokes("down enter");
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.backdrop.unwrap().format)
+            .unwrap(),
+        Format::Square
+    );
+    assert!(view.read_with(&visual, |e, _| e.popup.is_none()).unwrap());
+    view.update(&mut visual, |e, _, _| e.document.undo())
+        .unwrap();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.backdrop.unwrap().format)
+            .unwrap(),
+        Format::Auto
+    );
+    click(&mut visual, "backdrop-format");
+    click(&mut visual, "popup-option-6");
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.backdrop.unwrap().format)
+            .unwrap(),
+        Format::Vertical
+    );
+    click(&mut visual, "backdrop-enabled");
+    assert!(
+        view.read_with(&visual, |e, _| e.document.backdrop.is_none())
+            .unwrap()
+    );
+    click(&mut visual, "backdrop-enabled");
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.backdrop.unwrap().format)
+            .unwrap(),
+        Format::Vertical
+    );
+    click(&mut visual, "export-trigger");
+    assert!(visual.debug_bounds("backdrop-popup").is_some());
+    visual.simulate_keystrokes("escape");
+    visual.run_until_parked();
+    assert!(view.read_with(&visual, |e, _| e.popup.is_none()).unwrap());
+}

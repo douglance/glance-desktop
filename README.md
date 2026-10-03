@@ -97,19 +97,24 @@ See Apple's
   text undo/redo and native macOS input methods work while editing. Labels are
   single-line; pasted line breaks become spaces.
 - **Backdrop:** open the toolbar panel to frame the image with a solid color or
-  gradient. Choose a preset (including teal), then drag padding, shadow, image
-  corners and backdrop corners. **Done** closes the panel; **Remove backdrop**
-  restores the original framing. Each slider gesture is one undo step. Copy and
+  gradient. **Format** offers Auto, 1:1, 4:3, 3:2, 16:9, 4:5, 9:16 and named
+  YouTube/Shorts/Pinterest presets. Fixed formats expand the background and center
+  the full screenshot without cropping or stretching it. Padding is the minimum
+  space on each side. Padding, shadow, image corners and backdrop corners are
+  always visible in a 2×2 grid above **Solid / Gradient / Motion**. **Done** closes
+  the panel; **Enable backdrop** toggles framing while keeping the current style.
+  Each slider gesture is one undo step. Copy and
   PNG save include the backdrop at full resolution; rounded outer corners are
   transparent in the PNG.
 - **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Lava,
   Starfield or Painterly. Screenshot and annotations stay fixed while the
   background moves. Set a **2–15 second** duration (5 seconds by default),
-  pause/play the preview, and choose **Export MP4…**. Export streams 30 fps
+  pause/play the preview, and use the toolbar **Export** menu to save PNG,
+  MP4 or GIF. Effect and duration controls appear only in Motion mode. Export streams 30 fps
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
   1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
   is one seamless cycle; duration also controls the preview's cycle speed.
-  **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
+  **Export → Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
   Copy shows a brief **Copied!** confirmation and a checkmark on its button.

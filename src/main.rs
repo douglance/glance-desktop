@@ -104,6 +104,9 @@ struct Editor {
     video_progress: Option<u32>,
     video_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     backdrop_panel: bool,
+    backdrop_disabled: Option<backdrop::Backdrop>,
+    popup: Option<backdrop_panel::Popup>,
+    popup_index: usize,
     backdrop_drag: Option<(backdrop::Control, Bounds<Pixels>)>,
     enhance_panel: bool,
     resize_scale: f32,
@@ -249,6 +252,9 @@ impl Editor {
             video_progress: None,
             video_cancel: None,
             backdrop_panel: false,
+            backdrop_disabled: None,
+            popup: None,
+            popup_index: 0,
             backdrop_drag: None,
             enhance_panel: false,
             resize_scale: 2.,
@@ -400,6 +406,8 @@ impl Editor {
                 self.selected = None;
                 self.object_drag = None;
                 self.document = Document::new(image);
+                self.backdrop_disabled = None;
+                self.popup = None;
                 self.zoom = None;
                 self.pan = (0., 0.);
                 self.draft = None;
@@ -941,6 +949,10 @@ impl Editor {
     }
     fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
+        if self.popup_key(key, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if key == "escape" && self.video_cancel.is_some() {
             self.cancel_video(cx);
             cx.stop_propagation();
@@ -1734,11 +1746,7 @@ impl Render for Editor {
                                 |this, cx| this.copy_remote(cx),
                             )),
                     )
-                    .child(
-                        self.compact_button("Save · ⌘S", "save", false, cx, |this, cx| {
-                            this.export(true, cx)
-                        }),
-                    )
+                    .child(self.export_menu(cx))
                     .child(
                         div()
                             .flex()
@@ -1832,7 +1840,7 @@ impl Render for Editor {
                                 let scale = zoom.unwrap_or(fit);
                                 let w = dimensions.0 as f32 * scale;
                                 let h = dimensions.1 as f32 * scale;
-                                let padding = backdrop.map_or(0., |b| b.padding as f32 * scale);
+
                                 let x = f32::from(bounds.origin.x)
                                     + (f32::from(bounds.size.width) - w) / 2.
                                     + pan.0;
@@ -1848,7 +1856,19 @@ impl Render for Editor {
                                 });
                                 let image_bounds =
                                     Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
-                                let frame_bounds = image_bounds.dilate(px(padding));
+                                let framing = backdrop.map(|b| b.layout(dimensions));
+                                let frame_bounds = framing.map_or(image_bounds, |frame| {
+                                    Bounds::new(
+                                        point(
+                                            px(x - frame.origin.0 as f32 * scale),
+                                            px(y - frame.origin.1 as f32 * scale),
+                                        ),
+                                        size(
+                                            px(frame.dimensions.0 as f32 * scale),
+                                            px(frame.dimensions.1 as f32 * scale),
+                                        ),
+                                    )
+                                });
                                 if let Some(b) = backdrop {
                                     window.paint_quad(quad(
                                         frame_bounds,
