@@ -1,0 +1,118 @@
+use image::{ImageReader, RgbaImage};
+use std::{
+    borrow::Cow,
+    path::PathBuf,
+    process::Command,
+    sync::atomic::{AtomicU64, Ordering},
+};
+static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(0);
+pub fn load(path: &std::path::Path) -> Result<RgbaImage, String> {
+    let reader = ImageReader::open(path)
+        .map_err(|e| e.to_string())?
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?;
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(16000);
+    limits.max_image_height = Some(16000);
+    limits.max_alloc = Some(512 * 1024 * 1024);
+    let mut reader = reader;
+    reader.limits(limits);
+    reader
+        .decode()
+        .map(|i| i.to_rgba8())
+        .map_err(|e| e.to_string())
+}
+pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
+    // Unique paths avoid mistaking a canceled selection for a previous capture.
+    let path = std::env::temp_dir().join(format!(
+        "pachiri-{}-{}.png",
+        std::process::id(),
+        NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed)
+    ));
+    std::thread::sleep(std::time::Duration::from_millis(250));
+    let mut command = Command::new("/usr/sbin/screencapture");
+    command.args(["-x", "-t", "png"]);
+    if area {
+        command.args(["-i", "-s"]);
+    } else {
+        command.arg("-m");
+    }
+    let output = command.arg(&path).output().map_err(|e| e.to_string())?;
+    let result = if path.exists() {
+        load(&path).map(Some)
+    } else if !output.stderr.is_empty() || !area {
+        Err("Capture failed. Allow Pachiri in System Settings → Privacy & Security → Screen & System Audio Recording, then relaunch.".into())
+    } else {
+        Ok(None)
+    };
+    let _ = std::fs::remove_file(path);
+    result
+}
+fn dialog(script: &str) -> Result<Option<PathBuf>, String> {
+    let output = Command::new("/usr/bin/osascript")
+        .args(["-e", script])
+        .output()
+        .map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        let error = String::from_utf8_lossy(&output.stderr);
+        return if error.contains("-128") {
+            Ok(None)
+        } else {
+            Err(error.trim().to_string())
+        };
+    }
+    let path = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+    Ok(Some(PathBuf::from(path.trim_end())))
+}
+pub fn open() -> Result<Option<RgbaImage>, String> {
+    match dialog(
+        "POSIX path of (choose file with prompt \"Open an image in Pachiri\" of type {\"public.png\", \"public.jpeg\"})",
+    )? {
+        Some(path) => load(&path).map(Some),
+        None => Ok(None),
+    }
+}
+pub fn save(image: RgbaImage) -> Result<Option<PathBuf>, String> {
+    let Some(mut path) = dialog(
+        "POSIX path of (choose file name with prompt \"Save annotated screenshot\" default name \"Pachiri.png\")",
+    )?
+    else {
+        return Ok(None);
+    };
+    if path.extension().is_none() {
+        path.set_extension("png");
+    }
+    image
+        .save_with_format(&path, image::ImageFormat::Png)
+        .map_err(|e| e.to_string())?;
+    Ok(Some(path))
+}
+pub fn copy(image: RgbaImage) -> Result<(), String> {
+    arboard::Clipboard::new()
+        .map_err(|e| e.to_string())?
+        .set_image(arboard::ImageData {
+            width: image.width() as usize,
+            height: image.height() as usize,
+            bytes: Cow::Owned(image.into_raw()),
+        })
+        .map_err(|e| e.to_string())
+}
+
+pub fn clipboard_image() -> Result<RgbaImage, String> {
+    let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
+    let data = clipboard
+        .get_image()
+        .map_err(|_| "The clipboard doesn’t contain an image.".to_string())?;
+    if data.width > 16000
+        || data.height > 16000
+        || data.width.saturating_mul(data.height) > 64_000_000
+    {
+        return Err("Clipboard image is too large.".into());
+    }
+    RgbaImage::from_raw(
+        data.width as u32,
+        data.height as u32,
+        data.bytes.into_owned(),
+    )
+    .ok_or_else(|| "Invalid clipboard image.".into())
+}

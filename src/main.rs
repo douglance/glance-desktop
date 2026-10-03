@@ -1,0 +1,1191 @@
+mod backdrop;
+mod backdrop_panel;
+mod document;
+mod drawing;
+mod enhance;
+mod enhance_panel;
+mod icons;
+#[cfg(test)]
+mod performance;
+mod platform;
+mod text;
+actions!(pachiri, [Quit]);
+use document::{Document, Mark, Tool};
+use global_hotkey::{
+    GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
+    hotkey::{Code, HotKey, Modifiers},
+};
+use gpui::{prelude::*, *};
+use std::{cell::Cell, rc::Rc, sync::Arc};
+
+#[derive(Clone, Copy, Default)]
+struct Layout {
+    x: f32,
+    y: f32,
+    scale: f32,
+    width: f32,
+    height: f32,
+}
+enum Message {
+    Hotkey(bool),
+    Preview(u64, usize, Arc<RenderImage>),
+    Cropped(Document, Arc<RenderImage>),
+    Image(Result<Option<image::RgbaImage>, String>),
+    Saved(Result<Option<std::path::PathBuf>, String>),
+    Copied(Result<(), String>),
+    Transformed(Result<(Document, usize, Arc<RenderImage>), String>),
+}
+struct Editor {
+    document: Document,
+    revision: u64,
+    preview_count: usize,
+    rendering: bool,
+    waiting_preview: bool,
+    preview: Arc<RenderImage>,
+    retired: Vec<Arc<RenderImage>>,
+    tool: Tool,
+    color: [u8; 4],
+    width: f32,
+    draft: Option<Mark>,
+    text_edit: Option<text::Edit>,
+    text_session: u64,
+    backdrop_panel: bool,
+    backdrop_drag: Option<(backdrop::Control, Bounds<Pixels>)>,
+    enhance_panel: bool,
+    resize_scale: f32,
+    resize_smart: bool,
+
+    zoom: Option<f32>,
+    pan: (f32, f32),
+    pan_start: Option<Point<Pixels>>,
+    layout: Rc<Cell<Layout>>,
+    focus: FocusHandle,
+    status: String,
+    busy: bool,
+    sender: async_channel::Sender<Message>,
+    _hotkeys: Option<GlobalHotKeyManager>,
+}
+fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
+    for p in image.pixels_mut() {
+        p.0.swap(0, 2);
+    }
+    Arc::new(RenderImage::new(smallvec::smallvec![image::Frame::new(
+        image
+    )]))
+}
+fn preview_base(doc: &Document) -> image::RgbaImage {
+    image::DynamicImage::ImageRgba8(doc.render(None))
+        .thumbnail(1600, 1200)
+        .to_rgba8()
+}
+struct HoverLabel(SharedString);
+impl Render for HoverLabel {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .px_3()
+            .py_2()
+            .rounded_md()
+            .bg(rgb(0x282b34))
+            .text_color(rgb(0xffffff))
+            .text_xs()
+            .shadow_md()
+            .child(self.0.clone())
+    }
+}
+fn icon(name: &'static str, color: u32) -> impl IntoElement {
+    svg()
+        .path(format!("icons/{name}.svg"))
+        .size(px(18.))
+        .flex_shrink_0()
+        .text_color(rgb(color))
+}
+impl Editor {
+    fn new(cx: &mut Context<Self>) -> Self {
+        let document = Document::new(document::demo());
+        let base = preview_base(&document);
+        let preview = render_image(base.clone());
+        let (sender, receiver) = async_channel::unbounded();
+        let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
+        let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
+        let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
+        let hotkeys = match GlobalHotKeyManager::new() {
+            Ok(manager) => {
+                for key in [area, full] {
+                    if let Err(e) = manager.register(key) {
+                        status = format!("Shortcut unavailable: {e}. Use the capture buttons.");
+                    }
+                }
+                Some(manager)
+            }
+            Err(e) => {
+                status = format!("Global shortcuts unavailable: {e}");
+                None
+            }
+        };
+        let hotkey_sender = sender.clone();
+        GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
+            if event.state == HotKeyState::Pressed {
+                if event.id == area.id() {
+                    let _ = hotkey_sender.try_send(Message::Hotkey(true));
+                }
+                if event.id == full.id() {
+                    let _ = hotkey_sender.try_send(Message::Hotkey(false));
+                }
+            }
+        }));
+        cx.spawn(async move |view, cx| {
+            while let Ok(message) = receiver.recv().await {
+                if view
+                    .update(cx, |editor, cx| editor.receive(message, cx))
+                    .is_err()
+                {
+                    break;
+                }
+            }
+        })
+        .detach();
+        Self {
+            document,
+            revision: 0,
+            preview_count: 0,
+            rendering: false,
+            waiting_preview: false,
+            preview,
+            retired: vec![],
+            tool: Tool::Pen,
+            color: [255, 56, 100, 255],
+            width: 5.,
+            draft: None,
+            text_edit: None,
+            text_session: 0,
+            backdrop_panel: false,
+            backdrop_drag: None,
+            enhance_panel: false,
+            resize_scale: 2.,
+            resize_smart: true,
+
+            zoom: None,
+            pan: (0., 0.),
+            pan_start: None,
+            layout: Rc::new(Cell::new(Layout::default())),
+            focus: cx.focus_handle(),
+            status,
+            busy: false,
+            sender,
+
+            _hotkeys: hotkeys,
+        }
+    }
+    fn schedule_preview(&mut self) {
+        if self.rendering {
+            return;
+        }
+        self.rendering = true;
+        let document = self.document.render_snapshot();
+        let revision = self.revision;
+        let count = document.marks.len();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let image = render_image(preview_base(&document));
+            let _ = sender.send_blocking(Message::Preview(revision, count, image));
+        });
+    }
+    fn changed(&mut self) {
+        self.revision += 1;
+        self.schedule_preview();
+    }
+    fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
+        let failed = matches!(
+            &message,
+            Message::Image(Err(_))
+                | Message::Saved(Err(_))
+                | Message::Copied(Err(_))
+                | Message::Transformed(Err(_))
+        );
+        match message {
+            Message::Transformed(Ok((document, count, image))) => {
+                self.document = document;
+                self.revision += 1;
+                self.retired
+                    .push(std::mem::replace(&mut self.preview, image));
+                self.preview_count = count;
+                self.zoom = None;
+                self.pan = (0., 0.);
+                self.busy = false;
+            }
+            Message::Transformed(Err(e)) => {
+                self.busy = false;
+                self.status = e;
+            }
+            Message::Hotkey(area) => {
+                self.capture(area, cx);
+                return;
+            }
+            Message::Preview(revision, count, image) => {
+                self.rendering = false;
+                if revision == self.revision {
+                    self.retired
+                        .push(std::mem::replace(&mut self.preview, image));
+                    self.preview_count = count;
+                    if self.waiting_preview {
+                        self.waiting_preview = false;
+                        self.busy = false;
+                        self.status = "Ready".into();
+                    }
+                } else {
+                    self.schedule_preview();
+                }
+                cx.notify();
+                return;
+            }
+            Message::Cropped(document, image) => {
+                self.document = document;
+                self.revision += 1;
+                self.retired
+                    .push(std::mem::replace(&mut self.preview, image));
+                self.preview_count = 0;
+                self.zoom = None;
+                self.pan = (0., 0.);
+                self.busy = false;
+                self.status = "Cropped • ⌘Z to restore".into();
+            }
+            Message::Image(Ok(Some(image))) => {
+                self.document = Document::new(image);
+                self.zoom = None;
+                self.pan = (0., 0.);
+                self.draft = None;
+                self.preview_count = usize::MAX;
+                self.waiting_preview = true;
+                self.changed();
+                self.status = "Preparing image…".into();
+            }
+            Message::Image(Ok(None)) => {
+                self.busy = false;
+                self.status = "Selection canceled".into();
+            }
+            Message::Image(Err(e)) => {
+                self.busy = false;
+                self.status = e;
+            }
+            Message::Saved(result) => {
+                self.busy = false;
+                self.status = match result {
+                    Ok(Some(path)) => format!("Saved {}", path.display()),
+                    Ok(None) => "Save canceled".into(),
+                    Err(e) => e,
+                };
+            }
+            Message::Copied(result) => {
+                self.busy = false;
+                self.status = match result {
+                    Ok(()) => "Copied image to clipboard".into(),
+                    Err(e) => e,
+                };
+            }
+        }
+        cx.activate(true);
+        if failed && let Some(window) = cx.windows().first().copied() {
+            let detail = self.status.clone();
+            if let Ok(answer) = window.update(cx, |_, window, cx| {
+                window.prompt(
+                    PromptLevel::Critical,
+                    "Pachiri couldn’t complete the operation",
+                    Some(&detail),
+                    &["OK"],
+                    cx,
+                )
+            }) {
+                cx.spawn(async move |_, _| {
+                    let _ = answer.await;
+                })
+                .detach();
+            }
+        }
+        cx.notify();
+    }
+    fn commit_text(&mut self, cx: &mut Context<Self>) {
+        if let Some(edit) = self.text_edit.take() {
+            if !edit.buffer.text().trim().is_empty() {
+                let mut mark = edit.mark;
+                mark.text = edit.buffer.text().into();
+                self.document.commit(mark);
+                self.changed();
+                self.status = "Text label added".into();
+            } else {
+                self.status = "Empty label discarded".into();
+            }
+            cx.notify();
+        }
+    }
+    fn outside_text(&mut self, e: &MouseDownEvent, cx: &mut Context<Self>) {
+        let layout = self.layout.get();
+        let image = Bounds::new(
+            point(px(layout.x), px(layout.y)),
+            size(
+                px(layout.width * layout.scale),
+                px(layout.height * layout.scale),
+            ),
+        );
+        if !image.contains(&e.position) {
+            self.commit_text(cx);
+        }
+    }
+    fn capture(&mut self, area: bool, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.commit_text(cx);
+        self.draft = None;
+        self.busy = true;
+        self.status = "Capturing… Escape cancels area selection".into();
+        cx.hide();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send_blocking(Message::Image(platform::capture(area)));
+        });
+        cx.notify();
+    }
+    fn open(&mut self, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.commit_text(cx);
+        self.busy = true;
+        self.status = "Choose a PNG or JPEG…".into();
+        let sender = self.sender.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send_blocking(Message::Image(platform::open()));
+        });
+        cx.notify();
+    }
+    fn export(&mut self, save: bool, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.commit_text(cx);
+        self.busy = true;
+        let document = self.document.render_snapshot();
+        let sender = self.sender.clone();
+        self.status = if save {
+            "Choose where to save…"
+        } else {
+            "Copying…"
+        }
+        .into();
+        std::thread::spawn(move || {
+            let image = document.export();
+            let message = if save {
+                Message::Saved(platform::save(image))
+            } else {
+                Message::Copied(platform::copy(image))
+            };
+            let _ = sender.send_blocking(message);
+        });
+        cx.notify();
+    }
+    fn history(&mut self, redo: bool, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        self.commit_text(cx);
+        self.draft = None;
+        if redo {
+            self.document.redo();
+        } else {
+            self.document.undo();
+        }
+        self.preview_count = usize::MAX;
+        self.waiting_preview = true;
+        self.busy = true;
+        self.status = "Updating image…".into();
+        self.changed();
+        cx.notify();
+    }
+    fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
+        self.commit_text(cx);
+        self.tool = tool;
+        self.draft = None;
+        cx.notify();
+    }
+    fn coordinate(&self, p: Point<Pixels>, clamp: bool) -> Option<(f32, f32)> {
+        let layout = self.layout.get();
+        if layout.scale <= 0. {
+            return None;
+        }
+        let x = (f32::from(p.x) - layout.x) / layout.scale;
+        let y = (f32::from(p.y) - layout.y) / layout.scale;
+        if !clamp && (x < 0. || y < 0. || x >= layout.width || y >= layout.height) {
+            return None;
+        }
+        Some((
+            x.clamp(0., layout.width - 1.),
+            y.clamp(0., layout.height - 1.),
+        ))
+    }
+    fn begin(&mut self, e: &MouseDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        self.focus.focus(window);
+        if self.busy {
+            return;
+        }
+        if let Some(edit) = &mut self.text_edit
+            && edit
+                .bounds
+                .is_some_and(|bounds| bounds.dilate(px(5.)).contains(&e.position))
+        {
+            edit.buffer
+                .move_to(edit.index(e.position), e.modifiers.shift);
+            edit.selecting = true;
+            edit.caret_on = true;
+            cx.notify();
+            return;
+        }
+        self.commit_text(cx);
+        let Some(p) = self.coordinate(e.position, false) else {
+            return;
+        };
+        let mut mark = Mark {
+            tool: self.tool,
+            points: vec![p],
+            color: self.color,
+            width: match self.tool {
+                Tool::Text => self.width.max(20. / 7.),
+                Tool::Counter => self.width.max(20. / 4.4),
+                _ => self.width,
+            },
+            text: String::new(),
+        };
+        if self.tool == Tool::Counter {
+            mark.text = (self
+                .document
+                .marks
+                .iter()
+                .filter(|m| m.tool == Tool::Counter)
+                .count()
+                + 1)
+            .to_string();
+            self.document.commit(mark);
+            self.changed();
+            cx.notify();
+            return;
+        }
+        if self.tool == Tool::Text {
+            self.text_edit = Some(text::Edit::new(mark));
+            self.text_session += 1;
+            let session = self.text_session;
+            self.status = "Type your label • Enter to finish • Escape to cancel".into();
+            cx.spawn(async move |view, cx| {
+                loop {
+                    cx.background_executor()
+                        .timer(std::time::Duration::from_millis(500))
+                        .await;
+                    let keep = view
+                        .update(cx, |editor, cx| {
+                            if editor.text_session != session {
+                                return false;
+                            }
+                            if let Some(edit) = &mut editor.text_edit {
+                                edit.caret_on = !edit.caret_on;
+                                cx.notify();
+                                true
+                            } else {
+                                false
+                            }
+                        })
+                        .unwrap_or(false);
+                    if !keep {
+                        break;
+                    }
+                }
+            })
+            .detach();
+        } else {
+            self.draft = Some(mark);
+        }
+        cx.notify();
+    }
+    fn motion(&mut self, e: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if self.backdrop_slider_move(e.position, cx) {
+            return;
+        }
+        if let Some(previous) = self.pan_start {
+            self.pan.0 += f32::from(e.position.x - previous.x);
+            self.pan.1 += f32::from(e.position.y - previous.y);
+            self.pan_start = Some(e.position);
+            cx.notify();
+            return;
+        }
+        if let Some(edit) = &mut self.text_edit
+            && edit.selecting
+        {
+            edit.buffer.move_to(edit.index(e.position), true);
+            edit.caret_on = true;
+            cx.notify();
+            return;
+        }
+        if self.draft.is_none() {
+            return;
+        }
+        let Some(p) = self.coordinate(e.position, true) else {
+            return;
+        };
+        if let Some(mark) = &mut self.draft {
+            if mark.tool == Tool::Pen {
+                if let Some(last) = mark.points.last()
+                    && (p.0 - last.0).hypot(p.1 - last.1) * self.layout.get().scale < 0.35
+                {
+                    return;
+                }
+                mark.points.push(p);
+            } else {
+                mark.points.truncate(1);
+                mark.points.push(p);
+            }
+            cx.notify();
+        }
+    }
+    fn finish(&mut self, e: &MouseUpEvent, cx: &mut Context<Self>) {
+        if self.backdrop_drag.take().is_some() {
+            cx.notify();
+            return;
+        }
+        if let Some(edit) = &mut self.text_edit {
+            edit.selecting = false;
+        }
+        if let Some(p) = self.coordinate(e.position, true)
+            && let Some(mark) = &mut self.draft
+        {
+            mark.points.push(p);
+        }
+        if let Some(mark) = self.draft.take() {
+            if mark.tool == Tool::Crop {
+                self.busy = true;
+                self.status = "Cropping…".into();
+                let mut document = self.document.clone();
+                let sender = self.sender.clone();
+                std::thread::spawn(move || {
+                    document.commit(mark);
+                    let image = render_image(preview_base(&document));
+                    let _ = sender.send_blocking(Message::Cropped(document, image));
+                });
+            } else {
+                self.document.commit(mark);
+                self.changed();
+            }
+            cx.notify();
+        }
+    }
+    fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        let key = e.keystroke.key.as_str();
+        let m = e.keystroke.modifiers;
+        if self.text_edit.is_some() {
+            if matches!(key, "enter" | "escape")
+                && self
+                    .text_edit
+                    .as_ref()
+                    .is_some_and(|e| e.buffer.marked.is_some())
+            {
+                return;
+            }
+            match key {
+                "enter" => {
+                    self.commit_text(cx);
+                    cx.stop_propagation();
+                    return;
+                }
+                "escape" => {
+                    self.text_edit = None;
+                    self.status = "Text canceled".into();
+                    cx.notify();
+                    cx.stop_propagation();
+                    return;
+                }
+                _ => {}
+            }
+            if m.platform && matches!(key, "s" | "o" | "q") {
+                self.commit_text(cx);
+            } else {
+                let edit = self.text_edit.as_mut().unwrap();
+                let mut handled = true;
+                if m.platform {
+                    match key {
+                        "a" => edit.buffer.select_all(),
+                        "v" => {
+                            if let Some(text) = cx.read_from_clipboard().and_then(|i| i.text()) {
+                                edit.replace_text(&text);
+                            }
+                        }
+                        "c" | "x" => {
+                            let range = edit.buffer.selection();
+                            if !range.is_empty() {
+                                cx.write_to_clipboard(ClipboardItem::new_string(
+                                    edit.buffer.text()[range].into(),
+                                ));
+                                if key == "x" {
+                                    edit.replace_text("");
+                                }
+                            }
+                        }
+                        "z" => edit.buffer.history(m.shift),
+                        "left" => edit.buffer.move_to(0, m.shift),
+                        "right" => edit.buffer.move_to(edit.buffer.text().len(), m.shift),
+                        _ => handled = false,
+                    }
+                } else {
+                    match key {
+                        "backspace" => edit.buffer.delete(false),
+                        "delete" => edit.buffer.delete(true),
+                        "left" => edit.buffer.move_cursor(false, m.shift),
+                        "right" => edit.buffer.move_cursor(true, m.shift),
+                        "home" => edit.buffer.move_to(0, m.shift),
+                        "end" => edit.buffer.move_to(edit.buffer.text().len(), m.shift),
+                        _ => handled = false,
+                    }
+                }
+                if handled {
+                    edit.caret_on = true;
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+                let _ = window;
+                return;
+            }
+        }
+        if m.platform && m.alt && matches!(key, "2" | "3") {
+            self.capture(key == "2", cx);
+        } else if m.platform {
+            match key {
+                "q" => cx.quit(),
+                "c" => self.export(false, cx),
+                "s" => self.export(true, cx),
+                "o" => self.open(cx),
+                "v" => self.paste_image(cx),
+                "z" => self.history(m.shift, cx),
+                "1" => {
+                    self.zoom = None;
+                    self.pan = (0., 0.);
+                    cx.notify();
+                }
+                "0" => {
+                    self.zoom = Some(1.);
+                    self.pan = (0., 0.);
+                    cx.notify();
+                }
+                "+" | "=" => self.change_zoom(1.25, cx),
+                "-" => self.change_zoom(0.8, cx),
+                _ => {}
+            }
+        } else if !m.alt && !m.control {
+            match key {
+                "p" => self.set_tool(Tool::Pen, cx),
+                "a" => self.set_tool(Tool::Arrow, cx),
+                "r" => self.set_tool(Tool::Rectangle, cx),
+                "h" => self.set_tool(Tool::Highlight, cx),
+                "b" => self.set_tool(Tool::Pixelate, cx),
+                "x" => self.set_tool(Tool::Crop, cx),
+                "t" => self.set_tool(Tool::Text, cx),
+                "n" => self.set_tool(Tool::Counter, cx),
+                "escape" => {
+                    self.draft = None;
+                    cx.notify();
+                }
+                _ => {}
+            }
+        }
+    }
+    fn change_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
+        self.zoom = Some((self.zoom.unwrap_or(self.layout.get().scale) * factor).clamp(0.1, 4.));
+        cx.notify();
+    }
+    fn tool_button(&self, tool: Tool, cx: &Context<Self>) -> impl IntoElement {
+        let (name, key) = match tool {
+            Tool::Pen => ("pen-line", "P"),
+            Tool::Arrow => ("arrow-up-right", "A"),
+            Tool::Rectangle => ("square", "R"),
+            Tool::Text => ("type", "T"),
+            Tool::Highlight => ("highlighter", "H"),
+            Tool::Pixelate => ("grid-2x2", "B"),
+            Tool::Crop => ("crop", "X"),
+            Tool::Counter => ("list-ordered", "N"),
+        };
+        let active = self.tool == tool;
+        let label: SharedString = format!("{} · {}", tool.label(), key).into();
+        div()
+            .id(SharedString::from(format!("tool-{name}")))
+            .size(px(36.))
+            .flex()
+            .items_center()
+            .justify_center()
+            .rounded_md()
+            .cursor_pointer()
+            .bg(rgb(if active { 0xffe9e4 } else { 0xfcfcfd }))
+            .hover(|s| s.bg(rgb(0xf0f1f5)))
+            .active(|s| s.bg(rgb(0xe5e7ed)))
+            .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
+            .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone())).into())
+            .on_click(cx.listener(move |this, _, _, cx| this.set_tool(tool, cx)))
+    }
+    fn button(
+        &self,
+        label: &str,
+        active: bool,
+        cx: &Context<Self>,
+        action: impl Fn(&mut Self, &mut Context<Self>) + 'static,
+    ) -> impl IntoElement {
+        let icon_name = if label.starts_with("Area") {
+            Some("scan")
+        } else if label.starts_with("Screen") {
+            Some("monitor")
+        } else if label == "Open" {
+            Some("folder-open")
+        } else if label == "Backdrop" {
+            Some("square")
+        } else if label == "Image tools" {
+            Some("sparkles")
+        } else if label.starts_with("Paste") {
+            Some("clipboard-paste")
+        } else if label.starts_with("Rotate") {
+            Some("rotate-cw")
+        } else if label.starts_with("Copy") {
+            Some("copy")
+        } else if label.starts_with("Save") {
+            Some("save")
+        } else {
+            None
+        };
+        div()
+            .id(SharedString::from(label.to_string()))
+            .px_3()
+            .py_1()
+            .h(px(32.))
+            .flex()
+            .items_center()
+            .rounded_md()
+            .cursor_pointer()
+            .text_sm()
+            .bg(rgb(if active { 0xffe9e4 } else { 0xffffff }))
+            .text_color(rgb(if active { 0xd94d38 } else { 0x44454f }))
+            .hover(|s| s.bg(rgb(0xf0f1f5)))
+            .active(|s| s.bg(rgb(0xe5e7ed)))
+            .gap_2()
+            .when_some(icon_name, |el, name| {
+                el.child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
+            })
+            .child(label.to_string())
+            .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
+    }
+}
+impl Render for Editor {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        for image in self.retired.drain(..) {
+            let _ = window.drop_image(image);
+        }
+        let image = self.preview.clone();
+        let text_entity = cx.entity();
+        let overlays: Vec<Mark> = self
+            .document
+            .marks
+            .iter()
+            .skip(self.preview_count)
+            .chain(self.draft.iter())
+            .cloned()
+            .collect();
+        let layout = self.layout.clone();
+        let dimensions = self.document.base.dimensions();
+        let backdrop = self.document.backdrop;
+        let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
+        let viewport = window.viewport_size();
+        let fit_zoom = ((f32::from(viewport.width)
+            - if self.backdrop_panel || self.enhance_panel {
+                260.
+            } else {
+                0.
+            }
+            - 80.)
+            / output_dimensions.0 as f32)
+            .min((f32::from(viewport.height) - 108. - 70.) / output_dimensions.1 as f32)
+            .clamp(0.01, 1.);
+        let zoom_label = format!("{:.0}%", self.zoom.unwrap_or(fit_zoom) * 100.);
+        let zoom = self.zoom;
+        let pan = self.pan;
+        let tools = [
+            Tool::Pen,
+            Tool::Arrow,
+            Tool::Rectangle,
+            Tool::Text,
+            Tool::Highlight,
+            Tool::Pixelate,
+            Tool::Crop,
+            Tool::Counter,
+        ];
+        let colors = [
+            (0xff3864, [255, 56, 100, 255]),
+            (0xffb82e, [255, 184, 46, 255]),
+            (0x26b690, [38, 182, 144, 255]),
+            (0x4c8dff, [76, 141, 255, 255]),
+            (0xffffff, [255, 255, 255, 255]),
+            (0x20222a, [32, 34, 42, 255]),
+        ];
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .bg(rgb(0xfcfcfd))
+            .text_color(rgb(0x272831))
+            .font_family(".AppleSystemUIFont")
+            .track_focus(&self.focus)
+            .on_key_down(cx.listener(Self::key))
+            .on_mouse_down(
+                MouseButton::Left,
+                cx.listener(|this, e, _, cx| this.outside_text(e, cx)),
+            )
+            .on_mouse_move(cx.listener(|this, e, _, cx| this.motion(e, cx)))
+            .on_mouse_up(
+                MouseButton::Left,
+                cx.listener(|this, e, _, cx| this.finish(e, cx)),
+            )
+            .on_mouse_up(
+                MouseButton::Right,
+                cx.listener(|this, _, _, _| this.pan_start = None),
+            )
+            .child(
+                div()
+                    .h(px(56.))
+                    .flex_shrink_0()
+                    .px_5()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(rgb(0xe9e9ee))
+                    .child(
+                        div().flex().gap_3().items_center().child(
+                            div()
+                                .text_xl()
+                                .font_weight(FontWeight::BOLD)
+                                .text_color(rgb(0xf35d45))
+                                .child("pachiri"),
+                        ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .items_center()
+                            .child(self.button("Area  ⌘⌥2", false, cx, |this, cx| {
+                                this.capture(true, cx)
+                            }))
+                            .child(self.button("Screen  ⌘⌥3", false, cx, |this, cx| {
+                                this.capture(false, cx)
+                            }))
+                            .child(self.button("Open", false, cx, |this, cx| this.open(cx)))
+                            .child(
+                                self.button("Copy  ⌘C", true, cx, |this, cx| {
+                                    this.export(false, cx)
+                                }),
+                            )
+                            .child(
+                                self.button("Save  ⌘S", false, cx, |this, cx| {
+                                    this.export(true, cx)
+                                }),
+                            )
+                            .child(div().h(px(24.)).w(px(1.)).mx_2().bg(rgb(0xe5e5ec)))
+                            .child(
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_3()
+                                    .text_xs()
+                                    .text_color(rgb(0x555966))
+                                    .child(
+                                        div()
+                                            .id("image-size")
+                                            .child(format!(
+                                                "{}×{}",
+                                                output_dimensions.0, output_dimensions.1
+                                            ))
+                                            .tooltip(|_, cx| {
+                                                cx.new(|_| {
+                                                    HoverLabel("Image size in pixels".into())
+                                                })
+                                                .into()
+                                            }),
+                                    )
+                                    .child(div().h(px(20.)).w(px(1.)).bg(rgb(0xe5e5ec)))
+                                    .child(
+                                        div()
+                                            .id("header-zoom")
+                                            .min_w(px(36.))
+                                            .cursor_pointer()
+                                            .child(zoom_label)
+                                            .tooltip(|_, cx| {
+                                                cx.new(|_| {
+                                                    HoverLabel("Zoom · ⌘+/⌘− · Click to fit".into())
+                                                })
+                                                .into()
+                                            })
+                                            .on_click(cx.listener(|this, _, _, cx| {
+                                                this.zoom = None;
+                                                this.pan = (0., 0.);
+                                                cx.notify();
+                                            })),
+                                    ),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .h(px(52.))
+                    .flex_shrink_0()
+                    .px_5()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .border_b_1()
+                    .border_color(rgb(0xe9e9ee))
+                    .child(
+                        div()
+                            .flex()
+                            .gap_1()
+                            .items_center()
+                            .children(tools.into_iter().map(|tool| self.tool_button(tool, cx)))
+                            .child(div().w(px(1.)).h(px(20.)).mx_2().bg(rgb(0xe5e5ec)))
+                            .child(
+                                self.button("Backdrop", self.backdrop_panel, cx, |this, cx| {
+                                    this.toggle_backdrop(cx)
+                                }),
+                            )
+                            .child(self.button(
+                                "Image tools",
+                                self.enhance_panel,
+                                cx,
+                                |this, cx| this.toggle_enhance(cx),
+                            )),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .children(colors.into_iter().map(|(hex, color)| {
+                                div()
+                                    .id(("color", hex))
+                                    .size(px(22.))
+                                    .rounded_full()
+                                    .border_2()
+                                    .border_color(rgb(if self.color == color {
+                                        0xf35d45
+                                    } else {
+                                        0xd7d7df
+                                    }))
+                                    .bg(rgb(hex))
+                                    .cursor_pointer()
+                                    .on_click(cx.listener(move |this, _, _, cx| {
+                                        this.color = color;
+                                        cx.notify();
+                                    }))
+                            }))
+                            .child(self.button(
+                                &format!("{} px", self.width as u32),
+                                false,
+                                cx,
+                                |this, cx| {
+                                    this.width = match this.width as u32 {
+                                        3 => 5.,
+                                        5 => 9.,
+                                        _ => 3.,
+                                    };
+                                    cx.notify();
+                                },
+                            )),
+                    ),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_1()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .cursor(CursorStyle::Crosshair)
+                    .on_mouse_down(MouseButton::Left, cx.listener(Self::begin))
+                    .on_mouse_down(
+                        MouseButton::Right,
+                        cx.listener(|this, e: &MouseDownEvent, _, _| {
+                            this.pan_start = Some(e.position)
+                        }),
+                    )
+                    .child(
+                        canvas(
+                            move |bounds, _, _| bounds,
+                            move |bounds, _, window, cx| {
+                                window.paint_quad(fill(bounds, rgb(0xeff0f4)));
+                                let fit = ((f32::from(bounds.size.width) - 80.)
+                                    / output_dimensions.0 as f32)
+                                    .min(
+                                        (f32::from(bounds.size.height) - 70.)
+                                            / output_dimensions.1 as f32,
+                                    )
+                                    .clamp(0.01, 1.);
+                                let scale = zoom.unwrap_or(fit);
+                                let w = dimensions.0 as f32 * scale;
+                                let h = dimensions.1 as f32 * scale;
+                                let padding = backdrop.map_or(0., |b| b.padding as f32 * scale);
+                                let x = f32::from(bounds.origin.x)
+                                    + (f32::from(bounds.size.width) - w) / 2.
+                                    + pan.0;
+                                let y = f32::from(bounds.origin.y)
+                                    + (f32::from(bounds.size.height) - h) / 2.
+                                    + pan.1;
+                                layout.set(Layout {
+                                    x,
+                                    y,
+                                    scale,
+                                    width: dimensions.0 as f32,
+                                    height: dimensions.1 as f32,
+                                });
+                                let image_bounds =
+                                    Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+                                let frame_bounds = image_bounds.dilate(px(padding));
+                                if let Some(b) = backdrop {
+                                    window.paint_quad(quad(
+                                        frame_bounds,
+                                        px(b.outer_radius as f32 * scale),
+                                        b.background(),
+                                        px(0.),
+                                        rgb(0xffffff),
+                                        Default::default(),
+                                    ));
+                                    if b.shadow > 0 {
+                                        window.with_content_mask(
+                                            Some(ContentMask {
+                                                bounds: frame_bounds.intersect(&bounds),
+                                            }),
+                                            |window| {
+                                                window.paint_shadows(
+                                                    image_bounds,
+                                                    px(b.inner_radius as f32 * scale).into(),
+                                                    &[BoxShadow {
+                                                        color: rgba(0x00000038).into(),
+                                                        offset: point(
+                                                            px(0.),
+                                                            px(b.shadow as f32 * scale * 0.25),
+                                                        ),
+                                                        blur_radius: px(b.shadow as f32 * scale),
+                                                        spread_radius: px(0.),
+                                                    }],
+                                                );
+                                            },
+                                        );
+                                    }
+                                } else {
+                                    window.paint_shadows(
+                                        image_bounds,
+                                        Default::default(),
+                                        &[
+                                            BoxShadow {
+                                                color: rgba(0x17203320).into(),
+                                                offset: point(px(0.), px(12.)),
+                                                blur_radius: px(32.),
+                                                spread_radius: px(0.),
+                                            },
+                                            BoxShadow {
+                                                color: rgba(0x17203310).into(),
+                                                offset: point(px(0.), px(2.)),
+                                                blur_radius: px(6.),
+                                                spread_radius: px(0.),
+                                            },
+                                        ],
+                                    );
+                                }
+                                if backdrop.is_none() {
+                                    window.paint_quad(quad(
+                                        image_bounds,
+                                        px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)),
+                                        rgb(0xffffff),
+                                        px(1.),
+                                        rgb(0xd8d8e1),
+                                        Default::default(),
+                                    ));
+                                }
+                                let _ = window.paint_image(
+                                    image_bounds,
+                                    px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale))
+                                        .into(),
+                                    image,
+                                    0,
+                                    false,
+                                );
+                                window.with_content_mask(
+                                    Some(ContentMask {
+                                        bounds: image_bounds.intersect(&bounds),
+                                    }),
+                                    |window| {
+                                        for mark in &overlays {
+                                            drawing::paint(mark, layout.get(), window, cx);
+                                        }
+                                        text::paint(
+                                            &text_entity,
+                                            layout.get(),
+                                            image_bounds,
+                                            window,
+                                            cx,
+                                        );
+                                    },
+                                );
+                                if let Some(b) = backdrop {
+                                    backdrop::clip_output_corners(
+                                        frame_bounds,
+                                        b.outer_radius as f32 * scale,
+                                        window,
+                                    );
+                                }
+                            },
+                        )
+                        .h_full()
+                        .flex_1()
+                        .min_w_0(),
+                    )
+                    .when(self.backdrop_panel, |el| {
+                        el.child(self.backdrop_controls(cx))
+                    })
+                    .when(self.enhance_panel, |el| el.child(self.enhance_controls(cx))),
+            )
+    }
+}
+fn main() {
+    let application = Application::new().with_assets(icons::Icons);
+    application.on_reopen(|cx| cx.activate(true));
+    application.run(|cx: &mut App| {
+        cx.on_action(|_: &Quit, cx: &mut App| cx.quit());
+        cx.bind_keys([KeyBinding::new("cmd-q", Quit, None)]);
+        cx.set_menus(vec![Menu {
+            name: "Pachiri".into(),
+            items: vec![MenuItem::action("Quit Pachiri", Quit)],
+        }]);
+        let bounds = Bounds::centered(None, size(px(1220.), px(860.)), cx);
+        cx.open_window(
+            WindowOptions {
+                window_bounds: Some(WindowBounds::Windowed(bounds)),
+                window_min_size: Some(size(px(1050.), px(600.))),
+                titlebar: Some(TitlebarOptions {
+                    title: Some("Pachiri".into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            |window, cx| {
+                cx.new(|cx| {
+                    window.on_window_should_close(cx, |_, cx| {
+                        cx.hide();
+                        false
+                    });
+                    let editor = Editor::new(cx);
+                    editor.focus.focus(window);
+                    editor
+                })
+            },
+        )
+        .expect("Unable to open the editor");
+        cx.activate(true);
+    });
+}

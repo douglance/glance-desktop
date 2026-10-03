@@ -1,0 +1,20 @@
+[package]
+name = "pachiri"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
+image = "0.25"
+imageproc = "0.25"
+global-hotkey = "0.7"
+arboard = "3.6"
+smallvec = "1"
+ab_glyph = "0.2"
+async-channel = "2"
+lyon = "1"
+unicode-segmentation = "1"
+
+[profile.release]
+lto = "thin"
+strip = true

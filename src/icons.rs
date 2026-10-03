@@ -1,0 +1,105 @@
+//! Lucide SVGs embedded in the binary, loaded through GPUI's cached SVG renderer.
+use gpui::{AssetSource, Result, SharedString};
+use std::borrow::Cow;
+pub struct Icons;
+const ASSETS: &[(&str, &[u8])] = &[
+    (
+        "icons/list-ordered.svg",
+        include_bytes!("../assets/lucide/list-ordered.svg"),
+    ),
+    (
+        "icons/sparkles.svg",
+        include_bytes!("../assets/lucide/sparkles.svg"),
+    ),
+    (
+        "icons/clipboard-paste.svg",
+        include_bytes!("../assets/lucide/clipboard-paste.svg"),
+    ),
+    (
+        "icons/rotate-cw.svg",
+        include_bytes!("../assets/lucide/rotate-cw.svg"),
+    ),
+    (
+        "icons/arrow-up-right.svg",
+        include_bytes!("../assets/lucide/arrow-up-right.svg"),
+    ),
+    (
+        "icons/copy.svg",
+        include_bytes!("../assets/lucide/copy.svg"),
+    ),
+    (
+        "icons/crop.svg",
+        include_bytes!("../assets/lucide/crop.svg"),
+    ),
+    (
+        "icons/folder-open.svg",
+        include_bytes!("../assets/lucide/folder-open.svg"),
+    ),
+    (
+        "icons/grid-2x2.svg",
+        include_bytes!("../assets/lucide/grid-2x2.svg"),
+    ),
+    (
+        "icons/highlighter.svg",
+        include_bytes!("../assets/lucide/highlighter.svg"),
+    ),
+    (
+        "icons/maximize.svg",
+        include_bytes!("../assets/lucide/maximize.svg"),
+    ),
+    (
+        "icons/monitor.svg",
+        include_bytes!("../assets/lucide/monitor.svg"),
+    ),
+    (
+        "icons/pen-line.svg",
+        include_bytes!("../assets/lucide/pen-line.svg"),
+    ),
+    (
+        "icons/redo-2.svg",
+        include_bytes!("../assets/lucide/redo-2.svg"),
+    ),
+    (
+        "icons/save.svg",
+        include_bytes!("../assets/lucide/save.svg"),
+    ),
+    (
+        "icons/scan.svg",
+        include_bytes!("../assets/lucide/scan.svg"),
+    ),
+    (
+        "icons/square.svg",
+        include_bytes!("../assets/lucide/square.svg"),
+    ),
+    (
+        "icons/type.svg",
+        include_bytes!("../assets/lucide/type.svg"),
+    ),
+    (
+        "icons/undo-2.svg",
+        include_bytes!("../assets/lucide/undo-2.svg"),
+    ),
+    (
+        "icons/zoom-in.svg",
+        include_bytes!("../assets/lucide/zoom-in.svg"),
+    ),
+    (
+        "icons/zoom-out.svg",
+        include_bytes!("../assets/lucide/zoom-out.svg"),
+    ),
+];
+impl AssetSource for Icons {
+    fn load(&self, path: &str) -> Result<Option<Cow<'static, [u8]>>> {
+        Ok(ASSETS
+            .iter()
+            .find(|(name, _)| *name == path)
+            .map(|(_, bytes)| Cow::Borrowed(*bytes)))
+    }
+    fn list(&self, path: &str) -> Result<Vec<SharedString>> {
+        Ok(ASSETS
+            .iter()
+            .filter(|(name, _)| name.starts_with(path))
+            .map(|(name, _)| (*name).into())
+            .collect())
+    }
+}
