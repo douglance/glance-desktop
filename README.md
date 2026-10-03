@@ -96,8 +96,11 @@ no certificate or Keychain trust is installed automatically. See Apple's
   **Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
 - **⌘Z / ⌘⇧Z** undo/redo; **⌘C** copies the composed image; **⌘S** saves PNG.
+  Copy shows a brief **Copied!** confirmation and a checkmark on its button.
 - **Copy (remote) · ⌘⇧C** (cloud-upload icon) uploads the composed PNG (including annotations and
   backdrop) to [Glance](https://glance.sh) and copies `Screenshot: <url>`.
+  An **Uploading…** indicator stays visible until completion, then **Link copied!**
+  confirms success with the link lifetime. The confirmation dismisses after three seconds.
   Paste it into a remote agent’s chat; the agent can fetch the image directly.
   Links expire after about 30 minutes. Uploads use Glance’s client encryption
   and private Blob storage, require internet, and are limited to 15 MB and
