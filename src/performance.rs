@@ -37,6 +37,7 @@ fn drawing_preparation_benchmark() {
     for count in [500, 2000, 10000] {
         let mark = Mark {
             tool: Tool::Pen,
+            curve: None,
             points: (0..count)
                 .map(|i| {
                     let t = i as f32 / count as f32;
@@ -74,9 +75,28 @@ fn drawing_preparation_benchmark() {
             gpu.0, gpu.1, raster.0, raster.1
         );
     }
+    let arrow = Mark {
+        tool: Tool::Arrow,
+        points: vec![(100., 1900.), (3500., 1900.)],
+        curve: Some((1800., -1000.)),
+        color: [255, 40, 100, 255],
+        width: 9.,
+        text: String::new(),
+    };
+    let gpu = samples(
+        || {
+            std::hint::black_box(drawing::paths(&arrow, layout));
+        },
+        1000,
+    );
+    println!(
+        "Curved arrow GPU paths p50 {:.3}, p95 {:.3} ms",
+        gpu.0, gpu.1
+    );
     let mut document = Document::new(RgbaImage::from_pixel(3840, 2160, Rgba([0, 0, 0, 255])));
     let mark = Mark {
         tool: Tool::Pen,
+        curve: None,
         points: vec![(10., 10.), (100., 100.)],
         color: [255, 0, 0, 255],
         width: 5.,

@@ -40,6 +40,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                         .collect();
                     d.commit(Mark {
                         tool,
+                        curve: None,
                         points,
                         color: [200, 30, 80, 255],
                         width: (random(&mut seed) % 9 + 1) as f32,
@@ -78,6 +79,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                 8 if d.base.width() > 6 && d.base.height() > 6 => {
                     d.commit(Mark {
                         tool: Tool::Crop,
+                        curve: None,
                         points: vec![
                             (1., 1.),
                             ((d.base.width() - 1) as f32, (d.base.height() - 1) as f32),

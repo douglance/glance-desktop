@@ -33,6 +33,8 @@ impl Tool {
 #[derive(Clone, Debug)]
 pub struct Mark {
     pub tool: Tool,
+    /// Quadratic control point; None is a straight arrow.
+    pub curve: Option<(f32, f32)>,
     pub points: Vec<(f32, f32)>,
     pub color: [u8; 4],
     pub width: f32,
@@ -154,6 +156,10 @@ impl Document {
                 p.0 *= sx;
                 p.1 *= sy;
             }
+            if let Some(c) = &mut mark.curve {
+                c.0 *= sx;
+                c.1 *= sy;
+            }
             mark.width *= (sx + sy) * 0.5;
         }
         Ok(())
@@ -255,20 +261,7 @@ fn paint(out: &mut RgbaImage, mark: &Mark) {
                 thick_line(out, pair[0], pair[1], mark.width, color);
             }
         }
-        Tool::Arrow => {
-            thick_line(out, a, b, mark.width, color);
-            let angle = (b.1 - a.1).atan2(b.0 - a.0);
-            let length = (mark.width * 4.)
-                .max(16.)
-                .min((b.0 - a.0).hypot(b.1 - a.1) * 0.45);
-            for side in [-0.55_f32, 0.55] {
-                let tip = (
-                    b.0 - length * (angle + side).cos(),
-                    b.1 - length * (angle + side).sin(),
-                );
-                thick_line(out, b, tip, mark.width, color);
-            }
-        }
+        Tool::Arrow => crate::arrow::raster(out, mark),
         Tool::Rectangle | Tool::Crop => {
             let c = if mark.tool == Tool::Crop {
                 Rgba([255, 255, 255, 255])
@@ -338,6 +331,7 @@ pub fn demo() -> RgbaImage {
             image,
             &Mark {
                 tool: Tool::Text,
+                curve: None,
                 points: vec![(x, y)],
                 color,
                 width: size / 7.,
@@ -437,6 +431,7 @@ mod tests {
     fn mark(tool: Tool, a: (f32, f32), b: (f32, f32)) -> Mark {
         Mark {
             tool,
+            curve: None,
             points: vec![a, b],
             color: [255, 0, 0, 255],
             width: 2.,

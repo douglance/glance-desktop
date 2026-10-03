@@ -77,3 +77,9 @@ redraw. AppKit magnify/smart-magnify events are bridged into the editor channel
 because GPUI 0.2.2 does not expose these events. The monitor is local to the app,
 filters to canvas bounds, and is removed when the editor drops. No timer polling,
 screenshot recomposition or texture upload is used by zoom or pan handlers.
+
+Arrow endpoint and curvature drags update vector geometry and paint a quadratic
+GPU path with a filled triangular head. The midpoint lies on the visible curve;
+export uses the same geometry with a supersampled coverage mask to avoid colored
+alpha fringes. The mask is allocated only on the compositor worker. Curved-arrow
+path preparation measured p50 0.005 ms / p95 0.006 ms over 1,000 release samples.

@@ -2,7 +2,7 @@
 
 ## Result
 
-30 automated tests pass. Native desktop testing remains blocked: computer-use
+35 automated tests pass. Native desktop testing remains blocked: computer-use
 access to Pachiri was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -17,9 +17,23 @@ model/rendering logic, not the physical app's visual layout or input latency.
 - Crop edge snapping could choose the opposite edge on small/zoomed-out images.
   Snap distance is now capped separately on each axis.
 
+## Arrow and selection update
+
+New annotations remain selected without switching away from the drawing tool.
+Regression coverage checks independent endpoint drags, midpoint curvature,
+whole-arrow movement, immediate deletion, cancelled drags, one-step undo/redo,
+Shift angle snapping and preservation of the pointer's handle grab offset.
+Curve geometry and antialiased filled heads are shared by GPU overlays,
+hit-testing and export. Tests also cover curved PNG output, crop/resize history,
+zoom-relative handle targeting and zero-length arrows. A rendered curved-arrow
+fixture was visually inspected. The text editor's fill is now transparent.
+
+Release curved-arrow path preparation measured p50 0.005 ms / p95 0.006 ms
+(1,000 samples). This measures CPU geometry preparation, not display latency.
+
 ## Automated coverage
 
-Nine GPUI interaction tests exercise drawing, picking, moving, duplication,
+Ten GPUI interaction tests exercise drawing, picking, moving, duplication,
 deleting, undo, Shift constraints, Escape cancellation, Space pan, pinch message
 handling, fit/quick zoom, selected styling, grouped keyboard nudges, Unicode text,
 IME composition, and rejection of outdated worker previews. Global shortcuts

@@ -302,3 +302,63 @@ fn selected_style_and_held_nudges_are_undoable(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn arrow_handles_edit_independently_and_new_marks_stay_selected(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        e.set_tool(Tool::Arrow, cx);
+        e.begin(&down(10., 50.), w, cx);
+        e.motion(&motion(90., 50.), cx);
+        e.finish(&up(90., 50.), cx);
+        assert_eq!(e.selected, Some(0));
+        assert_eq!(e.tool, Tool::Arrow);
+        assert_eq!(e.document.marks[0].points, vec![(10., 50.), (90., 50.)]);
+        e.begin(&down(90., 50.), w, cx);
+        e.motion(&motion(85., 70.), cx);
+        e.finish(&up(85., 70.), cx);
+        assert_eq!(e.document.marks[0].points, vec![(10., 50.), (85., 70.)]);
+        e.begin(&down(10., 50.), w, cx);
+        e.finish(&up(15., 60.), cx);
+        assert_eq!(e.document.marks[0].points, vec![(15., 60.), (85., 70.)]);
+        let mid = crate::arrow::at(&e.document.marks[0], 0.5);
+        e.begin(&down(mid.0, mid.1), w, cx);
+        e.motion(&motion(50., 25.), cx);
+        e.finish(&up(50., 25.), cx);
+        let m = &e.document.marks[0];
+        assert_eq!(m.points, vec![(15., 60.), (85., 70.)]);
+        assert_eq!(crate::arrow::at(m, 0.5), (50., 25.));
+        assert!(m.hit((50., 25.), 1.));
+        assert!(!m.hit((50., 65.), 1.));
+        let curved = m.clone();
+        e.begin(&down(85., 70.), w, cx);
+        e.motion(&motion(95., 80.), cx);
+        e.key(&key("escape"), w, cx);
+        assert_eq!(e.document.marks[0].points, curved.points);
+        e.document.undo();
+        assert!(e.document.marks[0].curve.is_none());
+        e.document.redo();
+        assert_eq!(e.document.marks[0].curve, curved.curve);
+        e.selected = Some(0);
+        // Move the shaft while the Arrow tool remains active, away from the handles.
+        let p = crate::arrow::at(&curved, 0.25);
+        e.begin(&down(p.0, p.1), w, cx);
+        e.finish(&up(p.0 + 5., p.1 + 5.), cx);
+        assert_eq!(e.document.marks[0].points[0], (20., 65.));
+        assert_eq!(crate::arrow::at(&e.document.marks[0], 0.5), (55., 30.));
+        e.key(&key("backspace"), w, cx);
+        assert!(e.document.marks.is_empty());
+        e.receive(
+            Message::Preview(e.revision, 0, render_image((*e.document.base).clone())),
+            cx,
+        );
+        e.set_tool(Tool::Rectangle, cx);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(40., 40.), cx);
+        assert_eq!(e.selected, Some(0));
+        e.key(&key("backspace"), w, cx);
+        assert!(e.document.marks.is_empty());
+    })
+    .unwrap();
+}

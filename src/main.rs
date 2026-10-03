@@ -1,3 +1,4 @@
+mod arrow;
 mod backdrop;
 mod backdrop_panel;
 mod document;
@@ -53,6 +54,7 @@ struct Editor {
     preview: Arc<RenderImage>,
     retired: Vec<Arc<RenderImage>>,
     selected: Option<usize>,
+    drag_handle: Option<usize>,
     object_drag: Option<(usize, (f32, f32), Mark)>,
     tool: Tool,
     color: [u8; 4],
@@ -180,6 +182,7 @@ impl Editor {
             preview,
             retired: vec![],
             selected: None,
+            drag_handle: None,
             object_drag: None,
             tool: Tool::Select,
             color: [255, 56, 100, 255],
@@ -377,6 +380,7 @@ impl Editor {
                 let mut mark = edit.mark;
                 mark.text = edit.buffer.text().into();
                 self.document.commit(mark);
+                self.selected = self.document.marks.len().checked_sub(1);
                 self.changed();
                 self.status = "Text label added".into();
             } else {
@@ -531,6 +535,18 @@ impl Editor {
         if self.tool == Tool::Crop {
             p = navigation::endpoint(Tool::Crop, p, p, false, self.layout.get());
         }
+        self.drag_handle = None;
+        if let Some(index) = self.selected.filter(|i| *i < self.document.marks.len()) {
+            let mark = &self.document.marks[index];
+            self.drag_handle = arrow::handle_at(mark, p, 7. / self.layout.get().scale);
+            if self.drag_handle.is_some() || mark.hit(p, 5. / self.layout.get().scale) {
+                self.object_drag = Some((index, p, mark.clone()));
+                self.changed();
+                cx.notify();
+                return;
+            }
+        }
+        self.selected = None;
         if self.tool == Tool::Select {
             self.selected = self.document.pick(p, 5. / self.layout.get().scale);
             if let Some(index) = self.selected {
@@ -544,6 +560,7 @@ impl Editor {
         }
         let mut mark = Mark {
             tool: self.tool,
+            curve: None,
             points: vec![p],
             color: self.color,
             width: match self.tool {
@@ -565,6 +582,7 @@ impl Editor {
                 .saturating_add(1))
             .to_string();
             self.document.commit(mark);
+            self.selected = self.document.marks.len().checked_sub(1);
             self.changed();
             cx.notify();
             return;
@@ -626,8 +644,12 @@ impl Editor {
         if let Some((index, start, _)) = self.object_drag.as_ref() {
             if let Some(p) = self.coordinate(e.position, true) {
                 let mut moved = self.document.marks[*index].clone();
-                let d = navigation::translation(*start, p, e.modifiers.shift);
-                moved.translate(d.0, d.1);
+                let d = navigation::translation(
+                    *start,
+                    p,
+                    e.modifiers.shift && self.drag_handle.is_none(),
+                );
+                arrow::drag(&mut moved, self.drag_handle, d, e.modifiers.shift);
                 self.object_drag.as_mut().unwrap().2 = moved;
                 cx.notify();
             }
@@ -668,10 +690,16 @@ impl Editor {
         if let Some((index, start, mut moved)) = self.object_drag.take() {
             if let Some(p) = self.coordinate(e.position, true) {
                 moved = self.document.marks[index].clone();
-                let d = navigation::translation(start, p, e.modifiers.shift);
-                moved.translate(d.0, d.1);
+                let d = navigation::translation(
+                    start,
+                    p,
+                    e.modifiers.shift && self.drag_handle.is_none(),
+                );
+                arrow::drag(&mut moved, self.drag_handle, d, e.modifiers.shift);
             }
-            if moved.points != self.document.marks[index].points {
+            if moved.points != self.document.marks[index].points
+                || moved.curve != self.document.marks[index].curve
+            {
                 self.document.remember();
                 self.document.marks[index] = moved;
             }
@@ -697,7 +725,12 @@ impl Editor {
                 self.layout.get(),
             ));
         }
-        if let Some(mark) = self.draft.take() {
+        if let Some(mut mark) = self.draft.take() {
+            if mark.tool == Tool::Arrow && mark.points.len() > 2 {
+                let end = *mark.points.last().unwrap();
+                mark.points.truncate(1);
+                mark.points.push(end);
+            }
             if mark.tool == Tool::Crop {
                 self.busy = true;
                 self.status = "Cropping…".into();
@@ -710,6 +743,7 @@ impl Editor {
                 });
             } else {
                 self.document.commit(mark);
+                self.selected = self.document.marks.len().checked_sub(1);
                 self.changed();
             }
             cx.notify();
@@ -1120,6 +1154,13 @@ impl Render for Editor {
                 mark.clone()
             })
             .collect();
+        let selected_mark = self.selected.and_then(|index| {
+            self.object_drag
+                .as_ref()
+                .map(|(_, _, m)| m)
+                .or_else(|| self.document.marks.get(index))
+                .cloned()
+        });
         let selection_bounds = self.selected.and_then(|index| {
             self.object_drag
                 .as_ref()
@@ -1559,7 +1600,18 @@ impl Render for Editor {
                                         for mark in &overlays {
                                             drawing::paint(mark, layout.get(), window, cx);
                                         }
-                                        if let Some((left, top, right, bottom)) = selection_bounds {
+                                        if let Some(mark) = &selected_mark
+                                            && mark.tool == Tool::Arrow
+                                        {
+                                            arrow::paint_handles(mark, layout.get(), window);
+                                        }
+                                        if let Some((left, top, right, bottom)) = selection_bounds
+                                            .filter(|_| {
+                                                selected_mark
+                                                    .as_ref()
+                                                    .is_none_or(|m| m.tool != Tool::Arrow)
+                                            })
+                                        {
                                             let l = layout.get();
                                             let b = Bounds::new(
                                                 point(

@@ -17,7 +17,11 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
         )
     };
     // Match the raster compositor's rounded physical stroke diameter.
-    let width = (mark.width / 2.).round().max(1.) * 2. * layout.scale;
+    let width = if mark.tool == Tool::Arrow {
+        mark.width.max(1.) * layout.scale
+    } else {
+        (mark.width / 2.).round().max(1.) * 2. * layout.scale
+    };
     let make = || {
         let mut path = PathBuilder::stroke(px(width));
         path.style = PathStyle::Stroke(
@@ -56,20 +60,27 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
             }
         }
         Tool::Arrow => {
+            let head = crate::arrow::head(mark);
+            let t = crate::arrow::shaft_end(mark);
+            let end = crate::arrow::at(mark, t);
             let mut path = make();
             path.move_to(map(a));
-            path.line_to(map(b));
-            let angle = (b.1 - a.1).atan2(b.0 - a.0);
-            let length = (mark.width * 4.)
-                .max(16.)
-                .min((b.0 - a.0).hypot(b.1 - a.1) * 0.45);
-            for side in [-0.55_f32, 0.55] {
-                path.move_to(map(b));
-                path.line_to(map((
-                    b.0 - length * (angle + side).cos(),
-                    b.1 - length * (angle + side).sin(),
-                )));
+            if let Some(c) = mark.curve {
+                path.curve_to(
+                    map(end),
+                    map((a.0 + (c.0 - a.0) * t, a.1 + (c.1 - a.1) * t)),
+                );
+            } else {
+                path.line_to(map(end));
             }
+            if let Ok(p) = path.build() {
+                result.push(p);
+            }
+            let mut path = PathBuilder::fill();
+            path.move_to(map(head[0]));
+            path.line_to(map(head[1]));
+            path.line_to(map(head[2]));
+            path.close();
             if let Ok(p) = path.build() {
                 result.push(p);
             }
@@ -227,6 +238,7 @@ mod tests {
     fn long_strokes_are_chunked_without_vertex_overflow() {
         let mark = Mark {
             tool: Tool::Pen,
+            curve: None,
             points: (0..10000)
                 .map(|i| (i as f32 * 0.2, (i as f32 * 0.02).sin() * 20.))
                 .collect(),

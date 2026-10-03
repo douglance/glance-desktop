@@ -44,6 +44,10 @@ not configured.
   Crop and resize preserve editable annotations; rotation still flattens them.
 - Mark up with **P** pen, **A** arrow, **R** rectangle, **T** text, **H** highlight,
   **B** pixelation or **X** crop. Drag to crop immediately; undo restores it.
+- New annotations remain selected: drag the mark to move it or press Delete.
+  Click empty canvas to draw another with the same tool. Selected arrows have
+  endpoint handles to reorient them and a middle handle to bend them; Shift
+  snaps endpoint drags to 45°. Text editing has a transparent background.
 - Click a color or the stroke-width button (3, 5, 9 px) to change the selected
   annotation, or the next mark when nothing is selected. **⌘D** duplicates the
   selected annotation. **Arrow keys** nudge it 1 pixel; **Shift + arrows** move

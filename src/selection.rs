@@ -4,6 +4,10 @@ use ab_glyph::{Font, ScaleFont};
 
 impl Mark {
     pub fn translate(&mut self, dx: f32, dy: f32) {
+        if let Some(c) = &mut self.curve {
+            c.0 += dx;
+            c.1 += dy;
+        }
         for p in &mut self.points {
             p.0 += dx;
             p.1 += dy;
@@ -53,16 +57,10 @@ impl Mark {
         }
         let pad = self.width / 2.;
         if self.tool == Tool::Arrow {
-            let z = *self.points.last().unwrap_or(&a);
-            let angle = (z.1 - a.1).atan2(z.0 - a.0);
-            let len = (self.width * 4.)
-                .max(16.)
-                .min((z.0 - a.0).hypot(z.1 - a.1) * 0.45);
-            for side in [-0.55_f32, 0.55] {
-                let p = (
-                    z.0 - len * (angle + side).cos(),
-                    z.1 - len * (angle + side).sin(),
-                );
+            for p in crate::arrow::samples(self)
+                .into_iter()
+                .chain(crate::arrow::head(self))
+            {
                 b.0 = b.0.min(p.0);
                 b.1 = b.1.min(p.1);
                 b.2 = b.2.max(p.0);
@@ -92,18 +90,12 @@ impl Mark {
                     || distance(p, a, a) <= t
             }
             Tool::Arrow => {
-                let angle = (z.1 - a.1).atan2(z.0 - a.0);
-                let len = (self.width * 4.)
-                    .max(16.)
-                    .min((z.0 - a.0).hypot(z.1 - a.1) * 0.45);
-                distance(p, a, z) <= t
-                    || [-0.55_f32, 0.55].into_iter().any(|s| {
-                        distance(
-                            p,
-                            z,
-                            (z.0 - len * (angle + s).cos(), z.1 - len * (angle + s).sin()),
-                        ) <= t
-                    })
+                let head = crate::arrow::head(self);
+                crate::arrow::samples(self)
+                    .windows(2)
+                    .any(|s| distance(p, s[0], s[1]) <= t)
+                    || crate::arrow::inside_triangle(p, head)
+                    || (0..3).any(|i| distance(p, head[i], head[(i + 1) % 3]) <= tolerance)
             }
             Tool::Rectangle => [
                 (a, (z.0, a.1)),
@@ -146,6 +138,7 @@ mod tests {
     fn mark(tool: Tool, points: Vec<(f32, f32)>) -> Mark {
         Mark {
             tool,
+            curve: None,
             points,
             color: [255, 0, 0, 255],
             width: 3.,

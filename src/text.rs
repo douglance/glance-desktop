@@ -332,15 +332,10 @@ pub fn paint(
     let selection = edit.buffer.selection();
     let caret = edit.caret_on;
     let marked = edit.buffer.marked.clone();
-    let background = if edit.mark.color[..3].iter().all(|c| *c > 200) {
-        rgb(0x232936)
-    } else {
-        rgb(0xffffff)
-    };
     window.paint_quad(quad(
         bounds.dilate(px(5.)),
         px(3.),
-        background,
+        gpui::transparent_black(),
         px(1.),
         rgb(0xf35d45),
         Default::default(),
