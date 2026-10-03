@@ -73,7 +73,7 @@ pub fn dispatch(
     }
     if name == "dispatch_action" {
         crate::mcp::validate_tool(name, &args)?;
-        let action = serde_json::from_value(args["action"].clone()).map_err(|e| e.to_string())?;
+        let action = crate::editor::actions::Action::from_json(args["action"].clone())?;
         let receipt = wait(sender, |reply| Request::Dispatch {
             action,
             expected_revision: args.get("expected_revision").and_then(Value::as_u64),

@@ -119,25 +119,24 @@ impl Editor {
                 if self.is_busy() || self.interaction.gesture.is_active() {
                     return;
                 }
-                if smart {
-                    if self.viewport.zoom.is_some_and(|z| z >= 1.) {
-                        self.viewport.zoom = None;
-                        self.viewport.pan = (0., 0.);
-                    } else {
-                        self.zoom_at(
-                            1. / self
-                                .viewport
-                                .zoom
-                                .unwrap_or(self.viewport.layout.get().scale)
-                                .max(0.01),
-                            position,
-                            cx,
-                        );
-                    }
+                let action = if smart && self.viewport.zoom.is_some_and(|z| z >= 1.) {
+                    Action::Fit
                 } else {
-                    self.zoom_at(1. + delta, position, cx);
-                }
-                cx.notify();
+                    let factor = if smart {
+                        1. / self
+                            .viewport
+                            .zoom
+                            .unwrap_or(self.viewport.layout.get().scale)
+                            .max(0.01)
+                    } else {
+                        1. + delta
+                    };
+                    Action::ZoomAt {
+                        factor,
+                        anchor: position,
+                    }
+                };
+                self.dispatch_ui(action, cx);
             }
             Message::Hotkey(area) => {
                 self.dispatch_ui(Action::Capture { area }, cx);

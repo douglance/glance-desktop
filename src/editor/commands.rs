@@ -36,19 +36,19 @@ impl Editor {
             cx.notify();
         }
     }
-    pub(super) fn capture(&mut self, area: bool, cx: &mut Context<Self>) {
+    pub(super) fn capture(&mut self, area: bool, cx: &mut Context<Self>) -> Result<(), String> {
         if self.is_busy() {
-            return;
+            return Err("Editor is busy".into());
         }
         let Some(id) = self.start_operation(OperationKind::Capture) else {
-            return;
+            return Err("Editor is busy".into());
         };
         if let Err(error) = platform::screen_capture_permission() {
             self.receive(
-                Message::Operation(id, OperationResult::Image(Err(error))),
+                Message::Operation(id, OperationResult::Image(Err(error.clone()))),
                 cx,
             );
-            return;
+            return Err(error);
         }
         self.commit_text(cx);
         self.cancel_gesture();
@@ -56,6 +56,7 @@ impl Editor {
         cx.hide();
         self.spawn_operation(id, move || OperationResult::Image(platform::capture(area)));
         cx.notify();
+        Ok(())
     }
     pub(super) fn open(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {

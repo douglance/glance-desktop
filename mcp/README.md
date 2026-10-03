@@ -35,6 +35,8 @@ This repo supplies the MCP server and native bridge. It does not create an OpenA
 ## Tools
 
 - `open_editor`: bring the connected native app forward.
+- `dispatch_action`: submit the same typed action as toolbar buttons and shortcuts.
+- `get_editor_state`: read tool, selection, zoom, panels, status, and operation progress, including while workers are busy.
 - `get_document`: dimensions, revision, backdrop, editable marks and current IDs.
 - `import_image`: exactly one local `path`, image `base64`, or `clipboard: true`. Replaces the current document.
 - `add_annotation`, `update_annotation`, `move_annotation`, `delete_annotation`: editable pen, arrow (including quadratic curve), box, text, highlight, pixelate, counter objects.
@@ -63,11 +65,43 @@ Local paths refer to the Mac. ChatGPT upload/file IDs are not native file paths;
 
 ## Behavior and limits
 
-Heavy operations run on the IPC worker, not the UI thread. It snapshots the document and applies successful edits on GPUI's thread only if the revision is unchanged and no manual gesture/text edit is in progress. Native undo history is preserved. The newest object is selected for direct manual editing. Requests are serialized; a video export can delay the next MCP call while the native window remains responsive.
+Document tools prepare heavy edits on the IPC worker using the same document actions as the UI. They apply successful edits through the editor dispatcher only if the revision is unchanged and no manual gesture/text edit is in progress. Native undo history is preserved. The newest object is selected for direct manual editing. Requests are serialized; a synchronous `export_mp4` or `export_gif` tool call can delay the next MCP call while the native window remains responsive. `dispatch_action` starts editor background operations and returns an acceptance receipt immediately.
 
 The Unix socket is in `~/Library/Caches/sh.glance.desktop/automation/editor.sock`, inside a mode-0700 directory, with mode-0600 socket access. This is local-account access, not isolation from other processes running as you. The bridge does not listen on a TCP port. Exports default to the private `automation/exports` folder; explicit output paths must be absolute and existing files are never overwritten.
 
-Images imported through MCP are limited to 16 MiB encoded / 32 megapixels. Drawing schemas and bounds are validated. The bridge refuses edits against stale revisions and unfinished manual operations. Import starts a new document and discards its previous undo history; export/edit tools do not prompt for save dialogs.
+Images imported through MCP are limited to 16 MiB encoded / 32 megapixels. Drawing schemas and bounds are validated. The bridge refuses edits against stale revisions and unfinished manual operations. Import starts a new document and discards its previous undo history; the path-based export/edit tools do not prompt for save dialogs.
+
+## Editor actions
+
+Call `dispatch_action` with an `action` object. The `type` chooses the intent;
+its other fields carry the parameters. For example:
+
+```json
+{"action":{"type":"select_tool","tool":"arrow"}}
+{"action":{"type":"fit"}}
+{"action":{"type":"pan_by","delta":[40,0]}}
+{"action":{"type":"copy_image"}}
+{"action":{"type":"resize","scale":2,"smart":true},"expected_revision":7}
+{"action":{"type":"set_backdrop","backdrop":{"motion":"aurora","padding":80}}}
+{"action":{"type":"export_animation","format":"gif"}}
+```
+
+These execute through the same dispatcher as the native interface, including
+validation, busy checks, undo, and copy feedback. `copy`, `cut`, `paste`, `undo`,
+`redo`, and `delete` act on inline text while editing it. `copy_image`,
+`copy_remote`, and `paste_image` explicitly act on the image and commit inline
+text first. Revision-scoped annotation tools remain available for object edits.
+
+A response such as `{"revision":7,"operation_id":12}` means background work
+was accepted; it does not mean the operation completed successfully. Call
+`get_editor_state` to inspect `busy`, the active operation ID/kind/progress,
+and the status message. Busy actions return an error; cancellation and state
+inspection remain available. Capture, open, save, and animation-export actions
+have the same native permissions/dialogs as their toolbar counterparts. Use
+the path-based export tools when a native save dialog is unwanted.
+
+Restart the automation-enabled editor and MCP companion after rebuilding to
+use the new action tools.
 
 ## Verification
 

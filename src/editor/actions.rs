@@ -63,6 +63,9 @@ pub(crate) enum Action {
         factor: f32,
         anchor: (f32, f32),
     },
+    PanBy {
+        delta: (f32, f32),
+    },
     ToggleBackdrop,
     ToggleEnhance,
     ClosePanel {
@@ -128,4 +131,21 @@ pub(crate) struct ActionReceipt {
     pub(crate) revision: u64,
     /// Accepted background work has started; this is not a completion receipt.
     pub(crate) operation_id: Option<u64>,
+}
+
+impl Action {
+    pub(crate) fn from_json(value: serde_json::Value) -> Result<Self, String> {
+        let action: Self = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+        // Internally tagged unit variants can ignore extra keys even with
+        // deny_unknown_fields. Check the selected variant's fields as well.
+        let canonical = serde_json::to_value(&action).map_err(|e| e.to_string())?;
+        if let Some(fields) = value.as_object() {
+            for key in fields.keys() {
+                if canonical.get(key).is_none() {
+                    return Err(format!("Unexpected action field: {key}"));
+                }
+            }
+        }
+        Ok(action)
+    }
 }

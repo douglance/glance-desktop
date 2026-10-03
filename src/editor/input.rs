@@ -51,9 +51,11 @@ impl Editor {
             return;
         }
         if self.viewport.zoom_down {
-            self.zoom_at(
-                if e.modifiers.shift { 0.5 } else { 2. },
-                (f32::from(e.position.x), f32::from(e.position.y)),
+            self.dispatch_ui(
+                Action::ZoomAt {
+                    factor: if e.modifiers.shift { 0.5 } else { 2. },
+                    anchor: (f32::from(e.position.x), f32::from(e.position.y)),
+                },
                 cx,
             );
             return;
@@ -178,10 +180,12 @@ impl Editor {
             return;
         }
         if let Gesture::Panning(previous) = &mut self.interaction.gesture {
-            self.viewport.pan.0 += f32::from(e.position.x - previous.x);
-            self.viewport.pan.1 += f32::from(e.position.y - previous.y);
+            let delta = (
+                f32::from(e.position.x - previous.x),
+                f32::from(e.position.y - previous.y),
+            );
             *previous = e.position;
-            cx.notify();
+            self.dispatch_ui(Action::PanBy { delta }, cx);
             return;
         }
         if let Some(edit) = &mut self.interaction.text_edit
@@ -544,21 +548,21 @@ impl Editor {
             return;
         }
         let delta = e.delta.pixel_delta(px(24.));
-        if e.modifiers.platform {
-            self.zoom_at(
-                (f32::from(delta.y) * 0.008).exp(),
-                (f32::from(e.position.x), f32::from(e.position.y)),
-                cx,
-            );
-        } else {
-            if e.modifiers.shift && f32::from(delta.x).abs() < 0.01 {
-                self.viewport.pan.0 += f32::from(delta.y);
-            } else {
-                self.viewport.pan.0 += f32::from(delta.x);
-                self.viewport.pan.1 += f32::from(delta.y);
+        let action = if e.modifiers.platform {
+            Action::ZoomAt {
+                factor: (f32::from(delta.y) * 0.008).exp(),
+                anchor: (f32::from(e.position.x), f32::from(e.position.y)),
             }
-            cx.notify();
-        }
+        } else {
+            Action::PanBy {
+                delta: if e.modifiers.shift && f32::from(delta.x).abs() < 0.01 {
+                    (f32::from(delta.y), 0.)
+                } else {
+                    (f32::from(delta.x), f32::from(delta.y))
+                },
+            }
+        };
+        self.dispatch_ui(action, cx);
         cx.stop_propagation();
     }
     pub(super) fn backdrop_slider_move(

@@ -2,7 +2,7 @@
 use image::{Rgba, RgbaImage};
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Backdrop {
     pub gradient: bool,
     pub motion: crate::animation::Motion,

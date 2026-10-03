@@ -206,8 +206,11 @@ Glance can expose its native editor to ChatGPT and local MCP clients: import ima
 
 `main.rs` only launches the app and opens its window. The GPUI editor lives in
 `src/editor/`: `mod.rs` constructs the entity, `state.rs` groups its state,
-`commands.rs` owns edits and external actions, and `input.rs` translates pointer
-and keyboard events into those actions. `view.rs`, `canvas.rs`, and `panels/`
+`actions.rs` defines typed, serializable application intent and `dispatch.rs`
+is the common entry point. Toolbar buttons, native menus, shortcuts, gestures,
+global hotkeys, file drops, and MCP adapters dispatch those values. `commands.rs`
+implements edits and external work; `input.rs` interprets pointer/keyboard input.
+`view.rs`, `canvas.rs`, and `panels/`
 build and paint the interface. `text_input.rs` implements native text input;
 `text.rs` owns the Unicode buffer and text history independently of the editor.
 
@@ -217,6 +220,18 @@ results or video progress cannot affect a newer operation. Preview rendering
 has its own revision checks and remains independent of external operations.
 `feedback.rs` owns transient copy confirmations. `automation.rs` applies local
 MCP requests on the UI thread, and `lens.rs` schedules magnifier previews.
+
+`document/actions.rs` applies validated, undoable document edits for both the
+editor and MCP snapshot workers. Heavy transforms remain on workers; prepared
+MCP documents return through the dispatcher with an expected revision. Framing
+changes and slider ticks also advance that revision, so stale work cannot
+overwrite them. Native caret/IME handling and temporary pointer gestures stay
+in input adapters; completed edits become document actions.
+
+New triggers call `editor.dispatch(Action::SelectTool { tool: Tool::Arrow }, cx)`
+instead of invoking input handlers or fabricating key events. The MCP
+`dispatch_action` tool submits the same actions; `get_editor_state` reports
+live state and background progress. See [action examples](mcp/README.md#editor-actions).
 
 The document, geometry, compositors, macOS integration, Glance protocol, and
 video encoder remain separate modules. Interaction tests use GPUI's virtual

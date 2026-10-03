@@ -247,6 +247,27 @@ fn rejected_actions_do_not_modify_state(cx: &mut TestAppContext) {
     });
 }
 
+#[test]
+fn malformed_mcp_actions_are_rejected_before_entering_the_editor_queue() {
+    let (sender, receiver) = async_channel::unbounded();
+    for action in [
+        serde_json::json!({"type":"fit","scale":2}),
+        serde_json::json!({"type":"select_tool","tool":"unknown"}),
+        serde_json::json!({"type":"set_backdrop","backdrop":{"paddding":20}}),
+        serde_json::json!({"type":"apply_prepared_document","revision":0}),
+    ] {
+        assert!(
+            crate::automation::dispatch(
+                &sender,
+                "dispatch_action",
+                serde_json::json!({"action":action})
+            )
+            .is_err()
+        );
+        assert!(receiver.try_recv().is_err());
+    }
+}
+
 #[gpui::test]
 fn menu_undo_operates_on_inline_text_without_touching_document(cx: &mut TestAppContext) {
     let view = cx.add_window(|window, cx| {

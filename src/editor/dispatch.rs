@@ -80,7 +80,9 @@ impl Editor {
             {
                 return Err("Zoom factor must be positive and finite".into());
             }
-            Action::ZoomAt { anchor, .. } | Action::NudgeSelection { delta: anchor, .. }
+            Action::ZoomAt { anchor, .. }
+            | Action::NudgeSelection { delta: anchor, .. }
+            | Action::PanBy { delta: anchor }
                 if !anchor.0.is_finite() || !anchor.1.is_finite() =>
             {
                 return Err("Coordinates must be finite".into());
@@ -134,7 +136,7 @@ impl Editor {
                 self.changed();
             }
             Action::Show => cx.activate(true),
-            Action::Capture { area } => self.capture(area, cx),
+            Action::Capture { area } => self.capture(area, cx)?,
             Action::OpenImage => self.open(cx),
             Action::OpenPath { path } => self.open_path(path, cx),
             Action::SaveImage => self.export(true, cx),
@@ -240,6 +242,10 @@ impl Editor {
             }
             Action::Zoom { factor } => self.change_zoom(factor, cx),
             Action::ZoomAt { factor, anchor } => self.zoom_at(factor, anchor, cx),
+            Action::PanBy { delta } => {
+                self.viewport.pan.0 += delta.0;
+                self.viewport.pan.1 += delta.1;
+            }
             Action::ToggleBackdrop => self.toggle_backdrop(cx),
             Action::ToggleEnhance => self.toggle_enhance(cx),
             Action::ClosePanel { panel } => match panel {
