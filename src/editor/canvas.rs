@@ -3,7 +3,7 @@ use super::{Editor, text_input};
 use crate::{
     animation, arrow, backdrop,
     document::{Mark, Tool},
-    drawing,
+    drawing, effects,
 };
 use gpui::{prelude::*, *};
 impl Editor {
@@ -12,6 +12,7 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
+        let self_revision = self.preview.revision;
         let image = self.preview.image.clone();
         let text_entity = cx.entity();
         let overlays: Vec<Mark> = self
@@ -29,6 +30,8 @@ impl Editor {
                 mark.clone()
             })
             .collect();
+        self.prepare_lens(&overlays);
+        let live_lens = self.preview.lens.clone();
         let selected_mark = self.interaction.selected.and_then(|index| {
             self.interaction
                 .gesture
@@ -198,15 +201,39 @@ impl Editor {
                             |window| {
                                 for mark in &overlays {
                                     drawing::paint(mark, layout.get(), window, cx);
+                                    if mark.tool == Tool::Magnifier {
+                                        effects::paint_lens(
+                                            mark,
+                                            layout.get(),
+                                            live_lens
+                                                .as_ref()
+                                                .filter(|(key, _)| {
+                                                    *key == effects::LensKey::new(
+                                                        self_revision,
+                                                        mark,
+                                                    )
+                                                })
+                                                .map(|(_, image)| image.clone()),
+                                            window,
+                                        );
+                                    }
                                 }
                                 if let Some(mark) = &selected_mark
-                                    && mark.tool == Tool::Arrow
+                                    && matches!(
+                                        mark.tool,
+                                        Tool::Arrow | Tool::Magnifier | Tool::Spotlight
+                                    )
                                 {
                                     arrow::paint_handles(mark, layout.get(), window);
                                 }
                                 if let Some((left, top, right, bottom)) =
                                     selection_bounds.filter(|_| {
-                                        selected_mark.as_ref().is_none_or(|m| m.tool != Tool::Arrow)
+                                        selected_mark.as_ref().is_none_or(|m| {
+                                            !matches!(
+                                                m.tool,
+                                                Tool::Arrow | Tool::Magnifier | Tool::Spotlight
+                                            )
+                                        })
                                     })
                                 {
                                     let l = layout.get();

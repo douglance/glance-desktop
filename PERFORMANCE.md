@@ -100,3 +100,9 @@ integration. Opaque foreground pixels bypass animated shading. H.264 output is
 30 fps with a maximum 1920 px edge; no frame sequence is retained in memory.
 Encoding speed varies with output size and effect; native desktop preview frame
 times/input latency have not been measured because app control remains denied.
+
+MCP operations use a serial IPC worker. Image import, document transforms, PNG rendering, and MP4 encode/decode do not run on the GPUI thread. The worker snapshots shared document pixels/history, then applies edits only if the editor revision is unchanged. Preview rendering uses the existing asynchronous cache. Video frames stream to AVFoundation rather than accumulating a clip in memory; inline PNG previews are bounded and do not upscale small source images.
+
+Focus effects: spotlight drafts use GPU quads; magnifier drafts use a bounded circular texture with asynchronous source sampling. A lens texture key includes source position, zoom, radius and document revision, but excludes bubble position, so dragging only the lens reuses its texture. Source-handle movement coalesces sampling jobs. Pointer handlers never rasterize a focus effect. Final focus composition is performed by the existing preview/export workers.
+
+GIF encoding renders the fixed foreground once and streams 20 fps frames at ≤960px. A fixed 256-color palette sampled across the whole animation prevents per-frame palette shimmer. All four background effects pass a periodic endpoint check and a last-to-first step-size check.

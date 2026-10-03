@@ -112,7 +112,11 @@ impl Editor {
                 Tool::Counter => self.interaction.width.max(20. / 4.4),
                 _ => self.interaction.width,
             },
-            text: String::new(),
+            text: if self.interaction.tool == Tool::Magnifier {
+                "2".into()
+            } else {
+                String::new()
+            },
         };
         if self.interaction.tool == Tool::Counter {
             mark.text = (self
@@ -235,7 +239,17 @@ impl Editor {
                         self.viewport.layout.get(),
                     ));
                 }
-                if mark.tool == Tool::Arrow && mark.points.len() > 2 {
+                if mark.tool == Tool::Spotlight {
+                    let a = mark.points[0];
+                    let b = *mark.points.last().unwrap();
+                    if (a.0 - b.0).abs() < 2. || (a.1 - b.1).abs() < 2. {
+                        cx.notify();
+                        return;
+                    }
+                }
+                if matches!(mark.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight)
+                    && mark.points.len() > 2
+                {
                     let end = *mark.points.last().unwrap();
                     mark.points.truncate(1);
                     mark.points.push(end);
@@ -464,6 +478,8 @@ impl Editor {
                 "x" => self.set_tool(Tool::Crop, cx),
                 "t" => self.set_tool(Tool::Text, cx),
                 "n" => self.set_tool(Tool::Counter, cx),
+                "s" => self.set_tool(Tool::Spotlight, cx),
+                "m" => self.set_tool(Tool::Magnifier, cx),
                 "escape" => {
                     self.cancel_gesture();
                     self.interaction.selected = None;

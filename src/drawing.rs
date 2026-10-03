@@ -119,7 +119,8 @@ pub fn paint(mark: &Mark, layout: Layout, window: &mut Window, cx: &mut App) {
         ),
     );
     match mark.tool {
-        Tool::Select => {}
+        Tool::Select | Tool::Magnifier => {}
+        Tool::Spotlight => crate::effects::paint_spotlight(mark, layout, window),
         Tool::Pen | Tool::Arrow | Tool::Rectangle => {
             for path in paths(mark, layout) {
                 window.paint_path(path, color);

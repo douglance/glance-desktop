@@ -25,7 +25,7 @@ fn samples(mut run: impl FnMut(), count: usize) -> (f64, f64) {
 #[ignore = "run explicitly in release mode for performance measurements"]
 fn drawing_preparation_benchmark() {
     crate::document::demo()
-        .save("/private/tmp/pachiri-practice.png")
+        .save("/private/tmp/glance-practice.png")
         .unwrap();
     let base = RgbaImage::from_pixel(1600, 900, Rgba([25, 30, 40, 255]));
     let layout = Layout {

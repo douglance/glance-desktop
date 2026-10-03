@@ -1,9 +1,11 @@
 //! GPUI editor entity: state ownership and application integration.
+mod automation;
 mod canvas;
 mod commands;
 mod feedback;
 mod input;
 mod jobs;
+mod lens;
 mod panels;
 mod state;
 #[cfg(test)]
@@ -86,6 +88,12 @@ impl Editor {
                 }
             }
         };
+        if native
+            && std::env::args().any(|arg| arg == "--automation")
+            && let Err(error) = crate::automation::listen(sender.clone())
+        {
+            eprintln!("Glance automation: {error}");
+        }
         let hotkey_sender = sender.clone();
         if native {
             GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
@@ -136,6 +144,9 @@ impl Editor {
                 layout: Rc::new(Cell::new(Layout::default())),
             },
             preview: PreviewState {
+                lens: None,
+                lens_wanted: None,
+                lens_rendering: false,
                 revision: 0,
                 mark_count: 0,
                 rendering: false,

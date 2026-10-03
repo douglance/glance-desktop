@@ -6,7 +6,8 @@ use gpui::{
 use image::{Pixel, RgbaImage};
 use std::f32::consts::TAU;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Motion {
     #[default]
     Still,
@@ -445,5 +446,43 @@ mod tests {
         assert!(r.width <= 1920 && r.height <= 1920);
         assert_eq!(r.width % 2, 0);
         assert_eq!(r.height % 2, 0);
+    }
+}
+
+#[cfg(test)]
+mod continuity_tests {
+    use super::*;
+    #[test]
+    fn loop_seam_is_a_normal_animation_step() {
+        let source = RgbaImage::from_pixel(40, 30, image::Rgba([80, 120, 160, 255]));
+        for effect in Motion::EFFECTS {
+            let b = Backdrop {
+                motion: effect,
+                padding: 20,
+                inner_radius: 0,
+                ..Default::default()
+            };
+            let renderer = Renderer::new(&source, b, None);
+            let frames: Vec<_> = (0..20).map(|i| renderer.frame(i as f32 / 20.)).collect();
+            let distance = |a: &RgbaImage, b: &RgbaImage| {
+                a.as_raw()
+                    .iter()
+                    .zip(b.as_raw())
+                    .map(|(a, b)| (*a as f32 - *b as f32).abs())
+                    .sum::<f32>()
+                    / a.as_raw().len() as f32
+            };
+            let max_step = frames
+                .windows(2)
+                .map(|f| distance(&f[0], &f[1]))
+                .fold(0., f32::max);
+            let seam = distance(frames.last().unwrap(), &frames[0]);
+            assert!(
+                seam <= max_step * 1.5 + 0.1,
+                "{} seam={seam} max_step={max_step}",
+                effect.label()
+            );
+            assert_eq!(renderer.frame(0.), renderer.frame(1.));
+        }
     }
 }

@@ -67,7 +67,7 @@ impl UploadClient {
             .connect_timeout(Duration::from_secs(10))
             .timeout(Duration::from_secs(90))
             .redirect(reqwest::redirect::Policy::none())
-            .user_agent(concat!("Pachiri/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Glance/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(network_error)?;
         Ok(Self {
@@ -82,7 +82,7 @@ impl UploadClient {
     fn glance_request(&self, method: Method, path: &str) -> RequestBuilder {
         self.http
             .request(method, format!("{}{path}", self.origin))
-            .header("X-Glance-Client", "pachiri")
+            .header("X-Glance-Client", "glance-desktop")
             .header("X-Glance-Client-Version", env!("CARGO_PKG_VERSION"))
     }
 
@@ -311,12 +311,12 @@ mod tests {
                 let req = request(&mut stream);
                 let headers = req.headers.to_ascii_lowercase();
                 assert!(headers.contains(concat!(
-                    "user-agent: pachiri/",
+                    "user-agent: glance/",
                     env!("CARGO_PKG_VERSION"),
                     "\r\n"
                 )));
                 if step < 3 {
-                    assert!(headers.contains("x-glance-client: pachiri\r\n"));
+                    assert!(headers.contains("x-glance-client: glance-desktop\r\n"));
                     assert!(headers.contains(concat!(
                         "x-glance-client-version: ",
                         env!("CARGO_PKG_VERSION"),

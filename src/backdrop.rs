@@ -1,7 +1,8 @@
 //! Non-destructive framing: GPU preview, full-resolution worker export.
 use image::{Rgba, RgbaImage};
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
 pub struct Backdrop {
     pub gradient: bool,
     pub motion: crate::animation::Motion,

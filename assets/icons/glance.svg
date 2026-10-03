@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" fill="none">
+  <g transform="translate(92 92) scale(26.25)">
+
+  <rect width="32" height="32" rx="7" fill="#09090b"/>
+  <!-- outer eye shape -->
+  <rect x="6"  y="14" width="2" height="4" fill="#fafafa"/>
+  <rect x="8"  y="12" width="2" height="2" fill="#fafafa"/>
+  <rect x="8"  y="18" width="2" height="2" fill="#fafafa"/>
+  <rect x="10" y="10" width="4" height="2" fill="#fafafa"/>
+  <rect x="10" y="20" width="4" height="2" fill="#fafafa"/>
+  <rect x="18" y="10" width="4" height="2" fill="#fafafa"/>
+  <rect x="18" y="20" width="4" height="2" fill="#fafafa"/>
+  <rect x="22" y="12" width="2" height="2" fill="#fafafa"/>
+  <rect x="22" y="18" width="2" height="2" fill="#fafafa"/>
+  <rect x="24" y="14" width="2" height="4" fill="#fafafa"/>
+  <!-- iris -->
+  <rect x="14" y="10" width="4" height="2" fill="#22c55e"/>
+  <rect x="12" y="12" width="2" height="2" fill="#22c55e"/>
+  <rect x="18" y="12" width="2" height="2" fill="#22c55e"/>
+  <rect x="12" y="18" width="2" height="2" fill="#22c55e"/>
+  <rect x="18" y="18" width="2" height="2" fill="#22c55e"/>
+  <rect x="14" y="20" width="4" height="2" fill="#22c55e"/>
+  <!-- pupil -->
+  <rect x="14" y="12" width="4" height="8" fill="#fafafa"/>
+  <rect x="12" y="14" width="2" height="4" fill="#fafafa"/>
+  <rect x="18" y="14" width="2" height="4" fill="#fafafa"/>
+  <rect x="14" y="14" width="4" height="4" fill="#09090b"/>
+
+  </g>
+</svg>

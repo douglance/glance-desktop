@@ -300,7 +300,7 @@ impl Editor {
                                 if self.video_export.progress.is_some() {
                                     "Cancel export"
                                 } else {
-                                    "Export MP4…"
+                                    "MP4…"
                                 },
                                 true,
                                 cx,
@@ -311,14 +311,21 @@ impl Editor {
                                         this.export_video(cx);
                                     }
                                 },
-                            )),
+                            ))
+                            .when(self.video_export.progress.is_none(), |el| {
+                                el.child(
+                                    self.button("GIF…", false, cx, |this, cx| {
+                                        this.export_gif(cx)
+                                    }),
+                                )
+                            }),
                     )
                     .child(
                         div().text_xs().text_color(rgb(0x878b98)).child(
                             self.video_export
                                 .progress
-                                .map_or("Seamless loop · 30 fps · up to 1920 px".into(), |p| {
-                                    format!("Exporting video… {p}%")
+                                .map_or("Loop · MP4 30 fps · GIF 20 fps".into(), |p| {
+                                    format!("Exporting animation… {p}%")
                                 }),
                         ),
                     )
@@ -328,14 +335,16 @@ impl Editor {
             .child(self.backdrop_slider(Control::InnerRadius, b, cx))
             .child(self.backdrop_slider(Control::OuterRadius, b, cx))
             .when(self.video_export.last_video.is_some(), |el| {
-                el.child(self.button("Show exported video", false, cx, |this, _| {
-                    if let Some(path) = &this.video_export.last_video {
-                        let _ = std::process::Command::new("/usr/bin/open")
-                            .arg("-R")
-                            .arg(path)
-                            .spawn();
-                    }
-                }))
+                el.child(
+                    self.button("Show exported animation", false, cx, |this, _| {
+                        if let Some(path) = &this.video_export.last_video {
+                            let _ = std::process::Command::new("/usr/bin/open")
+                                .arg("-R")
+                                .arg(path)
+                                .spawn();
+                        }
+                    }),
+                )
             })
             .child(div().flex_1())
             .child(self.button("Remove backdrop", false, cx, |this, cx| {

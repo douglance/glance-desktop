@@ -1,4 +1,4 @@
-//! Build a macOS iconset from the generated master, preserving transparent edges.
+//! Build a macOS iconset from Glance's SVG mark, preserving transparent edges.
 use image::{
     Rgba, RgbaImage,
     imageops::{FilterType, resize},
@@ -8,10 +8,18 @@ fn main() {
     let directory = std::env::args().nth(1).expect("iconset directory");
     let directory = Path::new(&directory);
     std::fs::create_dir_all(directory).unwrap();
-    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/icons/pachiri-teal-p.png");
-    let icon = image::open(source)
-        .expect("Pachiri icon master")
-        .into_rgba32f();
+    let source = include_bytes!("../assets/icons/glance.svg");
+    let tree = resvg::usvg::Tree::from_data(source, &resvg::usvg::Options::default())
+        .expect("Glance SVG icon master");
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(1024, 1024).unwrap();
+    resvg::render(
+        &tree,
+        resvg::tiny_skia::Transform::identity(),
+        &mut pixmap.as_mut(),
+    );
+    let png = pixmap.encode_png().unwrap();
+    std::fs::write(directory.join("master.png"), &png).unwrap();
+    let icon = image::load_from_memory(&png).unwrap().into_rgba32f();
     assert_eq!(icon.width(), icon.height(), "icon master must be square");
     assert!(
         icon.pixels().any(|p| p[3] == 0.),

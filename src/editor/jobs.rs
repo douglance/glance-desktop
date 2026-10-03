@@ -27,6 +27,8 @@ pub(super) struct OperationState {
     next_id: u64,
 }
 pub(crate) enum Message {
+    Automation(crate::automation::Request),
+    Lens(crate::effects::LensKey, Arc<RenderImage>),
     Magnify(f32, (f32, f32), bool),
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
@@ -94,6 +96,18 @@ impl Editor {
     }
     pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
         match message {
+            Message::Automation(request) => self.automation(request, cx),
+            Message::Lens(key, image) => {
+                self.preview.lens_rendering = false;
+                if self.preview.lens_wanted == Some(key) {
+                    if let Some((_, old)) = self.preview.lens.replace((key, image)) {
+                        self.preview.retired.push(old);
+                    }
+                } else {
+                    self.preview.retired.push(image);
+                }
+                cx.notify();
+            }
             Message::Magnify(delta, position, smart) => {
                 if self.is_busy() || self.interaction.gesture.is_active() {
                     return;
@@ -222,9 +236,9 @@ impl Editor {
                 self.feedback.status = match result {
                     Ok(Some(path)) => {
                         self.video_export.last_video = Some(path.clone());
-                        format!("Video saved to {}", path.display())
+                        format!("Animation saved to {}", path.display())
                     }
-                    Ok(None) => "Video export canceled".into(),
+                    Ok(None) => "Animation export canceled".into(),
                     Err(e) => e,
                 };
             }
@@ -278,7 +292,7 @@ impl Editor {
             if let Ok(answer) = window.update(cx, |_, window, cx| {
                 window.prompt(
                     PromptLevel::Critical,
-                    "Pachiri couldn’t complete the operation",
+                    "Glance couldn’t complete the operation",
                     Some(&detail),
                     &["OK"],
                     cx,

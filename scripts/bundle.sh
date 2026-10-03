@@ -3,41 +3,51 @@ set -eu
 cd "$(dirname "$0")/.."
 MODE="${1:-release}"
 if [ "$MODE" = "release" ]; then cargo build --release --locked; else cargo build --locked; fi
-APP="$(pwd)/target/Pachiri.app"
+APP_DEST="$(pwd)/target/Glance.app"
+mkdir -p "$(pwd)/target"
+BUILD_DIR="$(mktemp -d "$(pwd)/target/.glance-bundle.XXXXXX")"
+APP="$BUILD_DIR/Glance.app"
+cleanup() {
+    if [ ! -e "$APP_DEST" ] && [ -e "$BUILD_DIR/previous.app" ]; then
+        mv "$BUILD_DIR/previous.app" "$APP_DEST"
+    fi
+    rm -rf "$BUILD_DIR"
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-cargo run --release --locked --example icon -- target/Pachiri.iconset
+cargo run --release --locked --example icon -- target/Glance.iconset
 # A new resource name prevents macOS from reusing an earlier design's icon cache.
-ICON_HASH="$(shasum -a 256 target/Pachiri.iconset/icon_512x512@2x.png | cut -c 1-12)"
-ICON_NAME="Pachiri-$ICON_HASH.icns"
-iconutil -c icns target/Pachiri.iconset -o "$APP/Contents/Resources/$ICON_NAME"
-/usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_encoder.swift -o target/pachiri-video-encoder
-cp target/pachiri-video-encoder "$APP/Contents/MacOS/pachiri-video-encoder"
+ICON_HASH="$(shasum -a 256 target/Glance.iconset/icon_512x512@2x.png | cut -c 1-12)"
+ICON_NAME="Glance-$ICON_HASH.icns"
+iconutil -c icns target/Glance.iconset -o "$APP/Contents/Resources/$ICON_NAME"
+/usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_encoder.swift -o target/glance-video-encoder
+/usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_frame.swift -o target/glance-video-frame
+cp target/glance-video-frame "$APP/Contents/MacOS/glance-video-frame"
+cp target/glance-video-encoder "$APP/Contents/MacOS/glance-video-encoder"
 cp assets/gpui/LICENSE-APACHE "$APP/Contents/Resources/GPUI-LICENSE"
 cp assets/lucide/LICENSE "$APP/Contents/Resources/Lucide-LICENSE"
-cp "target/$MODE/pachiri" "$APP/Contents/MacOS/Pachiri"
+cp "${CARGO_TARGET_DIR:-target}/$MODE/glance" "$APP/Contents/MacOS/Glance"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleExecutable</key><string>Pachiri</string>
-<key>CFBundleIdentifier</key><string>dev.benv.pachiri</string>
-<key>CFBundleIconFile</key><string>Pachiri.icns</string>
-<key>CFBundleName</key><string>Pachiri</string>
-<key>CFBundleDisplayName</key><string>Pachiri</string>
+<key>CFBundleExecutable</key><string>Glance</string>
+<key>CFBundleIdentifier</key><string>sh.glance.desktop</string>
+<key>CFBundleIconFile</key><string>Glance.icns</string>
+<key>CFBundleName</key><string>Glance</string>
+<key>CFBundleDisplayName</key><string>Glance</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSScreenCaptureUsageDescription</key><string>Pachiri captures your selected screen area for annotation.</string>
+<key>NSScreenCaptureUsageDescription</key><string>Glance captures your selected screen area for annotation.</string>
 </dict></plist>
 PLIST
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$APP/Contents/Info.plist"
-# Use the same certificate across builds to retain macOS privacy permissions.
-# Ad-hoc signing has a build-specific designated requirement and needs re-grants.
-SIGN_IDENTITY="${PACHIRI_CODESIGN_IDENTITY:--}"
-codesign --force --deep --sign "$SIGN_IDENTITY" "$APP"
-if [ "$SIGN_IDENTITY" = "-" ]; then
-    printf 'Ad-hoc signature: Screen Recording permission may need re-granting after rebuilding.\n'
-fi
-printf 'Built %s\n' "$APP"
+./scripts/sign-app.sh "$APP"
+# Do not replace the installed bundle until every build/signing step succeeds.
+if [ -e "$APP_DEST" ]; then mv "$APP_DEST" "$BUILD_DIR/previous.app"; fi
+mv "$APP" "$APP_DEST"
+printf 'Built %s\n' "$APP_DEST"

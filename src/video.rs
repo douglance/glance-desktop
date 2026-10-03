@@ -25,9 +25,9 @@ fn encoder_path() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("App directory unavailable")?;
     for path in [
-        dir.join("pachiri-video-encoder"),
-        dir.join("../pachiri-video-encoder"),
-        dir.join("../../pachiri-video-encoder"),
+        dir.join("glance-video-encoder"),
+        dir.join("../glance-video-encoder"),
+        dir.join("../../glance-video-encoder"),
     ] {
         if path.is_file() {
             return Ok(path);
@@ -55,7 +55,7 @@ pub fn encode(
     let source = document.render(None);
     let renderer = Renderer::new(&source, b, Some(1920));
     let temp = Temporary(path.with_file_name(format!(
-            ".pachiri-{}-{}.mp4",
+            ".glance-{}-{}.mp4",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -141,7 +141,7 @@ mod tests {
     fn cancellation_and_invalid_duration_leave_destination_untouched() {
         let mut d = Document::new(image::RgbaImage::new(10, 10));
         d.backdrop = Some(crate::backdrop::Backdrop::default());
-        let path = std::env::temp_dir().join(format!("pachiri-cancel-{}.mp4", std::process::id()));
+        let path = std::env::temp_dir().join(format!("glance-cancel-{}.mp4", std::process::id()));
         std::fs::write(&path, b"existing movie").unwrap();
         assert!(!encode(&d, &path, 0., &AtomicBool::new(true), |_| {}).unwrap());
         d.backdrop.as_mut().unwrap().seconds = 100;
@@ -152,9 +152,9 @@ mod tests {
     #[test]
     #[ignore = "requires the built native encoder; writes real QA videos"]
     fn native_motion_export_qa() {
-        let directory = std::env::var_os("PACHIRI_VIDEO_QA_DIR")
+        let directory = std::env::var_os("GLANCE_VIDEO_QA_DIR")
             .map(PathBuf::from)
-            .unwrap_or_else(|| std::env::temp_dir().join("pachiri-motion-qa"));
+            .unwrap_or_else(|| std::env::temp_dir().join("glance-motion-qa"));
         std::fs::create_dir_all(&directory).unwrap();
         let source = image::imageops::resize(
             &crate::document::demo(),

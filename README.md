@@ -1,7 +1,9 @@
-# Pachiri
+# Glance
 
-A native macOS screenshot and annotation proof of concept written in Rust with
-GPUI. Metal shaders compile at runtime, so full Xcode is not required. Inspired by Shottr's fast capture → markup → copy workflow.
+Glance is the native macOS desktop companion to [glance.sh](https://glance.sh):
+capture your screen, annotate it, and share a temporary image link with a remote
+coding agent. Written in Rust with GPUI. Metal shaders compile at runtime, so
+full Xcode is not required.
 
 ## Run
 
@@ -17,41 +19,55 @@ Build a locally signed app bundle:
 
 ```sh
 ./scripts/bundle.sh
-open target/Pachiri.app
+open target/Glance.app
 ```
 
 To launch through Spotlight or Raycast, link the bundle into Applications:
 
 ```sh
-ln -s "$(pwd)/target/Pachiri.app" /Applications/Pachiri.app
+ln -s "$(pwd)/target/Glance.app" /Applications/Glance.app
 ```
 
 Rebuilding updates the linked app. Save or copy your current image before
 quitting and relaunching to use a new build.
 
+When upgrading from Pachiri, replace the old Applications shortcut with
+`/Applications/Glance.app`. Glance uses the new bundle identity
+`sh.glance.desktop`, so grant Screen Recording to Glance once after the rename.
+The bundle build migrates existing local signing files into Glance's Signing
+directory and reuses the certificate; its original common name may still show
+the former app name. New certificates are named Glance Local Development.
+
 Use the packaged app consistently so macOS can associate screen-recording
-permission with `dev.benv.pachiri`. On first capture, grant access in **System
+permission with `sh.glance.desktop`. On first capture, grant access in **System
 Settings → Privacy & Security → Screen & System Audio Recording**, then relaunch.
-This local bundle uses an ad-hoc signature; distribution signing/notarization is
-not configured.
+Local builds use a persistent development certificate, kept in
+`~/Library/Application Support/Glance/Signing`. The first build prepares it;
+run `./scripts/trust-local-signing.sh` once to trust it for code signing, then
+repeat the bundle build. That setup changes user certificate trust for code
+signing only. Distribution signing/notarization is not configured.
 
 ### Screen Recording enabled but capture fails
 
-Ad-hoc signing gives each changed executable a different designated requirement.
-macOS may display the old grant as enabled while rejecting the rebuilt app.
-Quit Pachiri, remove its entry from **Screen & System Audio Recording** with **−**,
-add `/Applications/Pachiri.app` again with **+**, enable it and reopen. Re-grant
-only after the final rebuild; another changed ad-hoc build may require it again.
+Earlier ad-hoc builds gave each changed executable a different designated
+requirement. macOS may display the old grant as enabled while rejecting the
+rebuilt app.
+Quit Glance, remove its entry from **Screen & System Audio Recording** with **−**,
+add `/Applications/Glance.app` again with **+**, enable it and reopen. Re-grant
+once after switching to the persistent signing identity. Subsequent builds use
+the same certificate and requirement. Keep the Signing directory when cleaning
+`target/` or moving the checkout; replacing the certificate changes the identity.
 The app now checks permission before hiding and preserves other capture errors.
 
 For development with a stable code-signing certificate already in your Keychain:
 
 ```sh
-PACHIRI_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
+GLANCE_CODESIGN_IDENTITY="Your code-signing certificate name" ./scripts/bundle.sh
 ```
 
-Use the same certificate for subsequent builds. The default remains ad-hoc;
-no certificate or Keychain trust is installed automatically. See Apple's
+Use the same certificate for subsequent builds. Set the identity to `-` only
+when explicitly testing ad-hoc signing; that mode can invalidate grants again.
+See Apple's
 [code-signing requirement explanation](https://developer.apple.com/documentation/technotes/tn3127-inside-code-signing-requirements).
 
 ## Workflow
@@ -106,8 +122,8 @@ no certificate or Keychain trust is installed automatically. See Apple's
   and private Blob storage, require internet, and are limited to 15 MB and
   30 uploads/hour per IP. Failed uploads preserve your clipboard. This shares
   a link; it does not automatically push into an agent’s live session.
-  Glance API requests identify the app with `X-Glance-Client: pachiri` and
-  `X-Glance-Client-Version: <app version>`, alongside `User-Agent: Pachiri/<app version>`.
+  Glance API requests identify the app with `X-Glance-Client: glance-desktop` and
+  `X-Glance-Client-Version: <app version>`, alongside `User-Agent: Glance/<app version>`.
 - **⌘O** opens PNG/JPEG. **⌘1** fits, **⌘0** uses 100%, **⌘+ / ⌘−** zoom.
   Pinch zooms around the pointer (1–800%); two-finger scrolling pans. **⌘ +
   scroll** zooms; **Shift + wheel** pans horizontally. Hold **Space** and drag
@@ -142,7 +158,7 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 Implemented: global area/full-screen capture, pen, arrows, rectangles, text,
 highlights, pixelation, crop, backdrops, numbered callouts, smart upscale/resize,
 rotation, object selection/movement/deletion, undo/redo, fit/zoom/pan, open,
-clipboard import, PNG save, Glance remote copy and animated backdrop MP4 export. A single icon toolbar keeps image dimensions and
+clipboard import, PNG save, Glance remote copy, spotlight, magnifier, local MCP control and animated backdrop MP4/GIF export. A single icon toolbar keeps image dimensions and
 zoom visible; native File, Edit, Draw, Zoom and Help menus expose the commands.
 See [PLAN.md](PLAN.md) for architecture and the intended proof-of-concept scope.
 
@@ -166,6 +182,17 @@ GPUI caches the SVG rendering; the app requires no network connection for icons.
 Upstream version and license are in `assets/lucide/SOURCE` and
 `assets/lucide/LICENSE`. The license is also included in the app bundle.
 
+### Local MCP companion
+
+Glance can expose its native editor to ChatGPT and local MCP clients: import images, edit selectable objects, crop/resize, set animated backdrops, return PNG previews, export MP4, and decode video frames. Start the editor with `--automation` and the stdio server with `--mcp`. See [setup, tools, and ChatGPT tunnel instructions](mcp/README.md).
+
+### Spotlight, magnifier, and GIF loops
+
+- **S — Spotlight:** drag a focus rectangle. The surrounding image dims; multiple focus windows share one dimming mask in exports. Drag the object to move it, or drag either corner handle to resize it. Undo/Delete work as with other annotations.
+- **M — Magnifier:** drag from a detail to where its enlarged lens should appear. The source and lens have separate handles. The toolbar's **2× / 3× / 4×** button changes a selected lens's magnification; **Ø** changes its diameter. It samples the original annotated foreground, so the enlarged detail stays bright even with a spotlight.
+- **Backdrop → Motion → GIF…** or **File → Export Looping GIF…** exports an infinitely repeating GIF. MP4 export remains available beside it. GIF uses 20 fps and a maximum edge of 960 pixels; MP4 uses 30 fps and 1920 pixels. Both render one complete cycle, excluding a duplicate endpoint frame. GIF's fixed palette keeps foreground colors stable across frames; rounded corners use the same ivory matte as MP4.
+- Spotlight and magnifier remain editable objects and appear in PNG, clipboard, GIF, and MP4 output. Animated backdrops loop while the foreground stays fixed. MP4 repeats when the player is configured to loop; GIF includes infinite-repeat metadata.
+
 ## Editor architecture
 
 `main.rs` only launches the app and opens its window. The GPUI editor lives in
@@ -179,7 +206,8 @@ One `Gesture` enum represents the active pointer interaction. `jobs.rs` owns
 worker dispatch and completion: each external operation has an ID, and stale
 results or video progress cannot affect a newer operation. Preview rendering
 has its own revision checks and remains independent of external operations.
-`feedback.rs` owns transient copy confirmations.
+`feedback.rs` owns transient copy confirmations. `automation.rs` applies local
+MCP requests on the UI thread, and `lens.rs` schedules magnifier previews.
 
 The document, geometry, compositors, macOS integration, Glance protocol, and
 video encoder remain separate modules. Interaction tests use GPUI's virtual

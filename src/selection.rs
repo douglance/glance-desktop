@@ -44,6 +44,17 @@ impl Mark {
                 });
             return (a.0, a.1, a.0 + w.max(1.), a.1 + em);
         }
+        if self.tool == Tool::Magnifier {
+            let z = *self.points.last().unwrap_or(&a);
+            let r = crate::effects::radius(self);
+            let source_r = r / crate::effects::zoom(self);
+            return (
+                (a.0 - source_r).min(z.0 - r),
+                (a.1 - source_r).min(z.1 - r),
+                (a.0 + source_r).max(z.0 + r),
+                (a.1 + source_r).max(z.1 + r),
+            );
+        }
         if self.tool == Tool::Counter {
             let r = (self.width * 3.6).max(1.);
             return (a.0 - r, a.1 - r, a.0 + r, a.1 + r);
@@ -105,6 +116,12 @@ impl Mark {
             ]
             .into_iter()
             .any(|(a, b)| distance(p, a, b) <= t),
+            Tool::Magnifier => {
+                (p.0 - z.0).hypot(p.1 - z.1) <= crate::effects::radius(self) + tolerance
+                    || (p.0 - a.0).hypot(p.1 - a.1)
+                        <= crate::effects::radius(self) / crate::effects::zoom(self) + tolerance
+                    || distance(p, a, z) <= t
+            }
             Tool::Counter => (p.0 - a.0).hypot(p.1 - a.1) <= self.width * 3.6 + tolerance,
             Tool::Select | Tool::Crop => false,
             _ => true,

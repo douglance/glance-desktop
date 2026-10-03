@@ -717,3 +717,111 @@ fn video_progress_belongs_to_the_active_export(cx: &mut TestAppContext) {
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn automation_applies_to_native_editor_and_rejects_stale_work(cx: &mut TestAppContext) {
+    use crate::automation::{Request, Snapshot};
+    use serde_json::json;
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        let mut snapshot = Snapshot {
+            document: e.document.clone(),
+            revision: e.preview.revision,
+            phase: 0.,
+        };
+        crate::mcp::operate(
+            "add_annotation",
+            &json!({"mark": {
+                "tool": "arrow", "points": [[10, 10], [60, 40]],
+                "color": [255, 0, 0, 255], "width": 3, "text": ""
+            }}),
+            &mut snapshot,
+        )
+        .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        e.automation(
+            Request::Apply {
+                document: snapshot.document.clone(),
+                revision: snapshot.revision,
+                replace: false,
+                reply: tx,
+            },
+            cx,
+        );
+        assert!(rx.recv().unwrap().is_ok());
+        assert_eq!(e.interaction.selected, Some(0));
+        assert_eq!(e.interaction.tool, Tool::Select);
+        assert_eq!(e.document.marks.len(), 1);
+        let (tx, rx) = std::sync::mpsc::channel();
+        e.automation(
+            Request::Apply {
+                document: snapshot.document,
+                revision: snapshot.revision,
+                replace: false,
+                reply: tx,
+            },
+            cx,
+        );
+        assert!(rx.recv().unwrap().is_err());
+        assert_eq!(e.document.marks.len(), 1);
+        e.document.undo();
+        assert!(e.document.marks.is_empty());
+        e.start_operation(super::jobs::OperationKind::Upload)
+            .unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        e.automation(Request::Snapshot(tx), cx);
+        assert!(rx.recv().unwrap().is_err());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn spotlight_magnifier_creation_handles_and_native_undo(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        e.set_tool(Tool::Spotlight, cx);
+        e.begin(&down(10., 10.), w, cx);
+        e.motion(&motion(60., 60.), cx);
+        e.finish(&up(60., 60.), cx);
+        assert_eq!(e.document.marks[0].tool, Tool::Spotlight);
+        assert_eq!(e.interaction.selected, Some(0));
+        assert_eq!(e.document.marks[0].points.len(), 2);
+        e.begin(&down(60., 60.), w, cx);
+        assert_eq!(
+            e.interaction.gesture.drag().and_then(|(_, handle)| handle),
+            Some(2)
+        );
+        e.finish(&up(70., 65.), cx);
+        assert_eq!(e.document.marks[0].points, vec![(10., 10.), (70., 65.)]);
+        e.document.undo();
+        e.set_tool(Tool::Magnifier, cx);
+        e.begin(&down(20., 20.), w, cx);
+        e.motion(&motion(75., 75.), cx);
+        e.finish(&up(75., 75.), cx);
+        assert_eq!(e.document.marks[1].points, vec![(20., 20.), (75., 75.)]);
+        assert_eq!(e.interaction.selected, Some(1));
+        e.begin(&down(75., 75.), w, cx);
+        assert_eq!(
+            e.interaction.gesture.drag().and_then(|(_, handle)| handle),
+            Some(2)
+        );
+        e.motion(&motion(85., 70.), cx);
+        e.finish(&up(85., 70.), cx);
+        assert_eq!(e.document.marks[1].points, vec![(20., 20.), (85., 70.)]);
+        e.document.undo();
+        assert_eq!(e.document.marks[1].points[1], (75., 75.));
+        e.begin(&down(20., 20.), w, cx);
+        assert_eq!(
+            e.interaction.gesture.drag().and_then(|(_, handle)| handle),
+            Some(0)
+        );
+        e.finish(&up(30., 25.), cx);
+        assert_eq!(e.document.marks[1].points, vec![(30., 25.), (75., 75.)]);
+        e.delete_selected(cx);
+        assert_eq!(e.document.marks.len(), 1);
+        e.document.undo();
+        assert_eq!(e.document.marks.len(), 2);
+    })
+    .unwrap();
+}

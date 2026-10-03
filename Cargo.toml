@@ -1,5 +1,5 @@
 [package]
-name = "pachiri"
+name = "glance"
 version = "0.1.0"
 edition = "2024"
 
@@ -14,9 +14,12 @@ ab_glyph = "0.2"
 async-channel = "2"
 lyon = "1"
 unicode-segmentation = "1"
-reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+base64 = "0.22"
+gif = "0.14"
+color_quant = "1"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 rand = "0.8"
 sha2 = "0.10"
 hkdf = "0.12"
@@ -28,6 +31,7 @@ objc = "0.2"
 block = "0.1"
 
 [dev-dependencies]
+resvg = { version = "=0.45.1", default-features = false }
 gpui = { version = "=0.2.2", features = ["test-support", "runtime_shaders"] }
 
 [profile.release]

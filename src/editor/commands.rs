@@ -318,6 +318,12 @@ impl Editor {
         }
     }
     pub(super) fn export_video(&mut self, cx: &mut Context<Self>) {
+        self.export_animation(false, cx);
+    }
+    pub(super) fn export_gif(&mut self, cx: &mut Context<Self>) {
+        self.export_animation(true, cx);
+    }
+    fn export_animation(&mut self, gif: bool, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -352,14 +358,19 @@ impl Editor {
         let sender = self.sender.clone();
         cx.notify();
         self.spawn_operation(id, move || {
-            let result = crate::platform::video_destination().and_then(|path| {
+            let result = crate::platform::animation_destination(gif).and_then(|path| {
                 let Some(path) = path else {
                     return Ok(None);
                 };
-                video::encode(&document, &path, phase, &cancel, |percent| {
+                let progress = |percent| {
                     let _ = sender.try_send(Message::VideoProgress(id, percent));
-                })
-                .map(|finished| finished.then_some(path))
+                };
+                let result = if gif {
+                    crate::gif_export::encode(&document, &path, phase, &cancel, progress)
+                } else {
+                    video::encode(&document, &path, phase, &cancel, progress)
+                };
+                result.map(|finished| finished.then_some(path))
             });
             OperationResult::VideoSaved(result)
         });

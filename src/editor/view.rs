@@ -1,6 +1,6 @@
 use super::Editor;
 use super::feedback::CopyFeedback;
-use crate::{document::Tool, menus};
+use crate::{document::Tool, effects, menus};
 use gpui::{prelude::*, *};
 pub(super) struct HoverLabel(pub(super) SharedString);
 impl Render for HoverLabel {
@@ -35,9 +35,15 @@ impl Editor {
             Tool::Pixelate => ("grid-2x2", "B"),
             Tool::Crop => ("crop", "X"),
             Tool::Counter => ("list-ordered", "N"),
+            Tool::Spotlight => ("scan", "S"),
+            Tool::Magnifier => ("search", "M"),
         };
         let active = self.interaction.tool == tool;
-        let label: SharedString = format!("{} · {}", tool.label(), key).into();
+        let label: SharedString = match tool {
+            Tool::Spotlight => "Spotlight · S · drag a focus area".into(),
+            Tool::Magnifier => "Magnifier · M · drag from detail to lens".into(),
+            _ => format!("{} · {}", tool.label(), key).into(),
+        };
         div()
             .id(SharedString::from(format!("tool-{name}")))
             .size(px(30.))
@@ -141,6 +147,11 @@ impl Render for Editor {
         for image in self.preview.retired.drain(..) {
             let _ = window.drop_image(image);
         }
+        let selected_mark = self
+            .interaction
+            .selected
+            .and_then(|i| self.document.marks.get(i))
+            .cloned();
         let dimensions = self.document.base.dimensions();
         let output_dimensions = self
             .document
@@ -168,6 +179,8 @@ impl Render for Editor {
             Tool::Pixelate,
             Tool::Crop,
             Tool::Counter,
+            Tool::Spotlight,
+            Tool::Magnifier,
         ];
         let colors = [
             (0xff3864, [255, 56, 100, 255]),
@@ -187,9 +200,9 @@ impl Render for Editor {
             .font_family(".AppleSystemUIFont")
             .track_focus(&self.focus)
             .key_context(if self.interaction.text_edit.is_some() {
-                "PachiriText"
+                "GlanceText"
             } else {
-                "PachiriCanvas"
+                "GlanceCanvas"
             })
             .on_action(
                 cx.listener(|this, _: &menus::Open, window, cx| this.menu_key("cmd-o", window, cx)),
@@ -257,6 +270,13 @@ impl Render for Editor {
                 cx.listener(|this, _: &menus::Counter, _, cx| this.set_tool(Tool::Counter, cx)),
             )
             .on_action(cx.listener(|this, _: &menus::ExportVideo, _, cx| this.export_video(cx)))
+            .on_action(cx.listener(|this, _: &menus::ExportGif, _, cx| this.export_gif(cx)))
+            .on_action(
+                cx.listener(|this, _: &menus::Spotlight, _, cx| this.set_tool(Tool::Spotlight, cx)),
+            )
+            .on_action(
+                cx.listener(|this, _: &menus::Magnifier, _, cx| this.set_tool(Tool::Magnifier, cx)),
+            )
             .on_action(cx.listener(|this, _: &menus::Backdrop, _, cx| this.toggle_backdrop(cx)))
             .on_action(cx.listener(|this, _: &menus::ImageTools, _, cx| this.toggle_enhance(cx)))
             .on_action(|_: &menus::Help, _, cx| {
@@ -304,7 +324,7 @@ impl Render for Editor {
                             .font_weight(FontWeight::BOLD)
                             .text_color(rgb(0xf35d45))
                             .mr_2()
-                            .child("pachiri"),
+                            .child("glance"),
                     )
                     .child(
                         self.compact_button("Area · ⌘⌥2", "scan", false, cx, |this, cx| {
@@ -365,19 +385,60 @@ impl Render for Editor {
                                         this.apply_style(true, cx);
                                     }))
                             }))
-                            .child(self.button(
-                                &format!("{} px", self.interaction.width as u32),
-                                false,
-                                cx,
-                                |this, cx| {
-                                    this.interaction.width = match this.interaction.width as u32 {
-                                        3 => 5.,
-                                        5 => 9.,
-                                        _ => 3.,
-                                    };
-                                    this.apply_style(false, cx);
-                                },
-                            )),
+                            .child(
+                                self.button(
+                                    &if self.interaction.tool == Tool::Magnifier
+                                        || selected_mark
+                                            .as_ref()
+                                            .is_some_and(|m| m.tool == Tool::Magnifier)
+                                    {
+                                        format!("Ø{}", (self.interaction.width * 24.) as u32)
+                                    } else {
+                                        format!("{} px", self.interaction.width as u32)
+                                    },
+                                    false,
+                                    cx,
+                                    |this, cx| {
+                                        this.interaction.width = match this.interaction.width as u32
+                                        {
+                                            3 => 5.,
+                                            5 => 9.,
+                                            _ => 3.,
+                                        };
+                                        this.apply_style(false, cx);
+                                    },
+                                ),
+                            ),
+                    )
+                    .when(
+                        self.interaction.tool == Tool::Magnifier
+                            || selected_mark
+                                .as_ref()
+                                .is_some_and(|m| m.tool == Tool::Magnifier),
+                        |el| {
+                            let zoom = selected_mark
+                                .as_ref()
+                                .filter(|m| m.tool == Tool::Magnifier)
+                                .map_or(2., effects::zoom);
+                            el.child(self.button(&format!("{zoom}×"), false, cx, |this, cx| {
+                                if let Some(index) = this
+                                    .interaction
+                                    .selected
+                                    .filter(|i| this.document.marks[*i].tool == Tool::Magnifier)
+                                {
+                                    let next =
+                                        match effects::zoom(&this.document.marks[index]) as u32 {
+                                            2 => 3,
+                                            3 => 4,
+                                            _ => 2,
+                                        };
+                                    this.document.remember();
+                                    this.document.marks[index].text = next.to_string();
+                                    this.changed();
+                                    cx.notify();
+                                }
+                            }))
+                        },
                     )
                     .child(div().flex_1())
                     .child(self.compact_button(
