@@ -1043,7 +1043,7 @@ impl Render for Editor {
                     .px_3()
                     .flex()
                     .items_center()
-                    .gap_1()
+                    .gap(px(2.))
                     .border_b_1()
                     .border_color(rgb(0xe9e9ee))
                     .child(
