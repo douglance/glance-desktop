@@ -12,6 +12,10 @@ const ASSETS: &[(&str, &[u8])] = &[
         include_bytes!("../assets/lucide/search.svg"),
     ),
     (
+        "icons/check.svg",
+        include_bytes!("../assets/lucide/check.svg"),
+    ),
+    (
         "icons/play.svg",
         include_bytes!("../assets/lucide/play.svg"),
     ),

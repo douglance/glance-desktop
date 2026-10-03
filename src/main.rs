@@ -42,6 +42,26 @@ struct Layout {
     width: f32,
     height: f32,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CopyFeedback {
+    Copying,
+    Uploading,
+    Copied,
+    LinkCopied(u64),
+}
+impl CopyFeedback {
+    fn complete(self) -> bool {
+        matches!(self, Self::Copied | Self::LinkCopied(_))
+    }
+    fn label(self) -> &'static str {
+        match self {
+            Self::Copying => "Copying…",
+            Self::Uploading => "Uploading…",
+            Self::Copied => "Copied!",
+            Self::LinkCopied(_) => "Link copied!",
+        }
+    }
+}
 enum Message {
     Automation(automation::Request),
     Lens(effects::LensKey, Arc<RenderImage>),
@@ -99,6 +119,8 @@ struct Editor {
     layout: Rc<Cell<Layout>>,
     focus: FocusHandle,
     status: String,
+    copy_feedback: Option<CopyFeedback>,
+    copy_feedback_timer: Option<Task<()>>,
     busy: bool,
     sender: async_channel::Sender<Message>,
     _hotkeys: Option<GlobalHotKeyManager>,
@@ -242,6 +264,8 @@ impl Editor {
             layout: Rc::new(Cell::new(Layout::default())),
             focus: cx.focus_handle(),
             status,
+            copy_feedback: None,
+            copy_feedback_timer: None,
             busy: false,
             sender,
 
@@ -420,6 +444,7 @@ impl Editor {
             }
             Message::Copied(result) => {
                 self.busy = false;
+                self.set_copy_feedback(result.is_ok().then_some(CopyFeedback::Copied), cx);
                 self.status = match result {
                     Ok(()) => "Copied image to clipboard".into(),
                     Err(e) => e,
@@ -438,11 +463,15 @@ impl Editor {
                             .unwrap_or_default()
                             .as_millis() as u64;
                         let minutes = share.expires_at.saturating_sub(now).div_ceil(60_000);
+                        self.set_copy_feedback(Some(CopyFeedback::LinkCopied(minutes)), cx);
                         format!(
                             "Glance link copied • expires in {minutes} min • Paste into your agent’s chat"
                         )
                     }
-                    Err(e) => e,
+                    Err(e) => {
+                        self.set_copy_feedback(None, cx);
+                        e
+                    }
                 };
             }
         }
@@ -463,6 +492,29 @@ impl Editor {
                 })
                 .detach();
             }
+        }
+        cx.notify();
+    }
+    fn set_copy_feedback(&mut self, feedback: Option<CopyFeedback>, cx: &mut Context<Self>) {
+        // Dropping the previous task cancels its timeout, so it can't dismiss
+        // a newer confirmation or an upload still in progress.
+        self.copy_feedback_timer = None;
+        self.copy_feedback = feedback;
+        if let Some(feedback) = feedback.filter(|feedback| feedback.complete()) {
+            let seconds = if matches!(feedback, CopyFeedback::Copied) {
+                2
+            } else {
+                3
+            };
+            self.copy_feedback_timer = Some(cx.spawn(async move |view, cx| {
+                cx.background_executor()
+                    .timer(std::time::Duration::from_secs(seconds))
+                    .await;
+                let _ = view.update(cx, |editor, cx| {
+                    editor.copy_feedback = None;
+                    cx.notify();
+                });
+            }));
         }
         cx.notify();
     }
@@ -541,6 +593,9 @@ impl Editor {
             "Copying…"
         }
         .into();
+        if !save {
+            self.set_copy_feedback(Some(CopyFeedback::Copying), cx);
+        }
         std::thread::spawn(move || {
             let image = document.export_at(phase);
             let message = if save {
@@ -559,6 +614,7 @@ impl Editor {
         self.commit_text(cx);
         self.busy = true;
         self.status = "Uploading screenshot to Glance…".into();
+        self.set_copy_feedback(Some(CopyFeedback::Uploading), cx);
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
         let sender = self.sender.clone();
@@ -1218,6 +1274,43 @@ impl Editor {
             .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.into())).into())
             .on_click(cx.listener(move |this, _, _, cx| action(this, cx)))
     }
+    fn copy_confirmation(&self, feedback: CopyFeedback) -> impl IntoElement {
+        let complete = feedback.complete();
+        div()
+            .id("copy-feedback")
+            .debug_selector(|| "copy-feedback".into())
+            .absolute()
+            .occlude()
+            .top(px(54.))
+            .right(px(12.))
+            .px_3()
+            .py_2()
+            .rounded_lg()
+            .shadow_md()
+            .bg(rgb(0x282b34))
+            .text_color(rgb(0xffffff))
+            .text_sm()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(icon(
+                match feedback {
+                    CopyFeedback::Copying => "copy",
+                    CopyFeedback::Uploading => "cloud-upload",
+                    _ => "check",
+                },
+                if complete { 0x87e3b0 } else { 0xc6c9d3 },
+            ))
+            .child(div().child(feedback.label()).when_some(
+                match feedback {
+                    CopyFeedback::LinkCopied(minutes) => {
+                        Some(format!("Glance · expires in {minutes} min"))
+                    }
+                    _ => None,
+                },
+                |el, detail| el.child(div().text_xs().text_color(rgb(0xc6c9d3)).child(detail)),
+            ))
+    }
     fn button(
         &self,
         label: &str,
@@ -1366,6 +1459,7 @@ impl Render for Editor {
         ];
         div()
             .size_full()
+            .relative()
             .flex()
             .flex_col()
             .bg(rgb(0xfcfcfd))
@@ -1612,11 +1706,17 @@ impl Render for Editor {
                         },
                     )
                     .child(div().flex_1())
-                    .child(
-                        self.compact_button("Copy · ⌘C", "copy", false, cx, |this, cx| {
-                            this.export(false, cx)
-                        }),
-                    )
+                    .child(self.compact_button(
+                        "Copy · ⌘C",
+                        if self.copy_feedback == Some(CopyFeedback::Copied) {
+                            "check"
+                        } else {
+                            "copy"
+                        },
+                        false,
+                        cx,
+                        |this, cx| this.export(false, cx),
+                    ))
                     .child(
                         div()
                             .id("copy-remote")
@@ -1624,7 +1724,11 @@ impl Render for Editor {
                             .flex_shrink_0()
                             .child(self.compact_button(
                                 "Copy (remote) · Upload to Glance · ⌘⇧C",
-                                "cloud-upload",
+                                if matches!(self.copy_feedback, Some(CopyFeedback::LinkCopied(_))) {
+                                    "check"
+                                } else {
+                                    "cloud-upload"
+                                },
                                 false,
                                 cx,
                                 |this, cx| this.copy_remote(cx),
@@ -1921,6 +2025,9 @@ impl Render for Editor {
                     })
                     .when(self.enhance_panel, |el| el.child(self.enhance_controls(cx))),
             )
+            .when_some(self.copy_feedback, |el, feedback| {
+                el.child(self.copy_confirmation(feedback))
+            })
     }
 }
 fn main() {

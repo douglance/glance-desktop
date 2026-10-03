@@ -1,5 +1,5 @@
 //! Tests use GPUI's virtual platform. No desktop interaction or capture permission.
-use crate::{Document, Editor, Layout, Message, Tool, render_image};
+use crate::{CopyFeedback, Document, Editor, Layout, Message, Tool, render_image};
 use gpui::{
     Bounds, EntityInputHandler, KeyDownEvent, Keystroke, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, TestAppContext, WindowHandle, point, px, size,
@@ -108,15 +108,81 @@ fn remote_copy_updates_clipboard_only_after_upload_success(cx: &mut TestAppConte
             "Screenshot: https://glance.sh/example.png"
         );
         assert!(e.status.contains("Glance link copied"));
+        assert!(matches!(e.copy_feedback, Some(CopyFeedback::LinkCopied(_))));
         cx.write_to_clipboard(gpui::ClipboardItem::new_string("keep on failure".into()));
         e.busy = true;
         e.receive(Message::RemoteCopied(Err("Offline".into())), cx);
         assert!(!e.busy);
         assert_eq!(e.status, "Offline");
+        assert_eq!(e.copy_feedback, None);
         assert_eq!(
             cx.read_from_clipboard().unwrap().text().unwrap(),
             "keep on failure"
         );
+    })
+    .unwrap();
+}
+#[gpui::test]
+fn copy_confirmation_expires_without_dismissing_a_new_upload(cx: &mut TestAppContext) {
+    use std::time::Duration;
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
+        .unwrap();
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_secs(1));
+    view.update(cx, |e, _, cx| {
+        assert_eq!(e.copy_feedback, Some(CopyFeedback::Copied));
+        e.set_copy_feedback(Some(CopyFeedback::Uploading), cx);
+    })
+    .unwrap();
+    cx.executor().advance_clock(Duration::from_secs(5));
+    cx.run_until_parked();
+    view.update(cx, |e, _, cx| {
+        assert_eq!(e.copy_feedback, Some(CopyFeedback::Uploading));
+        e.receive(
+            Message::RemoteCopied(Ok(crate::glance::Share {
+                url: "https://glance.sh/example.png".into(),
+                expires_at: u64::MAX,
+            })),
+            cx,
+        );
+    })
+    .unwrap();
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_secs(3));
+    cx.run_until_parked();
+    view.update(cx, |e, _, _| assert_eq!(e.copy_feedback, None))
+        .unwrap();
+}
+#[gpui::test]
+fn copy_confirmation_fits_and_refreshes_on_repeated_copy(cx: &mut TestAppContext) {
+    use std::time::Duration;
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
+        .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let bounds = visual.debug_bounds("copy-feedback").unwrap();
+    assert!(bounds.origin.x >= px(0.));
+    assert!(bounds.origin.y >= px(48.));
+    assert!(bounds.right() <= px(1050.));
+    cx.executor().advance_clock(Duration::from_secs(1));
+    view.update(cx, |e, _, cx| e.receive(Message::Copied(Ok(())), cx))
+        .unwrap();
+    cx.run_until_parked();
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    view.update(cx, |e, _, _| {
+        assert_eq!(e.copy_feedback, Some(CopyFeedback::Copied))
+    })
+    .unwrap();
+    cx.executor().advance_clock(Duration::from_secs(1));
+    cx.run_until_parked();
+    view.update(cx, |e, _, cx| {
+        assert_eq!(e.copy_feedback, None);
+        e.receive(Message::Copied(Err("Clipboard unavailable".into())), cx);
+        assert_eq!(e.copy_feedback, None);
     })
     .unwrap();
 }

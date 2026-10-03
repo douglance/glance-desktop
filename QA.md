@@ -2,7 +2,7 @@
 
 ## Result
 
-59 automated tests pass (5 opt-in tests ignored). Native desktop testing remains blocked: computer-use
+61 automated tests pass (5 opt-in tests ignored). Native desktop testing remains blocked: computer-use
 access to Pachiri was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
