@@ -27,20 +27,20 @@ impl Editor {
     ) {
         // Dropping the previous task cancels its timeout, so it can't dismiss
         // a newer confirmation or an upload still in progress.
-        self.copy_feedback_timer = None;
-        self.copy_feedback = feedback;
+        self.feedback.timer = None;
+        self.feedback.copy = feedback;
         if let Some(feedback) = feedback.filter(|feedback| feedback.complete()) {
             let seconds = if matches!(feedback, CopyFeedback::Copied) {
                 2
             } else {
                 3
             };
-            self.copy_feedback_timer = Some(cx.spawn(async move |view, cx| {
+            self.feedback.timer = Some(cx.spawn(async move |view, cx| {
                 cx.background_executor()
                     .timer(std::time::Duration::from_secs(seconds))
                     .await;
                 let _ = view.update(cx, |editor, cx| {
-                    editor.copy_feedback = None;
+                    editor.feedback.copy = None;
                     cx.notify();
                 });
             }));

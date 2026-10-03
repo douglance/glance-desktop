@@ -5,16 +5,16 @@ impl Editor {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let image = self.preview.clone();
+        let image = self.preview.image.clone();
         let text_entity = cx.entity();
         let overlays: Vec<Mark> = self
             .document
             .marks
             .iter()
-            .skip(self.preview_count)
-            .chain(self.draft.iter())
+            .skip(self.preview.mark_count)
+            .chain(self.interaction.draft.iter())
             .map(|mark| {
-                if let Some((index, _, moved)) = &self.object_drag
+                if let Some((index, _, moved)) = &self.interaction.object_drag
                     && std::ptr::eq(mark, &self.document.marks[*index])
                 {
                     return moved.clone();
@@ -22,35 +22,37 @@ impl Editor {
                 mark.clone()
             })
             .collect();
-        let selected_mark = self.selected.and_then(|index| {
-            self.object_drag
+        let selected_mark = self.interaction.selected.and_then(|index| {
+            self.interaction
+                .object_drag
                 .as_ref()
                 .map(|(_, _, m)| m)
                 .or_else(|| self.document.marks.get(index))
                 .cloned()
         });
-        let selection_bounds = self.selected.and_then(|index| {
-            self.object_drag
+        let selection_bounds = self.interaction.selected.and_then(|index| {
+            self.interaction
+                .object_drag
                 .as_ref()
                 .map(|(_, _, m)| m)
                 .or_else(|| self.document.marks.get(index))
                 .map(Mark::bounds)
         });
-        let canvas_bounds = self.canvas_bounds.clone();
-        let layout = self.layout.clone();
+        let canvas_bounds = self.viewport.canvas_bounds.clone();
+        let layout = self.viewport.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
         let animation_phase = self.animation_phase();
         if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
-            && !self.animation_paused
+            && !self.playback.paused
             && !self.busy
             && window.is_window_active()
         {
             window.request_animation_frame();
         }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
-        let zoom = self.zoom;
-        let pan = self.pan;
+        let zoom = self.viewport.zoom;
+        let pan = self.viewport.pan;
         div()
             .relative()
             .on_scroll_wheel(cx.listener(|this, e, _, cx| this.scroll(e, cx)))
@@ -75,9 +77,9 @@ impl Editor {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .cursor(if self.space_down {
+            .cursor(if self.viewport.space_down {
                 CursorStyle::OpenHand
-            } else if self.tool == Tool::Select {
+            } else if self.interaction.tool == Tool::Select {
                 CursorStyle::Arrow
             } else {
                 CursorStyle::Crosshair
@@ -85,7 +87,9 @@ impl Editor {
             .on_mouse_down(MouseButton::Left, cx.listener(Self::begin))
             .on_mouse_down(
                 MouseButton::Right,
-                cx.listener(|this, e: &MouseDownEvent, _, _| this.pan_start = Some(e.position)),
+                cx.listener(|this, e: &MouseDownEvent, _, _| {
+                    this.viewport.pan_start = Some(e.position)
+                }),
             )
             .child(
                 canvas(
@@ -230,7 +234,13 @@ impl Editor {
                                         Default::default(),
                                     ));
                                 }
-                                text::paint(&text_entity, layout.get(), image_bounds, window, cx);
+                                text_input::paint(
+                                    &text_entity,
+                                    layout.get(),
+                                    image_bounds,
+                                    window,
+                                    cx,
+                                );
                             },
                         );
                         if let Some(b) = backdrop {
@@ -246,9 +256,11 @@ impl Editor {
                 .flex_1()
                 .min_w_0(),
             )
-            .when(self.backdrop_panel, |el| {
+            .when(self.panels.backdrop, |el| {
                 el.child(self.backdrop_controls(cx))
             })
-            .when(self.enhance_panel, |el| el.child(self.enhance_controls(cx)))
+            .when(self.panels.enhance, |el| {
+                el.child(self.enhance_controls(cx))
+            })
     }
 }

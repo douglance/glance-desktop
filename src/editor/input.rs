@@ -1,7 +1,7 @@
 use super::*;
 impl Editor {
     pub(super) fn outside_text(&mut self, e: &MouseDownEvent, cx: &mut Context<Self>) {
-        let layout = self.layout.get();
+        let layout = self.viewport.layout.get();
         let image = Bounds::new(
             point(px(layout.x), px(layout.y)),
             size(
@@ -14,7 +14,7 @@ impl Editor {
         }
     }
     pub(super) fn coordinate(&self, p: Point<Pixels>, clamp: bool) -> Option<(f32, f32)> {
-        let layout = self.layout.get();
+        let layout = self.viewport.layout.get();
         if layout.scale <= 0. {
             return None;
         }
@@ -38,12 +38,12 @@ impl Editor {
         if self.busy {
             return;
         }
-        if self.space_down {
-            self.pan_start = Some(e.position);
+        if self.viewport.space_down {
+            self.viewport.pan_start = Some(e.position);
             cx.notify();
             return;
         }
-        if self.zoom_down {
+        if self.viewport.zoom_down {
             self.zoom_at(
                 if e.modifiers.shift { 0.5 } else { 2. },
                 (f32::from(e.position.x), f32::from(e.position.y)),
@@ -51,7 +51,7 @@ impl Editor {
             );
             return;
         }
-        if let Some(edit) = &mut self.text_edit
+        if let Some(edit) = &mut self.interaction.text_edit
             && edit
                 .bounds
                 .is_some_and(|bounds| bounds.dilate(px(5.)).contains(&e.position))
@@ -67,45 +67,53 @@ impl Editor {
         let Some(mut p) = self.coordinate(e.position, false) else {
             return;
         };
-        if self.tool == Tool::Crop {
-            p = navigation::endpoint(Tool::Crop, p, p, false, self.layout.get());
+        if self.interaction.tool == Tool::Crop {
+            p = navigation::endpoint(Tool::Crop, p, p, false, self.viewport.layout.get());
         }
-        self.drag_handle = None;
-        if let Some(index) = self.selected.filter(|i| *i < self.document.marks.len()) {
+        self.interaction.drag_handle = None;
+        if let Some(index) = self
+            .interaction
+            .selected
+            .filter(|i| *i < self.document.marks.len())
+        {
             let mark = &self.document.marks[index];
-            self.drag_handle = arrow::handle_at(mark, p, 7. / self.layout.get().scale);
-            if self.drag_handle.is_some() || mark.hit(p, 5. / self.layout.get().scale) {
-                self.object_drag = Some((index, p, mark.clone()));
+            self.interaction.drag_handle =
+                arrow::handle_at(mark, p, 7. / self.viewport.layout.get().scale);
+            if self.interaction.drag_handle.is_some()
+                || mark.hit(p, 5. / self.viewport.layout.get().scale)
+            {
+                self.interaction.object_drag = Some((index, p, mark.clone()));
                 self.changed();
                 cx.notify();
                 return;
             }
         }
-        self.selected = None;
-        if self.tool == Tool::Select {
-            self.selected = self.document.pick(p, 5. / self.layout.get().scale);
-            if let Some(index) = self.selected {
-                self.color = self.document.marks[index].color;
-                self.width = self.document.marks[index].width;
-                self.object_drag = Some((index, p, self.document.marks[index].clone()));
+        self.interaction.selected = None;
+        if self.interaction.tool == Tool::Select {
+            self.interaction.selected =
+                self.document.pick(p, 5. / self.viewport.layout.get().scale);
+            if let Some(index) = self.interaction.selected {
+                self.interaction.color = self.document.marks[index].color;
+                self.interaction.width = self.document.marks[index].width;
+                self.interaction.object_drag = Some((index, p, self.document.marks[index].clone()));
                 self.changed();
             }
             cx.notify();
             return;
         }
         let mut mark = Mark {
-            tool: self.tool,
+            tool: self.interaction.tool,
             curve: None,
             points: vec![p],
-            color: self.color,
-            width: match self.tool {
-                Tool::Text => self.width.max(20. / 7.),
-                Tool::Counter => self.width.max(20. / 4.4),
-                _ => self.width,
+            color: self.interaction.color,
+            width: match self.interaction.tool {
+                Tool::Text => self.interaction.width.max(20. / 7.),
+                Tool::Counter => self.interaction.width.max(20. / 4.4),
+                _ => self.interaction.width,
             },
             text: String::new(),
         };
-        if self.tool == Tool::Counter {
+        if self.interaction.tool == Tool::Counter {
             mark.text = (self
                 .document
                 .marks
@@ -117,16 +125,16 @@ impl Editor {
                 .saturating_add(1))
             .to_string();
             self.document.commit(mark);
-            self.selected = self.document.marks.len().checked_sub(1);
+            self.interaction.selected = self.document.marks.len().checked_sub(1);
             self.changed();
             cx.notify();
             return;
         }
-        if self.tool == Tool::Text {
-            self.text_edit = Some(text::Edit::new(mark));
-            self.text_session += 1;
-            let session = self.text_session;
-            self.status = "Type your label • Enter to finish • Escape to cancel".into();
+        if self.interaction.tool == Tool::Text {
+            self.interaction.text_edit = Some(text::Edit::new(mark));
+            self.interaction.text_session += 1;
+            let session = self.interaction.text_session;
+            self.feedback.status = "Type your label • Enter to finish • Escape to cancel".into();
             cx.spawn(async move |view, cx| {
                 loop {
                     cx.background_executor()
@@ -134,10 +142,10 @@ impl Editor {
                         .await;
                     let keep = view
                         .update(cx, |editor, cx| {
-                            if editor.text_session != session {
+                            if editor.interaction.text_session != session {
                                 return false;
                             }
-                            if let Some(edit) = &mut editor.text_edit {
+                            if let Some(edit) = &mut editor.interaction.text_edit {
                                 edit.caret_on = !edit.caret_on;
                                 cx.notify();
                                 true
@@ -153,7 +161,7 @@ impl Editor {
             })
             .detach();
         } else {
-            self.draft = Some(mark);
+            self.interaction.draft = Some(mark);
         }
         cx.notify();
     }
@@ -161,14 +169,14 @@ impl Editor {
         if self.backdrop_slider_move(e.position, cx) {
             return;
         }
-        if let Some(previous) = self.pan_start {
-            self.pan.0 += f32::from(e.position.x - previous.x);
-            self.pan.1 += f32::from(e.position.y - previous.y);
-            self.pan_start = Some(e.position);
+        if let Some(previous) = self.viewport.pan_start {
+            self.viewport.pan.0 += f32::from(e.position.x - previous.x);
+            self.viewport.pan.1 += f32::from(e.position.y - previous.y);
+            self.viewport.pan_start = Some(e.position);
             cx.notify();
             return;
         }
-        if let Some(edit) = &mut self.text_edit
+        if let Some(edit) = &mut self.interaction.text_edit
             && edit.selecting
         {
             edit.buffer.move_to(edit.index(e.position), true);
@@ -176,30 +184,35 @@ impl Editor {
             cx.notify();
             return;
         }
-        if let Some((index, start, _)) = self.object_drag.as_ref() {
+        if let Some((index, start, _)) = self.interaction.object_drag.as_ref() {
             if let Some(p) = self.coordinate(e.position, true) {
                 let mut moved = self.document.marks[*index].clone();
                 let d = navigation::translation(
                     *start,
                     p,
-                    e.modifiers.shift && self.drag_handle.is_none(),
+                    e.modifiers.shift && self.interaction.drag_handle.is_none(),
                 );
-                arrow::drag(&mut moved, self.drag_handle, d, e.modifiers.shift);
-                self.object_drag.as_mut().unwrap().2 = moved;
+                arrow::drag(
+                    &mut moved,
+                    self.interaction.drag_handle,
+                    d,
+                    e.modifiers.shift,
+                );
+                self.interaction.object_drag.as_mut().unwrap().2 = moved;
                 cx.notify();
             }
             return;
         }
-        if self.draft.is_none() {
+        if self.interaction.draft.is_none() {
             return;
         }
         let Some(p) = self.coordinate(e.position, true) else {
             return;
         };
-        if let Some(mark) = &mut self.draft {
+        if let Some(mark) = &mut self.interaction.draft {
             if mark.tool == Tool::Pen {
                 if let Some(last) = mark.points.last()
-                    && (p.0 - last.0).hypot(p.1 - last.1) * self.layout.get().scale < 0.35
+                    && (p.0 - last.0).hypot(p.1 - last.1) * self.viewport.layout.get().scale < 0.35
                 {
                     return;
                 }
@@ -211,26 +224,31 @@ impl Editor {
                     mark.points[0],
                     p,
                     e.modifiers.shift,
-                    self.layout.get(),
+                    self.viewport.layout.get(),
                 ));
             }
             cx.notify();
         }
     }
     pub(super) fn finish(&mut self, e: &MouseUpEvent, cx: &mut Context<Self>) {
-        if self.pan_start.take().is_some() {
+        if self.viewport.pan_start.take().is_some() {
             cx.notify();
             return;
         }
-        if let Some((index, start, mut moved)) = self.object_drag.take() {
+        if let Some((index, start, mut moved)) = self.interaction.object_drag.take() {
             if let Some(p) = self.coordinate(e.position, true) {
                 moved = self.document.marks[index].clone();
                 let d = navigation::translation(
                     start,
                     p,
-                    e.modifiers.shift && self.drag_handle.is_none(),
+                    e.modifiers.shift && self.interaction.drag_handle.is_none(),
                 );
-                arrow::drag(&mut moved, self.drag_handle, d, e.modifiers.shift);
+                arrow::drag(
+                    &mut moved,
+                    self.interaction.drag_handle,
+                    d,
+                    e.modifiers.shift,
+                );
             }
             if moved.points != self.document.marks[index].points
                 || moved.curve != self.document.marks[index].curve
@@ -242,25 +260,25 @@ impl Editor {
             cx.notify();
             return;
         }
-        if self.backdrop_drag.take().is_some() {
+        if self.panels.backdrop_drag.take().is_some() {
             cx.notify();
             return;
         }
-        if let Some(edit) = &mut self.text_edit {
+        if let Some(edit) = &mut self.interaction.text_edit {
             edit.selecting = false;
         }
         if let Some(p) = self.coordinate(e.position, true)
-            && let Some(mark) = &mut self.draft
+            && let Some(mark) = &mut self.interaction.draft
         {
             mark.points.push(navigation::endpoint(
                 mark.tool,
                 mark.points[0],
                 p,
                 e.modifiers.shift,
-                self.layout.get(),
+                self.viewport.layout.get(),
             ));
         }
-        if let Some(mut mark) = self.draft.take() {
+        if let Some(mut mark) = self.interaction.draft.take() {
             if mark.tool == Tool::Arrow && mark.points.len() > 2 {
                 let end = *mark.points.last().unwrap();
                 mark.points.truncate(1);
@@ -268,7 +286,7 @@ impl Editor {
             }
             if mark.tool == Tool::Crop {
                 self.busy = true;
-                self.status = "Cropping…".into();
+                self.feedback.status = "Cropping…".into();
                 let mut document = self.document.clone();
                 let sender = self.sender.clone();
                 std::thread::spawn(move || {
@@ -278,7 +296,7 @@ impl Editor {
                 });
             } else {
                 self.document.commit(mark);
-                self.selected = self.document.marks.len().checked_sub(1);
+                self.interaction.selected = self.document.marks.len().checked_sub(1);
                 self.changed();
             }
             cx.notify();
@@ -293,15 +311,16 @@ impl Editor {
     }
     pub(super) fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
-        if key == "escape" && self.video_cancel.is_some() {
+        if key == "escape" && self.video_export.cancel.is_some() {
             self.cancel_video(cx);
             cx.stop_propagation();
             return;
         }
         let m = e.keystroke.modifiers;
-        if self.text_edit.is_some() {
+        if self.interaction.text_edit.is_some() {
             if matches!(key, "enter" | "escape")
                 && self
+                    .interaction
                     .text_edit
                     .as_ref()
                     .is_some_and(|e| e.buffer.marked.is_some())
@@ -315,8 +334,8 @@ impl Editor {
                     return;
                 }
                 "escape" => {
-                    self.text_edit = None;
-                    self.status = "Text canceled".into();
+                    self.interaction.text_edit = None;
+                    self.feedback.status = "Text canceled".into();
                     cx.notify();
                     cx.stop_propagation();
                     return;
@@ -326,7 +345,7 @@ impl Editor {
             if m.platform && (matches!(key, "s" | "o" | "q") || (m.shift && key == "c")) {
                 self.commit_text(cx);
             } else {
-                let edit = self.text_edit.as_mut().unwrap();
+                let edit = self.interaction.text_edit.as_mut().unwrap();
                 let mut handled = true;
                 if m.platform {
                     match key {
@@ -374,23 +393,23 @@ impl Editor {
         }
         if !m.platform && !m.alt && !m.control {
             if key == "space" {
-                self.space_down = true;
+                self.viewport.space_down = true;
                 cx.notify();
                 cx.stop_propagation();
                 return;
             }
             if key == "z" {
-                self.zoom_down = true;
+                self.viewport.zoom_down = true;
                 cx.notify();
                 cx.stop_propagation();
                 return;
             }
             if matches!(key, "left" | "right" | "up" | "down")
-                && self.selected.is_some()
+                && self.interaction.selected.is_some()
                 && !self.busy
             {
                 self.cancel_move();
-                if let Some(index) = self.selected {
+                if let Some(index) = self.interaction.selected {
                     if !e.is_held {
                         self.document.remember();
                     }
@@ -422,13 +441,13 @@ impl Editor {
                 "d" => self.duplicate_selected(cx),
                 "z" => self.history(m.shift, cx),
                 "1" => {
-                    self.zoom = None;
-                    self.pan = (0., 0.);
+                    self.viewport.zoom = None;
+                    self.viewport.pan = (0., 0.);
                     cx.notify();
                 }
                 "0" => {
-                    self.zoom = Some(1.);
-                    self.pan = (0., 0.);
+                    self.viewport.zoom = Some(1.);
+                    self.viewport.pan = (0., 0.);
                     cx.notify();
                 }
                 "+" | "=" => self.change_zoom(1.25, cx),
@@ -449,8 +468,8 @@ impl Editor {
                 "n" => self.set_tool(Tool::Counter, cx),
                 "escape" => {
                     self.cancel_move();
-                    self.selected = None;
-                    self.draft = None;
+                    self.interaction.selected = None;
+                    self.interaction.draft = None;
                     cx.notify();
                 }
                 _ => {}
@@ -459,28 +478,33 @@ impl Editor {
         cx.stop_propagation();
     }
     pub(super) fn zoom_at(&mut self, factor: f32, anchor: (f32, f32), cx: &mut Context<Self>) {
-        if self.draft.is_some() || self.object_drag.is_some() || self.pan_start.is_some() {
+        if self.interaction.draft.is_some()
+            || self.interaction.object_drag.is_some()
+            || self.viewport.pan_start.is_some()
+        {
             return;
         }
-        let bounds = self.canvas_bounds.get();
+        let bounds = self.viewport.canvas_bounds.get();
         let center = (
             f32::from(bounds.origin.x + bounds.size.width * 0.5),
             f32::from(bounds.origin.y + bounds.size.height * 0.5),
         );
         if let Some((zoom, pan)) = navigation::anchored_zoom(
-            self.zoom.unwrap_or(self.layout.get().scale),
-            self.pan,
+            self.viewport
+                .zoom
+                .unwrap_or(self.viewport.layout.get().scale),
+            self.viewport.pan,
             center,
             anchor,
             factor,
         ) {
-            self.zoom = Some(zoom);
-            self.pan = pan;
+            self.viewport.zoom = Some(zoom);
+            self.viewport.pan = pan;
             cx.notify();
         }
     }
     pub(super) fn change_zoom(&mut self, factor: f32, cx: &mut Context<Self>) {
-        let b = self.canvas_bounds.get();
+        let b = self.viewport.canvas_bounds.get();
         self.zoom_at(
             factor,
             (
@@ -491,7 +515,10 @@ impl Editor {
         );
     }
     pub(super) fn scroll(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.draft.is_some() || self.object_drag.is_some() || self.pan_start.is_some() {
+        if self.interaction.draft.is_some()
+            || self.interaction.object_drag.is_some()
+            || self.viewport.pan_start.is_some()
+        {
             return;
         }
         let delta = e.delta.pixel_delta(px(24.));
@@ -503,10 +530,10 @@ impl Editor {
             );
         } else {
             if e.modifiers.shift && f32::from(delta.x).abs() < 0.01 {
-                self.pan.0 += f32::from(delta.y);
+                self.viewport.pan.0 += f32::from(delta.y);
             } else {
-                self.pan.0 += f32::from(delta.x);
-                self.pan.1 += f32::from(delta.y);
+                self.viewport.pan.0 += f32::from(delta.x);
+                self.viewport.pan.1 += f32::from(delta.y);
             }
             cx.notify();
         }
@@ -517,7 +544,7 @@ impl Editor {
         position: Point<Pixels>,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some((control, bounds)) = self.backdrop_drag else {
+        let Some((control, bounds)) = self.panels.backdrop_drag else {
             return false;
         };
         let phase = self.animation_phase();
@@ -529,8 +556,8 @@ impl Editor {
                     + (ratio.clamp(0., 1.) * (control.max() - control.min()) as f32).round() as u32,
             );
             if control == Control::Duration {
-                self.animation_position = phase * b.seconds as f32;
-                self.animation_epoch = std::time::Instant::now();
+                self.playback.position = phase * b.seconds as f32;
+                self.playback.epoch = std::time::Instant::now();
             }
             cx.notify();
         }

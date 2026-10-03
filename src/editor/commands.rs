@@ -1,16 +1,16 @@
 use super::*;
 impl Editor {
     pub(super) fn commit_text(&mut self, cx: &mut Context<Self>) {
-        if let Some(edit) = self.text_edit.take() {
+        if let Some(edit) = self.interaction.text_edit.take() {
             if !edit.buffer.text().trim().is_empty() {
                 let mut mark = edit.mark;
                 mark.text = edit.buffer.text().into();
                 self.document.commit(mark);
-                self.selected = self.document.marks.len().checked_sub(1);
+                self.interaction.selected = self.document.marks.len().checked_sub(1);
                 self.changed();
-                self.status = "Text label added".into();
+                self.feedback.status = "Text label added".into();
             } else {
-                self.status = "Empty label discarded".into();
+                self.feedback.status = "Empty label discarded".into();
             }
             cx.notify();
         }
@@ -24,9 +24,9 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.draft = None;
+        self.interaction.draft = None;
         self.busy = true;
-        self.status = "Capturing… Escape cancels area selection".into();
+        self.feedback.status = "Capturing… Escape cancels area selection".into();
         cx.hide();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
@@ -40,7 +40,7 @@ impl Editor {
         }
         self.commit_text(cx);
         self.busy = true;
-        self.status = "Choose a PNG or JPEG…".into();
+        self.feedback.status = "Choose a PNG or JPEG…".into();
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let _ = sender.send_blocking(Message::Image(platform::open()));
@@ -56,7 +56,7 @@ impl Editor {
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
         let sender = self.sender.clone();
-        self.status = if save {
+        self.feedback.status = if save {
             "Choose where to save…"
         } else {
             "Copying…"
@@ -82,7 +82,7 @@ impl Editor {
         }
         self.commit_text(cx);
         self.busy = true;
-        self.status = "Uploading screenshot to Glance…".into();
+        self.feedback.status = "Uploading screenshot to Glance…".into();
         self.set_copy_feedback(Some(CopyFeedback::Uploading), cx);
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
@@ -98,31 +98,31 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.draft = None;
-        self.selected = None;
-        self.object_drag = None;
+        self.interaction.draft = None;
+        self.interaction.selected = None;
+        self.interaction.object_drag = None;
         if redo {
             self.document.redo();
         } else {
             self.document.undo();
         }
-        self.preview_count = usize::MAX;
-        self.waiting_preview = true;
+        self.preview.mark_count = usize::MAX;
+        self.preview.waiting = true;
         self.busy = true;
-        self.status = "Updating image…".into();
+        self.feedback.status = "Updating image…".into();
         self.changed();
         cx.notify();
     }
     pub(super) fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.commit_text(cx);
         self.cancel_move();
-        self.selected = None;
-        self.tool = tool;
-        self.draft = None;
+        self.interaction.selected = None;
+        self.interaction.tool = tool;
+        self.interaction.draft = None;
         cx.notify();
     }
     pub(super) fn cancel_move(&mut self) {
-        if self.object_drag.take().is_some() {
+        if self.interaction.object_drag.take().is_some() {
             self.changed();
         }
     }
@@ -131,11 +131,11 @@ impl Editor {
             return;
         }
         self.cancel_move();
-        if let Some(index) = self.selected {
+        if let Some(index) = self.interaction.selected {
             let mut mark = self.document.marks[index].clone();
             mark.translate(10., 10.);
             self.document.commit(mark);
-            self.selected = Some(self.document.marks.len() - 1);
+            self.interaction.selected = Some(self.document.marks.len() - 1);
             self.changed();
             cx.notify();
         }
@@ -145,15 +145,17 @@ impl Editor {
             return;
         }
         self.cancel_move();
-        if let Some(index) = self.selected {
+        if let Some(index) = self.interaction.selected {
             let m = &self.document.marks[index];
-            if (color && m.color != self.color) || (!color && m.width != self.width) {
+            if (color && m.color != self.interaction.color)
+                || (!color && m.width != self.interaction.width)
+            {
                 self.document.remember();
                 let m = &mut self.document.marks[index];
                 if color {
-                    m.color = self.color;
+                    m.color = self.interaction.color;
                 } else {
-                    m.width = self.width;
+                    m.width = self.interaction.width;
                 }
                 self.changed();
             }
@@ -165,10 +167,10 @@ impl Editor {
             return;
         }
         self.cancel_move();
-        if let Some(index) = self.selected.take() {
+        if let Some(index) = self.interaction.selected.take() {
             self.document.delete_mark(index);
-            self.preview_count = usize::MAX;
-            self.waiting_preview = true;
+            self.preview.mark_count = usize::MAX;
+            self.preview.waiting = true;
             self.busy = true;
             self.changed();
             cx.notify();
@@ -179,15 +181,15 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.draft = None;
-        self.backdrop_panel = !self.backdrop_panel;
-        if self.backdrop_panel {
-            self.enhance_panel = false;
+        self.interaction.draft = None;
+        self.panels.backdrop = !self.panels.backdrop;
+        if self.panels.backdrop {
+            self.panels.enhance = false;
         }
-        if self.backdrop_panel && self.document.backdrop.is_none() {
+        if self.panels.backdrop && self.document.backdrop.is_none() {
             self.document.remember();
             self.document.backdrop = Some(Backdrop::default());
-            self.status = "Backdrop added • style it in the panel • ⌘Z to undo".into();
+            self.feedback.status = "Backdrop added • style it in the panel • ⌘Z to undo".into();
         }
         cx.notify();
     }
@@ -206,9 +208,9 @@ impl Editor {
                 .backdrop
                 .is_some_and(|old| old.motion != b.motion)
             {
-                self.animation_position = 0.;
-                self.animation_epoch = std::time::Instant::now();
-                self.animation_paused = false;
+                self.playback.position = 0.;
+                self.playback.epoch = std::time::Instant::now();
+                self.playback.paused = false;
             }
             if self.document.backdrop != Some(b) {
                 self.document.remember();
@@ -224,9 +226,9 @@ impl Editor {
     }
     pub(super) fn toggle_enhance(&mut self, cx: &mut Context<Self>) {
         self.commit_text(cx);
-        self.enhance_panel = !self.enhance_panel;
-        if self.enhance_panel {
-            self.backdrop_panel = false;
+        self.panels.enhance = !self.panels.enhance;
+        if self.panels.enhance {
+            self.panels.backdrop = false;
         }
         cx.notify();
     }
@@ -235,11 +237,11 @@ impl Editor {
             return;
         }
         self.commit_text(cx);
-        self.draft = None;
+        self.interaction.draft = None;
         self.busy = true;
         let mut document = self.document.clone();
-        let scale = self.resize_scale;
-        let smart = self.resize_smart;
+        let scale = self.panels.resize_scale;
+        let smart = self.panels.resize_smart;
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let result = if rotate {
@@ -272,27 +274,27 @@ impl Editor {
     }
     pub(super) fn animation_phase(&self) -> f32 {
         let seconds = self.document.backdrop.map_or(5, |b| b.seconds).max(2) as f32;
-        let elapsed = if self.animation_paused {
+        let elapsed = if self.playback.paused {
             0.
         } else {
-            self.animation_epoch.elapsed().as_secs_f32()
+            self.playback.epoch.elapsed().as_secs_f32()
         };
-        ((self.animation_position + elapsed) / seconds).rem_euclid(1.)
+        ((self.playback.position + elapsed) / seconds).rem_euclid(1.)
     }
     pub(super) fn toggle_animation(&mut self, cx: &mut Context<Self>) {
-        if self.animation_paused {
-            self.animation_epoch = std::time::Instant::now();
-            self.animation_paused = false;
+        if self.playback.paused {
+            self.playback.epoch = std::time::Instant::now();
+            self.playback.paused = false;
         } else {
-            self.animation_position += self.animation_epoch.elapsed().as_secs_f32();
-            self.animation_paused = true;
+            self.playback.position += self.playback.epoch.elapsed().as_secs_f32();
+            self.playback.paused = true;
         }
         cx.notify();
     }
     pub(super) fn cancel_video(&mut self, cx: &mut Context<Self>) {
-        if let Some(cancel) = &self.video_cancel {
+        if let Some(cancel) = &self.video_export.cancel {
             cancel.store(true, Ordering::Relaxed);
-            self.status = "Canceling video export…".into();
+            self.feedback.status = "Canceling video export…".into();
             cx.notify();
         }
     }
@@ -302,7 +304,7 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_move();
-        self.draft = None;
+        self.interaction.draft = None;
         if !self
             .document
             .backdrop
@@ -316,17 +318,17 @@ impl Editor {
                 },
                 cx,
             );
-            self.backdrop_panel = true;
+            self.panels.backdrop = true;
             cx.notify();
             return;
         }
         let document = self.document.render_snapshot();
         let phase = self.animation_phase();
         let cancel = Arc::new(AtomicBool::new(false));
-        self.video_cancel = Some(cancel.clone());
-        self.video_progress = Some(0);
+        self.video_export.cancel = Some(cancel.clone());
+        self.video_export.progress = Some(0);
         self.busy = true;
-        self.backdrop_panel = true;
+        self.panels.backdrop = true;
         let sender = self.sender.clone();
         cx.notify();
         std::thread::spawn(move || {

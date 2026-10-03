@@ -1,7 +1,8 @@
 use super::super::*;
 impl Editor {
     pub(in crate::editor) fn enhance_controls(&self, cx: &Context<Self>) -> impl IntoElement {
-        let target = crate::enhance::dimensions(self.document.base.dimensions(), self.resize_scale);
+        let target =
+            crate::enhance::dimensions(self.document.base.dimensions(), self.panels.resize_scale);
         div()
             .id("image-panel")
             .w(px(260.))
@@ -42,7 +43,7 @@ impl Editor {
                             ),
                     )
                     .child(self.button("Done", false, cx, |this, cx| {
-                        this.enhance_panel = false;
+                        this.panels.enhance = false;
                         cx.notify();
                     })),
             )
@@ -64,19 +65,19 @@ impl Editor {
                         .rounded_md()
                         .text_xs()
                         .cursor_pointer()
-                        .bg(rgb(if self.resize_scale == scale {
+                        .bg(rgb(if self.panels.resize_scale == scale {
                             0xffe9e4
                         } else {
                             0xf0f1f5
                         }))
-                        .text_color(rgb(if self.resize_scale == scale {
+                        .text_color(rgb(if self.panels.resize_scale == scale {
                             0xd94d38
                         } else {
                             0x555966
                         }))
                         .child(format!("{}%", (scale * 100.) as u32))
                         .on_click(cx.listener(move |this, _, _, cx| {
-                            this.resize_scale = scale;
+                            this.panels.resize_scale = scale;
                             cx.notify();
                         }))
                 }),
@@ -95,7 +96,7 @@ impl Editor {
                             .rounded_sm()
                             .border_1()
                             .border_color(rgb(0xd5d8e0))
-                            .bg(rgb(if self.resize_smart {
+                            .bg(rgb(if self.panels.resize_smart {
                                 0xf35d45
                             } else {
                                 0xffffff
@@ -104,7 +105,7 @@ impl Editor {
                             .items_center()
                             .justify_center()
                             .text_color(rgb(0xffffff))
-                            .child(if self.resize_smart { "✓" } else { "" }),
+                            .child(if self.panels.resize_smart { "✓" } else { "" }),
                     )
                     .child("Smart upscale")
                     .tooltip(|_, cx| {
@@ -114,7 +115,7 @@ impl Editor {
                         .into()
                     })
                     .on_click(cx.listener(|this, _, _, cx| {
-                        this.resize_smart = !this.resize_smart;
+                        this.panels.resize_smart = !this.panels.resize_smart;
                         cx.notify();
                     })),
             )

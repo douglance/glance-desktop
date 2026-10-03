@@ -33,7 +33,7 @@ impl Editor {
             Tool::Crop => ("crop", "X"),
             Tool::Counter => ("list-ordered", "N"),
         };
-        let active = self.tool == tool;
+        let active = self.interaction.tool == tool;
         let label: SharedString = format!("{} · {}", tool.label(), key).into();
         div()
             .id(SharedString::from(format!("tool-{name}")))
@@ -131,11 +131,11 @@ impl Editor {
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if !window.is_window_active() {
-            self.space_down = false;
-            self.zoom_down = false;
-            self.pan_start = None;
+            self.viewport.space_down = false;
+            self.viewport.zoom_down = false;
+            self.viewport.pan_start = None;
         }
-        for image in self.retired.drain(..) {
+        for image in self.preview.retired.drain(..) {
             let _ = window.drop_image(image);
         }
         let dimensions = self.document.base.dimensions();
@@ -145,7 +145,7 @@ impl Render for Editor {
             .map_or(dimensions, |b| b.dimensions(dimensions));
         let viewport = window.viewport_size();
         let fit_zoom = ((f32::from(viewport.width)
-            - if self.backdrop_panel || self.enhance_panel {
+            - if self.panels.backdrop || self.panels.enhance {
                 260.
             } else {
                 0.
@@ -154,7 +154,7 @@ impl Render for Editor {
             / output_dimensions.0 as f32)
             .min((f32::from(viewport.height) - 48. - 70.) / output_dimensions.1 as f32)
             .clamp(0.01, 1.);
-        let zoom_label = format!("{:.0}%", self.zoom.unwrap_or(fit_zoom) * 100.);
+        let zoom_label = format!("{:.0}%", self.viewport.zoom.unwrap_or(fit_zoom) * 100.);
         let tools = [
             Tool::Select,
             Tool::Pen,
@@ -183,7 +183,7 @@ impl Render for Editor {
             .text_color(rgb(0x272831))
             .font_family(".AppleSystemUIFont")
             .track_focus(&self.focus)
-            .key_context(if self.text_edit.is_some() {
+            .key_context(if self.interaction.text_edit.is_some() {
                 "PachiriText"
             } else {
                 "PachiriCanvas"
@@ -264,10 +264,10 @@ impl Render for Editor {
             .on_key_up(cx.listener(|this, e: &KeyUpEvent, _, cx| {
                 match e.keystroke.key.as_str() {
                     "space" => {
-                        this.space_down = false;
-                        this.pan_start = None;
+                        this.viewport.space_down = false;
+                        this.viewport.pan_start = None;
                     }
-                    "z" => this.zoom_down = false,
+                    "z" => this.viewport.zoom_down = false,
                     _ => {}
                 }
                 cx.notify();
@@ -283,7 +283,7 @@ impl Render for Editor {
             )
             .on_mouse_up(
                 MouseButton::Right,
-                cx.listener(|this, _, _, _| this.pan_start = None),
+                cx.listener(|this, _, _, _| this.viewport.pan_start = None),
             )
             .child(
                 div()
@@ -328,14 +328,14 @@ impl Render for Editor {
                     .child(self.compact_button(
                         "Backdrop",
                         "square",
-                        self.backdrop_panel,
+                        self.panels.backdrop,
                         cx,
                         |this, cx| this.toggle_backdrop(cx),
                     ))
                     .child(self.compact_button(
                         "Image tools",
                         "sparkles",
-                        self.enhance_panel,
+                        self.panels.enhance,
                         cx,
                         |this, cx| this.toggle_enhance(cx),
                     ))
@@ -350,7 +350,7 @@ impl Render for Editor {
                                     .size(px(16.))
                                     .rounded_full()
                                     .border_2()
-                                    .border_color(rgb(if self.color == color {
+                                    .border_color(rgb(if self.interaction.color == color {
                                         0xf35d45
                                     } else {
                                         0xd7d7df
@@ -358,16 +358,16 @@ impl Render for Editor {
                                     .bg(rgb(hex))
                                     .cursor_pointer()
                                     .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.color = color;
+                                        this.interaction.color = color;
                                         this.apply_style(true, cx);
                                     }))
                             }))
                             .child(self.button(
-                                &format!("{} px", self.width as u32),
+                                &format!("{} px", self.interaction.width as u32),
                                 false,
                                 cx,
                                 |this, cx| {
-                                    this.width = match this.width as u32 {
+                                    this.interaction.width = match this.interaction.width as u32 {
                                         3 => 5.,
                                         5 => 9.,
                                         _ => 3.,
@@ -379,7 +379,7 @@ impl Render for Editor {
                     .child(div().flex_1())
                     .child(self.compact_button(
                         "Copy · ⌘C",
-                        if self.copy_feedback == Some(CopyFeedback::Copied) {
+                        if self.feedback.copy == Some(CopyFeedback::Copied) {
                             "check"
                         } else {
                             "copy"
@@ -395,7 +395,7 @@ impl Render for Editor {
                             .flex_shrink_0()
                             .child(self.compact_button(
                                 "Copy (remote) · Upload to Glance · ⌘⇧C",
-                                if matches!(self.copy_feedback, Some(CopyFeedback::LinkCopied(_))) {
+                                if matches!(self.feedback.copy, Some(CopyFeedback::LinkCopied(_))) {
                                     "check"
                                 } else {
                                     "cloud-upload"
@@ -441,15 +441,15 @@ impl Render for Editor {
                                             .into()
                                     })
                                     .on_click(cx.listener(|this, _, _, cx| {
-                                        this.zoom = None;
-                                        this.pan = (0., 0.);
+                                        this.viewport.zoom = None;
+                                        this.viewport.pan = (0., 0.);
                                         cx.notify();
                                     })),
                             ),
                     ),
             )
             .child(self.canvas(window, cx))
-            .when_some(self.copy_feedback, |el, feedback| {
+            .when_some(self.feedback.copy, |el, feedback| {
                 el.child(self.copy_confirmation(feedback))
             })
     }

@@ -46,7 +46,7 @@ impl Editor {
                             if this.document.backdrop.is_none() {
                                 this.document.backdrop = Some(b);
                             }
-                            this.backdrop_drag = Some((control, bounds.get()));
+                            this.panels.backdrop_drag = Some((control, bounds.get()));
                             this.backdrop_slider_move(e.position, cx);
                         }),
                     )
@@ -141,7 +141,7 @@ impl Editor {
                             ),
                     )
                     .child(self.button("Done", false, cx, |this, cx| {
-                        this.backdrop_panel = false;
+                        this.panels.backdrop = false;
                         cx.notify();
                     })),
             )
@@ -270,12 +270,12 @@ impl Editor {
                             .flex()
                             .gap_2()
                             .child(self.compact_button(
-                                if self.animation_paused {
+                                if self.playback.paused {
                                     "Play"
                                 } else {
                                     "Pause"
                                 },
-                                if self.animation_paused {
+                                if self.playback.paused {
                                     "play"
                                 } else {
                                     "pause"
@@ -285,7 +285,7 @@ impl Editor {
                                 |this, cx| this.toggle_animation(cx),
                             ))
                             .child(self.button(
-                                if self.video_progress.is_some() {
+                                if self.video_export.progress.is_some() {
                                     "Cancel export"
                                 } else {
                                     "Export MP4…"
@@ -293,7 +293,7 @@ impl Editor {
                                 true,
                                 cx,
                                 |this, cx| {
-                                    if this.video_progress.is_some() {
+                                    if this.video_export.progress.is_some() {
                                         this.cancel_video(cx);
                                     } else {
                                         this.export_video(cx);
@@ -303,7 +303,8 @@ impl Editor {
                     )
                     .child(
                         div().text_xs().text_color(rgb(0x878b98)).child(
-                            self.video_progress
+                            self.video_export
+                                .progress
                                 .map_or("Seamless loop · 30 fps · up to 1920 px".into(), |p| {
                                     format!("Exporting video… {p}%")
                                 }),
@@ -314,9 +315,9 @@ impl Editor {
             .child(self.backdrop_slider(Control::Shadow, b, cx))
             .child(self.backdrop_slider(Control::InnerRadius, b, cx))
             .child(self.backdrop_slider(Control::OuterRadius, b, cx))
-            .when(self.last_video.is_some(), |el| {
+            .when(self.video_export.last_video.is_some(), |el| {
                 el.child(self.button("Show exported video", false, cx, |this, _| {
-                    if let Some(path) = &this.last_video {
+                    if let Some(path) = &this.video_export.last_video {
                         let _ = std::process::Command::new("/usr/bin/open")
                             .arg("-R")
                             .arg(path)
@@ -332,9 +333,9 @@ impl Editor {
                 if this.document.backdrop.is_some() {
                     this.document.remember();
                     this.document.backdrop = None;
-                    this.status = "Backdrop removed • ⌘Z to restore".into();
+                    this.feedback.status = "Backdrop removed • ⌘Z to restore".into();
                 }
-                this.backdrop_panel = false;
+                this.panels.backdrop = false;
                 cx.notify();
             }))
     }
