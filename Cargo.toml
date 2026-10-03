@@ -29,6 +29,7 @@ aes-gcm = "0.10"
 cocoa = "0.26"
 objc = "0.2"
 block = "0.1"
+metal = "0.29"
 
 [dev-dependencies]
 resvg = { version = "=0.45.1", default-features = false }

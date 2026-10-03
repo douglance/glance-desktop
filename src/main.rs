@@ -16,6 +16,7 @@ mod icons;
 mod interaction_tests;
 mod mcp;
 mod menus;
+mod motion_shader;
 mod navigation;
 #[cfg(test)]
 mod performance;
@@ -100,6 +101,7 @@ struct Editor {
     animation_epoch: std::time::Instant,
     animation_paused: bool,
     animation_position: f32,
+    motion_preview: std::rc::Rc<std::cell::RefCell<animation::Preview>>,
     last_video: Option<std::path::PathBuf>,
     video_progress: Option<u32>,
     video_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -245,6 +247,7 @@ impl Editor {
             animation_epoch: std::time::Instant::now(),
             animation_paused: false,
             animation_position: 0.,
+            motion_preview: Default::default(),
             last_video: None,
             video_progress: None,
             video_cancel: None,
@@ -1413,6 +1416,10 @@ impl Render for Editor {
         let layout = self.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let motion_preview = self.motion_preview.clone();
+        if !backdrop.is_some_and(|b| b.motion.uses_shader()) {
+            motion_preview.borrow_mut().clear(window);
+        }
         let animation_phase = self.animation_phase();
         if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
             && !self.animation_paused
@@ -1868,6 +1875,8 @@ impl Render for Editor {
                                                     b,
                                                     animation_phase,
                                                     frame_bounds,
+                                                    px(b.outer_radius as f32 * scale),
+                                                    &mut motion_preview.borrow_mut(),
                                                     window,
                                                 )
                                             },

@@ -87,7 +87,7 @@ path preparation measured p50 0.005 ms / p95 0.006 ms over 1,000 release samples
 ## Animated backdrops
 
 Display-frame requests run only for an active window with a playing motion
-backdrop. Preview paints GPUI Metal gradient, Gaussian shadow and star primitives;
+backdrop. Flow and Starfield paint GPUI Metal gradient, Gaussian shadow and star primitives;
 the screenshot texture stays constant. Animation ticks allocate no screenshot
 pixels, upload no image textures, launch no compositor workers and create no
 undo snapshots. Pause, window deactivation and static backgrounds stop frame
@@ -105,4 +105,32 @@ MCP operations use a serial IPC worker. Image import, document transforms, PNG r
 
 Focus effects: spotlight drafts use GPU quads; magnifier drafts use a bounded circular texture with asynchronous source sampling. A lens texture key includes source position, zoom, radius and document revision, but excludes bubble position, so dragging only the lens reuses its texture. Source-handle movement coalesces sampling jobs. Pointer handlers never rasterize a focus effect. Final focus composition is performed by the existing preview/export workers.
 
-GIF encoding renders the fixed foreground once and streams 20 fps frames at ≤960px. A fixed 256-color palette sampled across the whole animation prevents per-frame palette shimmer. All four background effects pass a periodic endpoint check and a last-to-first step-size check.
+GIF encoding renders the fixed foreground once and streams 20 fps frames at ≤960px. A fixed 256-color palette sampled across the whole animation prevents per-frame palette shimmer. All eight background effects pass a periodic endpoint check and a last-to-first step-size check.
+
+Liquid, Lava, Aurora, Contours, Prism and Painterly use a runtime-compiled Metal compute pipeline and a reused shared
+output buffer. GPUI 0.2.2 does not expose custom RGBA shader painting, so this
+prototype reads GPU output into an image and uploads it to GPUI's atlas. Preview
+is capped at a 960 px edge and samples 30 frames per second; unchanged/paused
+frames reuse the existing image. Old atlas entries are removed on replacement
+or when leaving shader effects. Effect selection is included in the preview
+cache key, so switching effects at the same phase/palette refreshes the image.
+Screenshot/annotation textures remain unchanged.
+Export uses the same shader at the requested output size, then composites the
+cached foreground and shadow on the CPU. A matching CPU evaluator is used only
+if Metal initialization or execution fails.
+
+The shader QA measured approximately 0.42 ms/frame for compute plus readback at
+960×540 and 1920×1080 on this Mac. This excludes BGRA conversion, GPUI atlas
+upload, layout, foreground composition and display latency; it is not an
+end-to-end frame-rate measurement. Reproduce with:
+
+```sh
+cargo test --locked liquid_visual_qa -- --ignored --nocapture
+```
+
+`motion_gallery_qa` generates portrait/landscape samples of all six shader
+effects and measures their compute-plus-readback cost. Painterly evaluates
+fourteen textured brush marks per pixel; Lava evaluates six merging metaballs.
+The geometric, contour and aurora modes use independent formulas rather than
+recoloring Liquid or Flow. All periodic motion is driven by sine/cosine of the
+loop phase, so frame zero and frame one match exactly.

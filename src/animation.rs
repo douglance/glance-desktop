@@ -1,4 +1,4 @@
-//! Looping vector backdrops. Preview uses GPU primitives; export keeps foreground cached.
+//! Looping backdrops. Shader effects share a Metal renderer; foreground stays cached.
 use crate::backdrop::{Backdrop, PRESETS};
 use gpui::{
     Bounds, Pixels, Rgba, Window, linear_color_stop, linear_gradient, point, px, quad, rgb, size,
@@ -15,9 +15,22 @@ pub enum Motion {
     Lava,
     Stars,
     Paint,
+    Liquid,
+    Aurora,
+    Contours,
+    Prism,
 }
 impl Motion {
-    pub const EFFECTS: [Self; 4] = [Self::Flow, Self::Lava, Self::Stars, Self::Paint];
+    pub const EFFECTS: [Self; 8] = [
+        Self::Flow,
+        Self::Stars,
+        Self::Aurora,
+        Self::Contours,
+        Self::Paint,
+        Self::Prism,
+        Self::Liquid,
+        Self::Lava,
+    ];
     pub fn label(self) -> &'static str {
         match self {
             Self::Still => "Still",
@@ -25,6 +38,23 @@ impl Motion {
             Self::Lava => "Lava",
             Self::Stars => "Starfield",
             Self::Paint => "Painterly",
+            Self::Liquid => "Liquid",
+            Self::Aurora => "Aurora",
+            Self::Contours => "Contours",
+            Self::Prism => "Prism",
+        }
+    }
+    pub fn uses_shader(self) -> bool {
+        !matches!(self, Self::Still | Self::Flow | Self::Stars)
+    }
+    pub fn suggested_preset(self) -> Option<usize> {
+        match self {
+            Self::Liquid => Some(1),
+            Self::Lava | Self::Paint => Some(3),
+            Self::Aurora => Some(0),
+            Self::Contours => Some(6),
+            Self::Prism => Some(2),
+            _ => None,
         }
     }
 }
@@ -69,53 +99,32 @@ fn scene(b: Backdrop, phase: f32) -> Scene {
         discs: vec![],
     };
     match b.motion {
-        Motion::Still => {}
-        Motion::Flow | Motion::Lava | Motion::Paint => {
+        Motion::Still
+        | Motion::Liquid
+        | Motion::Lava
+        | Motion::Paint
+        | Motion::Aurora
+        | Motion::Contours
+        | Motion::Prism => {}
+        Motion::Flow => {
             let wave = p.sin() * 0.5 + 0.5;
             s.top = mix(a, z, wave * 0.6);
             s.bottom = mix(z, accent, (p + 1.8).sin() * 0.25 + 0.3);
-            if b.motion == Motion::Lava {
-                s.top = mix(s.top, [8, 12, 25], 0.88);
-                s.bottom = mix(s.bottom, [15, 10, 35], 0.8);
-            }
-            if b.motion == Motion::Paint {
-                s.top = mix(a, cream, 0.65);
-                s.bottom = mix(z, cream, 0.5);
-            }
-            let count = if b.motion == Motion::Paint { 28 } else { 9 };
-            for i in 0..count {
+            for i in 0..9 {
                 let q = random(i * 7 + 1) * TAU;
                 let speed = if i % 3 == 0 { 2. } else { 1. };
                 let x = 0.5 + 0.51 * (p * speed + q).sin();
                 let y = 0.5 + 0.51 * (p + q * 1.7).cos();
-                let r = if b.motion == Motion::Paint {
-                    0.07 + random(i * 7 + 2) * 0.14
-                } else {
-                    0.16 + random(i * 7 + 2) * 0.24
-                };
-                let c = if b.motion == Motion::Paint {
-                    [a, z, [173, 197, 176], [166, 163, 215], cream][i % 5]
-                } else {
-                    [a, z, accent, cream][i % 4]
-                };
+                let r = 0.16 + random(i * 7 + 2) * 0.24;
+                let c = [a, z, accent, cream][i % 4];
                 s.discs.push(Disc {
                     x,
                     y,
                     r,
                     color: c,
-                    alpha: if b.motion == Motion::Lava { 0.85 } else { 0.55 },
+                    alpha: 0.55,
                     soft: true,
                 });
-                if b.motion == Motion::Paint {
-                    s.discs.push(Disc {
-                        x: x + 0.05 * (q + p).cos(),
-                        y: y + 0.045 * (q + p).sin(),
-                        r: r * 0.7,
-                        color: c,
-                        alpha: 0.3,
-                        soft: true,
-                    });
-                }
             }
         }
         Motion::Stars => {
@@ -205,7 +214,64 @@ fn soft_coverage(x: f32, y: f32) -> f32 {
     let bottom = table[(yi + 1) * N + xi] * (1. - tx) + table[(yi + 1) * N + xi + 1] * tx;
     top * (1. - ty) + bottom * ty
 }
-pub fn paint(b: Backdrop, phase: f32, bounds: Bounds<Pixels>, window: &mut Window) {
+/// One preview image per editor. Retire atlas entries before replacing them,
+/// and reuse paused frames so preview memory cannot grow with playback time.
+#[derive(Default)]
+pub struct Preview {
+    image: Option<std::sync::Arc<gpui::RenderImage>>,
+    key: Option<(u32, u32, usize, u32, u32, Motion)>,
+}
+impl Preview {
+    pub fn clear(&mut self, window: &mut Window) {
+        if let Some(image) = self.image.take() {
+            let _ = window.drop_image(image);
+        }
+        self.key = None;
+    }
+    fn paint(
+        &mut self,
+        b: Backdrop,
+        phase: f32,
+        bounds: Bounds<Pixels>,
+        radius: Pixels,
+        window: &mut Window,
+    ) {
+        let w = f32::from(bounds.size.width) * window.scale_factor();
+        let h = f32::from(bounds.size.height) * window.scale_factor();
+        let scale = (960. / w.max(h)).min(1.);
+        let w = (w * scale).round().max(1.) as u32;
+        let h = (h * scale).round().max(1.) as u32;
+        let frames = b.seconds.max(2) * 30;
+        let tick = (phase.rem_euclid(1.) * frames as f32).floor() as u32;
+        let key = (w, h, b.preset, frames, tick, b.motion);
+        if self.key != Some(key) {
+            self.clear(window);
+            self.image = Some(crate::render_image(crate::motion_shader::frame(
+                w,
+                h,
+                b.preset,
+                b.motion,
+                tick as f32 / frames as f32,
+            )));
+            self.key = Some(key);
+        }
+        if let Some(image) = &self.image {
+            let _ = window.paint_image(bounds, radius.into(), image.clone(), 0, false);
+        }
+    }
+}
+pub fn paint(
+    b: Backdrop,
+    phase: f32,
+    bounds: Bounds<Pixels>,
+    radius: Pixels,
+    preview: &mut Preview,
+    window: &mut Window,
+) {
+    if b.motion.uses_shader() {
+        preview.paint(b, phase, bounds, radius, window);
+        return;
+    }
     let s = scene(b, phase);
     window.paint_quad(quad(
         bounds,
@@ -351,20 +417,32 @@ impl Renderer {
     }
     pub fn frame(&self, phase: f32) -> RgbaImage {
         let s = scene(self.b, phase);
-        let mut out = RgbaImage::new(self.width, self.height);
-        for y in 0..self.height {
-            let c = mix(s.top, s.bottom, (y as f32 + 0.5) / self.height as f32);
-            for x in 0..self.width {
-                let fg = self.foreground.get_pixel(x, y);
-                out.put_pixel(
-                    x,
-                    y,
-                    if fg[3] == 255 {
-                        *fg
-                    } else {
-                        image::Rgba([c[0], c[1], c[2], 255])
-                    },
-                );
+        let mut out = if self.b.motion.uses_shader() {
+            crate::motion_shader::frame(
+                self.width,
+                self.height,
+                self.b.preset,
+                self.b.motion,
+                phase,
+            )
+        } else {
+            RgbaImage::new(self.width, self.height)
+        };
+        if !self.b.motion.uses_shader() {
+            for y in 0..self.height {
+                let c = mix(s.top, s.bottom, (y as f32 + 0.5) / self.height as f32);
+                for x in 0..self.width {
+                    let fg = self.foreground.get_pixel(x, y);
+                    out.put_pixel(
+                        x,
+                        y,
+                        if fg[3] == 255 {
+                            *fg
+                        } else {
+                            image::Rgba([c[0], c[1], c[2], 255])
+                        },
+                    );
+                }
             }
         }
         let unit = self.width.min(self.height) as f32;
@@ -400,9 +478,7 @@ impl Renderer {
             .zip(self.foreground.pixels())
             .enumerate()
         {
-            if fg[3] != 255 {
-                p.blend(fg);
-            }
+            p.blend(fg);
             p[3] = self.outer[i];
         }
         out
@@ -411,6 +487,32 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn liquid_export_blends_transparency_and_clips_outer_corners() {
+        let source = RgbaImage::from_pixel(20, 12, image::Rgba([250, 80, 30, 128]));
+        let b = Backdrop {
+            motion: Motion::Liquid,
+            preset: 1,
+            padding: 8,
+            inner_radius: 0,
+            outer_radius: 6,
+            shadow: 0,
+            ..Default::default()
+        };
+        let renderer = Renderer::new(&source, b, None);
+        let output = renderer.frame(0.37);
+        let background =
+            crate::motion_shader::frame(renderer.width, renderer.height, 1, Motion::Liquid, 0.37);
+        let mut expected = *background.get_pixel(18, 14);
+        expected.blend(source.get_pixel(10, 6));
+        // Final alpha comes from the outer frame coverage, independently of
+        // image::Pixel's floating-point alpha rounding during blending.
+        expected[3] = 255;
+        assert_eq!(*output.get_pixel(18, 14), expected);
+        assert_eq!(output.get_pixel(0, 0)[3], 0);
+        assert_eq!(output.get_pixel(18, 14)[3], 255);
+        assert_eq!(output.get_pixel(18, 1), background.get_pixel(18, 1));
+    }
     #[test]
     fn all_effects_loop_and_foreground_is_unchanged() {
         let source = RgbaImage::from_pixel(80, 50, image::Rgba([20, 40, 60, 255]));

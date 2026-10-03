@@ -89,7 +89,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "set_backdrop",
             "Set framing and animation. Preset 0 teal, 1 ocean, 2 lavender, 3 sunset, 4 rose, 5 cream, 6 slate, 7 white. Omitted properties use defaults. enabled=false removes it.",
-            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","lava","stars","paint"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"outer_radius":{"type":"integer","minimum":0,"maximum":256},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
+            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"outer_radius":{"type":"integer","minimum":0,"maximum":256},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
             &[],
             false,
         ),
