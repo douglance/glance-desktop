@@ -8,6 +8,9 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- Linux release builds reuse optimized dependency libraries cached on `main`
+  across release tags, alongside the existing CI test cache.
+
 ### Fixed
 
 ## [0.1.0] - 2026-10-03
