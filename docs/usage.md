@@ -77,11 +77,14 @@ Capture, annotate, frame, and share from one native macOS window.
   PNG save include the backdrop and inside padding at full resolution. The output
   canvas has square corners.
 - **Image entrances:** open **Animation** (play icon) and choose **Diagonal reveal**,
-  **Spring pop**, or **3D settle**. Set entrance duration, delay, and a 2–15 second
+  **Spring pop**, or **3D settle**. The toolbar panel icons are ordered **Backdrop →
+  Animation → Image tools**. Animation contains foreground effects and playback;
+  configure the background in **Backdrop** and export through the toolbar **Export**
+  menu. Set entrance duration, delay, and a 2–15 second
   clip length. **Replay** starts the clip again; **Play/Pause** and the **Preview
   time** slider let you inspect any frame. Under **After entrance**, choose
   **Hold**, or **Exit** for a repeating clip that returns to the empty backdrop. Backdrop
-  motion is independent: choose any of the eight effects here, or keep it still.
+  motion is independent: choose an effect in **Backdrop → Motion**, or keep it still.
   Entrances also work without a backdrop. The image, annotations, rounded image
   corners, and shadow animate together. Close the panel or click the canvas to
   return to annotation editing. Slider drags are undoable as one step; seeking
@@ -100,7 +103,9 @@ Capture, annotate, frame, and share from one native macOS window.
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
   1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
   is one seamless backdrop cycle; duration also controls the preview's cycle speed.
-  **Export → Cancel export** or Escape stops it. Transparent pixels use an ivory matte
+  A progress bar and percentage stay visible at the bottom of the window throughout
+  MP4/GIF export, even when the inspector is closed or scrolled. Use its **Cancel export**
+  button, **Export → Cancel export**, or Escape to stop it. Transparent pixels use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
   Liquid has flowing ribbons and fine grain; Lava has molten streams that stretch,
   curl, merge and shed small globules; Aurora has rippling light curtains; Contours has terrain lines

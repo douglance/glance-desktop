@@ -4,6 +4,17 @@ Notable user-visible changes are recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- Animation sidebar now focuses on foreground effects and playback; backdrop
+  controls stay in Backdrop and export stays in the toolbar menu. Toolbar icons
+  are ordered Backdrop, Animation, then Image tools.
+
+### Fixed
+
+- MP4/GIF exports now show a persistent progress bar, percentage and cancel button
+  at the bottom of the window, including when the inspector is closed or scrolled.
+
 ## [0.2.0] - 2026-10-04
 
 ### Added

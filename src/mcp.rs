@@ -59,7 +59,7 @@ pub fn tools() -> Vec<Value> {
     vec![
         tool(
             "get_editor_state",
-            "Read live tool, selection, zoom, panels, busy state, operation ID/progress and status. Available while workers are busy. Use this after dispatch_action to inspect background work.",
+            "Read live tool, selection, zoom, panels, busy state, operation ID/progress and status. Available while workers are busy. Animation operation.progress is the percentage shown in the window's persistent export bar. Use this after dispatch_action to inspect background work; dispatch cancel_export to stop an animation export.",
             json!({}),
             &[],
             true,

@@ -1,10 +1,10 @@
 use super::super::{
     Editor,
-    actions::{Action, AnimationFormat, Panel},
+    actions::{Action, Panel},
     state::Gesture,
     view::icon,
 };
-use crate::animation::{AnimationControl, Entrance, Motion};
+use crate::animation::{AnimationControl, Entrance};
 use gpui::{prelude::*, *};
 use std::{cell::Cell, rc::Rc};
 
@@ -111,7 +111,6 @@ impl Editor {
     }
     pub(in crate::editor) fn animation_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let a = self.document.image_animation;
-        let motion = self.document.backdrop.map_or(Motion::Still, |b| b.motion);
         let finished = self.clip_time() >= a.seconds as f32;
         super::controls::panel("animation-panel", cx)
             .child(
@@ -232,47 +231,6 @@ impl Editor {
                         cx,
                     )),
             ))
-            .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
-            .child(div().text_xs().child("Backdrop motion"))
-            .child(
-                div().flex().flex_wrap().gap_2().children(
-                    std::iter::once(Motion::Still)
-                        .chain(Motion::EFFECTS)
-                        .map(|motion_choice| {
-                            self.motion_button(motion_choice, motion == motion_choice, cx)
-                        }),
-                ),
-            )
-            .child(self.button("Backdrop style", false, cx, Action::ToggleBackdrop))
-            .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
-            .child(
-                div()
-                    .flex()
-                    .gap_2()
-                    .child(self.button(
-                        "MP4",
-                        false,
-                        cx,
-                        Action::ExportAnimation {
-                            format: AnimationFormat::Mp4,
-                        },
-                    ))
-                    .child(self.button(
-                        "GIF",
-                        false,
-                        cx,
-                        Action::ExportAnimation {
-                            format: AnimationFormat::Gif,
-                        },
-                    )),
-            )
-            .when_some(self.video_export.progress, |el, progress| {
-                el.child(
-                    div()
-                        .text_xs()
-                        .child(format!("Exporting… {progress}% · Escape to cancel")),
-                )
-            })
     }
     pub(in crate::editor) fn animation_slider_move(
         &mut self,

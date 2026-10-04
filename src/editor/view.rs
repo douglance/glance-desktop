@@ -142,6 +142,54 @@ impl Editor {
             .child(crate::platform::shortcut_label(label))
             .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
     }
+    fn export_progress(&self, progress: u32, cx: &Context<Self>) -> impl IntoElement {
+        let progress = progress.min(100);
+        let label = format!("Exporting animation… {progress}%");
+        div()
+            .id("export-progress")
+            .debug_selector(|| "export-progress".into())
+            .h(px(56.))
+            .flex_shrink_0()
+            .px_3()
+            .flex()
+            .items_center()
+            .gap_3()
+            .border_t_1()
+            .border_color(rgb(0xdfe1e7))
+            .bg(rgb(0xffffff))
+            .child(
+                div()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_2()
+                    .child(div().text_xs().child(label))
+                    .child(
+                        div()
+                            .id("export-progress-track")
+                            .debug_selector(|| "export-progress-track".into())
+                            .w_full()
+                            .h(px(6.))
+                            .rounded_full()
+                            .overflow_hidden()
+                            .bg(rgb(0xe5e7ed))
+                            .child(
+                                div()
+                                    .id("export-progress-fill")
+                                    .debug_selector(|| "export-progress-fill".into())
+                                    .h_full()
+                                    .w(relative(progress as f32 / 100.))
+                                    .bg(rgb(0x27856f)),
+                            ),
+                    ),
+            )
+            .child(
+                div()
+                    .id("export-cancel")
+                    .debug_selector(|| "export-cancel".into())
+                    .child(self.button("Cancel export", false, cx, Action::CancelExport)),
+            )
+    }
 }
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
@@ -178,8 +226,16 @@ impl Render for Editor {
             .backdrop
             .map_or(dimensions, |b| b.dimensions(dimensions));
         let viewport = window.viewport_size();
+        let export_height = if self.video_export.progress.is_some() {
+            56.
+        } else {
+            0.
+        };
         let fit_zoom = ((f32::from(viewport.width) - 260. - 80.) / output_dimensions.0 as f32)
-            .min((f32::from(viewport.height) - 48. - 70.) / output_dimensions.1 as f32)
+            .min(
+                (f32::from(viewport.height) - 48. - export_height - 70.)
+                    / output_dimensions.1 as f32,
+            )
             .clamp(0.01, 1.);
         let zoom_label = format!("{:.0}%", self.viewport.zoom.unwrap_or(fit_zoom) * 100.);
         let tools = [
@@ -415,18 +471,18 @@ impl Render for Editor {
                         Action::ToggleBackdrop,
                     ))
                     .child(self.compact_button(
-                        "Image tools",
-                        "sparkles",
-                        self.panels.enhance,
-                        cx,
-                        Action::ToggleEnhance,
-                    ))
-                    .child(self.compact_button(
                         "Animation",
                         "play",
                         self.panels.animation,
                         cx,
                         Action::ToggleAnimationPanel,
+                    ))
+                    .child(self.compact_button(
+                        "Image tools",
+                        "sparkles",
+                        self.panels.enhance,
+                        cx,
+                        Action::ToggleEnhance,
                     ))
                     .child(div().flex_1())
                     .child(self.compact_button(
@@ -495,6 +551,9 @@ impl Render for Editor {
                     ),
             )
             .child(self.canvas(window, cx))
+            .when_some(self.video_export.progress, |el, progress| {
+                el.child(self.export_progress(progress, cx))
+            })
             .when_some(self.feedback.copy, |el, feedback| {
                 el.child(self.copy_confirmation(feedback))
             })

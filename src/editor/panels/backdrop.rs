@@ -703,14 +703,6 @@ impl Editor {
                         ),
                 )
             })
-            .when_some(self.video_export.progress, |el, progress| {
-                el.child(
-                    div()
-                        .text_xs()
-                        .text_color(rgb(0x646976))
-                        .child(format!("Exporting… {progress}% · Escape to cancel")),
-                )
-            })
             .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
             .child(
                 div()

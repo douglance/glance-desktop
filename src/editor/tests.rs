@@ -696,6 +696,62 @@ fn preview_completion_does_not_unlock_an_active_operation(cx: &mut TestAppContex
 }
 
 #[gpui::test]
+fn export_progress_stays_visible_and_cancel_uses_shared_action(cx: &mut TestAppContext) {
+    use super::jobs::{OperationKind, OperationResult};
+    use crate::automation;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let view = editor(cx);
+    let cancel = Arc::new(AtomicBool::new(false));
+    let id = view
+        .update(cx, |e, _, cx| {
+            let id = e.start_operation(OperationKind::Video).unwrap();
+            e.video_export.cancel = Some(cancel.clone());
+            e.receive(Message::VideoProgress(id, 42), cx);
+            id
+        })
+        .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let bar = visual.debug_bounds("export-progress").unwrap();
+    let track = visual.debug_bounds("export-progress-track").unwrap();
+    let fill = visual.debug_bounds("export-progress-fill").unwrap();
+    assert!(bar.top() >= px(48.) && bar.bottom() <= px(600.));
+    assert!(track.size.width > px(800.));
+    assert!((fill.size.width / track.size.width - 0.42).abs() < 0.01);
+    view.update(&mut visual, |e, _, cx| {
+        assert!(!e.panels.animation && !e.panels.backdrop);
+        let (reply, response) = std::sync::mpsc::channel();
+        e.automation(automation::Request::State(reply), cx);
+        assert_eq!(
+            response.recv().unwrap().unwrap()["operation"]["progress"],
+            42
+        );
+    })
+    .unwrap();
+    let button = visual.debug_bounds("export-cancel").unwrap();
+    assert!(bar.contains(&button.origin) && bar.contains(&button.bottom_right()));
+    visual.simulate_click(button.center(), Default::default());
+    visual.run_until_parked();
+    assert!(cancel.load(Ordering::Relaxed));
+    assert!(visual.debug_bounds("export-progress").is_some());
+    view.update(&mut visual, |e, _, cx| {
+        e.receive(
+            Message::Operation(id, OperationResult::VideoSaved(Ok(None))),
+            cx,
+        );
+    })
+    .unwrap();
+    visual.run_until_parked();
+    view.read_with(&visual, |e, _| {
+        assert_eq!(e.video_export.progress, None);
+        assert!(!e.is_busy());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
 fn video_progress_belongs_to_the_active_export(cx: &mut TestAppContext) {
     let view = editor(cx);
     view.update(cx, |e, _, cx| {

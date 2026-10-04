@@ -55,6 +55,12 @@ latency or frame-time guarantees.
 
 ## Animated backdrops and native video export
 
+The persistent export footer is covered by a virtual minimum-window layout check:
+its fill matches the worker percentage reported through MCP, its Cancel export
+button dispatches the shared action, and completion removes it. For desktop QA,
+export MP4/GIF with background and image animation together, scroll or close the
+inspector, and confirm the footer remains visible and advances until completion.
+
 ### Image entrance checks
 
 The Animation sidebar offers diagonal reveal, spring pop, and 3D settle. Tests

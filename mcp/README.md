@@ -7,6 +7,9 @@ Image entrances are available through `dispatch_action`: `toggle_animation_panel
 `replay_animation`. `get_document` includes `image_animation`; `get_editor_state`
 includes the Animation panel and playback time. MP4/GIF export accepts an image
 entrance over a still or absent backdrop and always begins at time zero.
+The native Animation panel focuses on the foreground track and playback;
+backdrop settings live in Backdrop and exports in the toolbar Export menu.
+These commands remain available through the same shared MCP actions.
 
 ChatGPT or another MCP client can edit the **real native GPUI window** using structured tools. GPUI stays native; there is no web canvas or screenshot-click automation. The stdio companion connects to the opted-in editor over a private Unix socket.
 
@@ -48,7 +51,7 @@ This repo supplies the MCP server and native bridge. It does not create an OpenA
 
 - `open_editor`: bring the connected native app forward.
 - `dispatch_action`: submit the same typed action as toolbar buttons and shortcuts.
-- `get_editor_state`: read tool, selection, zoom, panels, status, and operation progress, including while workers are busy.
+- `get_editor_state`: read tool, selection, zoom, panels, status, and operation progress, including while workers are busy. Animation export progress is the same percentage shown in the window's persistent progress bar; `cancel_export` through `dispatch_action` uses the same cancellation path as its button.
 - `get_document`: dimensions, revision, backdrop, image animation, editable marks and current IDs.
 - `import_image`: exactly one local `path`, image `base64`, or `clipboard: true`. Replaces the current document.
 - `add_annotation`, `update_annotation`, `move_annotation`, `delete_annotation`: editable pen, arrow (including quadratic curve), box, text, highlight, pixelate, counter objects.
