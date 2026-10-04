@@ -1,4 +1,3 @@
-#[cfg(any(target_os = "macos", test))]
 use super::actions::Action;
 use super::{Editor, preview_base, render_image};
 use super::{feedback::CopyFeedback, state::Gesture};
@@ -36,6 +35,13 @@ pub(super) struct OperationState {
     next_id: u64,
 }
 pub(crate) enum Message {
+    Accessibility(super::panels::number::Scope, Action),
+    AccessibilityPopup(
+        super::panels::number::Scope,
+        super::panels::Popup,
+        Option<usize>,
+    ),
+    AccessibilityNumber(super::panels::number::Scope, &'static str, f32),
     Automation(crate::automation::Request),
     Lens(crate::effects::LensKey, Arc<RenderImage>),
     #[cfg(any(target_os = "macos", test))]
@@ -120,6 +126,27 @@ impl Editor {
     }
     pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
         match message {
+            Message::Accessibility(scope, action) => {
+                if scope == self.tool_scope() {
+                    self.dispatch_ui(action, cx);
+                }
+            }
+            Message::AccessibilityPopup(scope, popup, index) => {
+                if scope == self.tool_scope() {
+                    if let Some(index) = index {
+                        if self.panels.popup == Some(popup) {
+                            self.choose_popup(popup, index, cx);
+                        }
+                    } else {
+                        self.open_popup(popup, cx);
+                    }
+                }
+            }
+            Message::AccessibilityNumber(scope, label, value) => {
+                if scope == self.tool_scope() {
+                    self.dispatch_ui(self.number_action(label, value), cx);
+                }
+            }
             Message::Automation(request) => self.automation(request, cx),
             Message::MotionPreviewReady => cx.notify(),
             Message::Lens(key, image) => {

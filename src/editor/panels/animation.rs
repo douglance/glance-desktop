@@ -14,19 +14,37 @@ impl Editor {
         let painted = bounds.clone();
         let a = self.document.image_animation;
         let value = control.value(a, self.clip_time());
-        let (min, max, _) = control.range(a);
-        div()
+        let (min, max, step) = control.range(a);
+        let compact = matches!(
+            control,
+            AnimationControl::Duration | AnimationControl::Delay
+        );
+        let element = div()
             .flex()
             .flex_col()
             .gap_1()
             .child(
                 div()
                     .flex()
-                    .justify_between()
+                    .when(compact, |el| el.flex_col())
+                    .when(!compact, |el| el.justify_between())
                     .text_xs()
-                    .child(control.label())
                     .child(
                         div()
+                            .id(SharedString::from(format!(
+                                "animation-label-{}",
+                                control.label()
+                            )))
+                            .debug_selector(move || format!("animation-label-{}", control.label()))
+                            .child(control.label()),
+                    )
+                    .child(
+                        div()
+                            .id(SharedString::from(format!(
+                                "animation-value-{}",
+                                control.label()
+                            )))
+                            .debug_selector(move || format!("animation-value-{}", control.label()))
                             .text_color(rgb(0x646976))
                             .child(control.display(value)),
                     ),
@@ -107,7 +125,22 @@ impl Editor {
                         )
                         .size_full(),
                     ),
-            )
+            );
+        let units = if control == AnimationControl::Length {
+            1.
+        } else {
+            1000.
+        };
+        self.accessible_slider(
+            control.label(),
+            value as f64 / units,
+            (min as f64 / units, max as f64 / units, step as f64 / units),
+            move |value| Action::SetAnimationControl {
+                control,
+                value: (value * units).round() as u32,
+            },
+            element,
+        )
     }
     pub(in crate::editor) fn animation_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let a = self.document.image_animation;

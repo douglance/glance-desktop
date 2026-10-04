@@ -413,3 +413,25 @@ information with `rust-objcopy`; compilation and packaging still succeeded.
 The toolchain also reports future incompatibilities in `block` and
 `proc-macro-error2`. Physical macOS desktop acceptance and Omarchy packaging/
 desktop acceptance were not rerun during this preparation.
+
+## Native accessibility and timing layout — 2026-10-04
+
+Fixed the entrance-duration label/value collision in the paired Animation fields.
+A virtual-window regression checks that duration and delay labels do not overlap
+at 1050×600. The macOS adapter for GPUI 0.2.2 publishes painted, clipped toolbar
+and inspector controls, numeric values, color hex editing, Format/Export menus
+and canvas source dimensions/annotation count. It keeps native node identities
+stable across ordinary redraws and removes callbacks for stale/disposed nodes.
+Accessible edits enter the shared dispatcher with the document/tool/selection
+scope; regression coverage checks validation, selected width edits, undo,
+rejection of obsolete targets, color hex editing and animation timing in seconds.
+
+Native computer use verified toolbar/inspector discovery, exact arrow thickness
+and color hex changes with matching visible fields, exposed Export menu items,
+and the corrected timing layout in an isolated ad-hoc 0.2.0 bundle. The installed
+app was not replaced. Full VoiceOver navigation, on-canvas text/drawing access,
+Omarchy accessibility and native export dialogs remain separate acceptance work.
+
+Formatting, strict Clippy and the regular suite pass: 146 passed, 16 opt-in tests
+ignored. The isolated debug bundle builds and signs successfully; the existing
+rust-objcopy/libLLVM debug-stripping warning remains non-fatal.

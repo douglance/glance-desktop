@@ -1,4 +1,5 @@
 //! GPUI editor entity: state ownership and application integration.
+mod accessibility;
 #[cfg(test)]
 mod action_tests;
 pub(crate) mod actions;
@@ -35,6 +36,7 @@ use state::{
 };
 use std::{cell::Cell, rc::Rc, sync::Arc};
 pub(crate) struct Editor {
+    accessibility: crate::accessibility::Tree,
     color_pickers: [Entity<crate::color_picker::ColorPicker>; 2],
     tool_color_picker: Entity<crate::color_picker::ColorPicker>,
     tool_picker_target: Option<(Tool, Option<usize>, u64)>,
@@ -223,6 +225,7 @@ impl Editor {
         let gestures =
             native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
+            accessibility: crate::accessibility::Tree::new(native),
             color_pickers,
             tool_color_picker,
             tool_picker_target: None,

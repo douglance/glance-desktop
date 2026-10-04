@@ -54,40 +54,47 @@ impl Editor {
                 }),
             ))
             .child(
-                div()
-                    .id("smart-upscale")
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .cursor_pointer()
-                    .text_xs()
-                    .child(
-                        div()
-                            .size(px(16.))
-                            .rounded_sm()
-                            .border_1()
-                            .border_color(rgb(0xd5d8e0))
-                            .bg(rgb(if self.panels.resize_smart {
-                                0xf35d45
-                            } else {
-                                0xffffff
-                            }))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_color(rgb(0xffffff))
-                            .child(if self.panels.resize_smart { "✓" } else { "" }),
-                    )
-                    .child("Smart upscale")
-                    .tooltip(|_, cx| {
-                        cx.new(|_| {
-                            HoverLabel("Local adaptive sharpening; no AI model or uploads".into())
+                self.accessible_button(
+                    "Smart upscale",
+                    true,
+                    Action::ToggleSmartResize,
+                    div()
+                        .id("smart-upscale")
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .cursor_pointer()
+                        .text_xs()
+                        .child(
+                            div()
+                                .size(px(16.))
+                                .rounded_sm()
+                                .border_1()
+                                .border_color(rgb(0xd5d8e0))
+                                .bg(rgb(if self.panels.resize_smart {
+                                    0xf35d45
+                                } else {
+                                    0xffffff
+                                }))
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_color(rgb(0xffffff))
+                                .child(if self.panels.resize_smart { "✓" } else { "" }),
+                        )
+                        .child("Smart upscale")
+                        .tooltip(|_, cx| {
+                            cx.new(|_| {
+                                HoverLabel(
+                                    "Local adaptive sharpening; no AI model or uploads".into(),
+                                )
+                            })
+                            .into()
                         })
-                        .into()
-                    })
-                    .on_click(cx.listener(|this, _, _, cx| {
-                        this.dispatch_ui(Action::ToggleSmartResize, cx);
-                    })),
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.dispatch_ui(Action::ToggleSmartResize, cx);
+                        })),
+                ),
             )
             .child(
                 div()

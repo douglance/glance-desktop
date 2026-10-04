@@ -71,6 +71,175 @@ fn key(k: &str) -> KeyDownEvent {
         is_held: false,
     }
 }
+
+#[gpui::test]
+fn animation_timing_labels_do_not_overlap_at_minimum_size(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, _, cx| {
+        e.dispatch_ui(super::actions::Action::ToggleAnimationPanel, cx)
+    })
+    .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    for (label, title, value) in [
+        (
+            "Entrance duration",
+            "animation-label-Entrance duration",
+            "animation-value-Entrance duration",
+        ),
+        ("Delay", "animation-label-Delay", "animation-value-Delay"),
+    ] {
+        let title = visual.debug_bounds(title).unwrap();
+        let value = visual.debug_bounds(value).unwrap();
+        assert!(title.bottom() <= value.top(), "{label} overlaps its value");
+        assert!(title.right() <= px(1050.) && value.right() <= px(1050.));
+    }
+    let duration = visual
+        .debug_bounds("animation-label-Entrance duration")
+        .unwrap();
+    let delay = visual.debug_bounds("animation-label-Delay").unwrap();
+    assert!(duration.right() < delay.left());
+}
+
+#[gpui::test]
+fn accessible_controls_dispatch_edit_undo_and_reject_stale_targets(cx: &mut TestAppContext) {
+    use super::actions::Action;
+    use crate::accessibility::Request;
+    let view = editor(cx);
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let nodes = view
+        .read_with(&visual, |e, _| e.accessibility.nodes())
+        .unwrap();
+    assert!(
+        nodes
+            .iter()
+            .any(|n| n.label.starts_with("Screenshot canvas"))
+    );
+    let arrow = nodes
+        .iter()
+        .find(|n| n.label == Tool::Arrow.label())
+        .unwrap();
+    assert!(arrow.invoke(Request::Press));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.interaction.tool).unwrap(),
+        Tool::Arrow
+    );
+    let width = view
+        .read_with(&visual, |e, _| {
+            e.accessibility
+                .nodes()
+                .into_iter()
+                .find(|n| n.label == "Thickness")
+                .unwrap()
+        })
+        .unwrap();
+    assert!(!width.invoke(Request::SetValue(f64::NAN)));
+    assert!(!width.invoke(Request::SetValue(99999.)));
+    assert!(width.invoke(Request::SetValue(12.)));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.interaction.width).unwrap(),
+        12.
+    );
+    let color = view
+        .read_with(&visual, |e, _| {
+            e.accessibility
+                .nodes()
+                .into_iter()
+                .find(|n| n.label == "Custom color hex")
+                .unwrap()
+        })
+        .unwrap();
+    color.invoke(Request::SetText("#abc".into()));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.interaction.color).unwrap(),
+        [170, 187, 204, 255]
+    );
+
+    view.update(&mut visual, |e, w, cx| {
+        reset_layout(e);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(70., 30.), cx);
+    })
+    .unwrap();
+    visual.run_until_parked();
+    let selected_width = view
+        .read_with(&visual, |e, _| {
+            e.accessibility
+                .nodes()
+                .into_iter()
+                .find(|n| n.label == "Thickness")
+                .unwrap()
+        })
+        .unwrap();
+    assert!(selected_width.invoke(Request::SetValue(8.)));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.marks[0].width)
+            .unwrap(),
+        8.
+    );
+    view.update(&mut visual, |e, _, cx| e.dispatch_ui(Action::Undo, cx))
+        .unwrap();
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.marks[0].width)
+            .unwrap(),
+        12.
+    );
+    // A queued native action from the previous revision must not modify the mark.
+    selected_width.invoke(Request::SetValue(9.));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.marks[0].width)
+            .unwrap(),
+        12.
+    );
+    view.update(&mut visual, |e, _, cx| {
+        e.receive(
+            Message::Preview(
+                e.preview.revision,
+                e.document.marks.len(),
+                0,
+                render_image(e.document.render(None)),
+            ),
+            cx,
+        );
+        e.dispatch_ui(Action::ToggleAnimationPanel, cx)
+    })
+    .unwrap();
+    visual.run_until_parked();
+    let nodes = view
+        .read_with(&visual, |e, _| e.accessibility.nodes())
+        .unwrap();
+    let duration = nodes
+        .iter()
+        .find(|n| n.label == "Entrance duration")
+        .unwrap_or_else(|| {
+            panic!(
+                "nodes: {:?}",
+                nodes.iter().map(|n| &n.label).collect::<Vec<_>>()
+            )
+        });
+    assert_eq!(duration.value, Some(1.));
+    duration.invoke(Request::SetValue(1.5));
+    visual.run_until_parked();
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.document.image_animation.duration_ms)
+            .unwrap(),
+        1500
+    );
+    assert!(
+        nodes
+            .iter()
+            .all(|n| n.bounds.top() >= px(0.) && n.bounds.bottom() <= px(600.))
+    );
+}
 #[gpui::test]
 fn remote_copy_toolbar_fits_at_minimum_window_width(cx: &mut TestAppContext) {
     let view = editor(cx);

@@ -185,3 +185,12 @@ that filename so the native dialog's overwrite confirmation applies to the
 actual destination. If you omit the extension, Glance appends it only when the
 resulting filename does not already exist; otherwise choose the full filename
 in the dialog to confirm replacement.
+
+## macOS accessibility
+
+Toolbar buttons, inspector choices, numeric fields, animation/backdrop sliders,
+Format/Export menus and color hex values are exposed to macOS accessibility.
+Numeric values support exact edits and increment/decrement; color fields accept
+`#RGB` or `#RRGGBB` and preserve annotation opacity. These edits use the same
+validation and undo behavior as mouse input. The canvas reports its source size
+and annotation count; drawing and on-canvas text still require ordinary input.

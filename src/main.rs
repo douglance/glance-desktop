@@ -1,3 +1,4 @@
+mod accessibility;
 mod animation;
 mod arrow;
 mod automation;

@@ -114,225 +114,239 @@ impl Editor {
                 cx.listener(|this, e: &MouseDownEvent, _, cx| this.begin_pan(e.position, cx)),
             )
             .child(
-                canvas(
-                    move |bounds, _, _| bounds,
-                    move |bounds, _, window, cx| {
-                        canvas_bounds.set(bounds);
-                        window.paint_quad(fill(bounds, rgb(0xeff0f4)));
-                        let fit = ((f32::from(bounds.size.width) - 80.)
-                            / output_dimensions.0 as f32)
-                            .min((f32::from(bounds.size.height) - 70.) / output_dimensions.1 as f32)
-                            .clamp(0.01, 1.);
-                        let scale = zoom.unwrap_or(fit);
-                        let w = dimensions.0 as f32 * scale;
-                        let h = dimensions.1 as f32 * scale;
+                self.accessibility.element(
+                    canvas(
+                        move |bounds, _, _| bounds,
+                        move |bounds, _, window, cx| {
+                            canvas_bounds.set(bounds);
+                            window.paint_quad(fill(bounds, rgb(0xeff0f4)));
+                            let fit = ((f32::from(bounds.size.width) - 80.)
+                                / output_dimensions.0 as f32)
+                                .min(
+                                    (f32::from(bounds.size.height) - 70.)
+                                        / output_dimensions.1 as f32,
+                                )
+                                .clamp(0.01, 1.);
+                            let scale = zoom.unwrap_or(fit);
+                            let w = dimensions.0 as f32 * scale;
+                            let h = dimensions.1 as f32 * scale;
 
-                        let x = f32::from(bounds.origin.x)
-                            + (f32::from(bounds.size.width) - w) / 2.
-                            + pan.0;
-                        let y = f32::from(bounds.origin.y)
-                            + (f32::from(bounds.size.height) - h) / 2.
-                            + pan.1;
-                        layout.set(Layout {
-                            x,
-                            y,
-                            scale,
-                            width: dimensions.0 as f32,
-                            height: dimensions.1 as f32,
-                        });
-                        let image_bounds = Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
-                        let inside = backdrop.map_or(0., |b| b.inside_padding as f32 * scale);
-                        let padded_bounds = image_bounds.dilate(px(inside));
-                        let preview_bounds =
-                            image_bounds.dilate(px(preview_padding as f32 * scale));
-                        let framing = backdrop.map(|b| b.layout(dimensions));
-                        let frame_bounds = framing.map_or(image_bounds, |frame| {
-                            Bounds::new(
-                                point(
-                                    px(x - frame.origin.0 as f32 * scale),
-                                    px(y - frame.origin.1 as f32 * scale),
-                                ),
-                                size(
-                                    px(frame.dimensions.0 as f32 * scale),
-                                    px(frame.dimensions.1 as f32 * scale),
-                                ),
-                            )
-                        });
-                        if let Some(document) = &composition_source {
-                            window.paint_quad(fill(
-                                frame_bounds,
-                                document.animation_backdrop().background(),
-                            ));
-                            composition_preview.borrow_mut().paint(
-                                clip_time,
-                                seek,
-                                frame_bounds,
-                                animation_playing
-                                    && clip_time < document.animation_seconds() as f32,
-                                window,
-                            );
-                            return;
-                        }
-                        if let Some(b) = backdrop {
-                            window.paint_quad(quad(
-                                frame_bounds,
-                                px(0.),
-                                b.background(),
-                                px(0.),
-                                rgb(0xffffff),
-                                Default::default(),
-                            ));
-                            if b.motion != animation::Motion::Still {
-                                window.with_content_mask(
-                                    Some(ContentMask {
-                                        bounds: frame_bounds.intersect(&bounds),
-                                    }),
-                                    |window| {
-                                        animation::paint(
-                                            b,
-                                            animation_phase,
-                                            frame_bounds,
-                                            px(0.),
-                                            &mut motion_preview.borrow_mut(),
-                                            animation_playing,
-                                            window,
-                                        )
-                                    },
-                                );
-                            }
-                            if b.shadow > 0 {
-                                window.with_content_mask(
-                                    Some(ContentMask {
-                                        bounds: frame_bounds.intersect(&bounds),
-                                    }),
-                                    |window| {
-                                        window.paint_shadows(
-                                            padded_bounds,
-                                            px(b.inner_radius as f32 * scale).into(),
-                                            &[BoxShadow {
-                                                color: rgba(0x00000038).into(),
-                                                offset: point(
-                                                    px(0.),
-                                                    px(b.shadow as f32 * scale * 0.25),
-                                                ),
-                                                blur_radius: px(b.shadow as f32 * scale),
-                                                spread_radius: px(0.),
-                                            }],
-                                        );
-                                    },
-                                );
-                            }
-                        } else {
-                            window.paint_shadows(
-                                image_bounds,
-                                Default::default(),
-                                &[
-                                    BoxShadow {
-                                        color: rgba(0x17203320).into(),
-                                        offset: point(px(0.), px(12.)),
-                                        blur_radius: px(32.),
-                                        spread_radius: px(0.),
-                                    },
-                                    BoxShadow {
-                                        color: rgba(0x17203310).into(),
-                                        offset: point(px(0.), px(2.)),
-                                        blur_radius: px(6.),
-                                        spread_radius: px(0.),
-                                    },
-                                ],
-                            );
-                        }
-                        if backdrop.is_none() {
-                            window.paint_quad(quad(
-                                image_bounds,
-                                px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)),
-                                rgb(0xffffff),
-                                px(1.),
-                                rgb(0xd8d8e1),
-                                Default::default(),
-                            ));
-                        }
-                        let _ = window.paint_image(
-                            preview_bounds,
-                            px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)).into(),
-                            image,
-                            0,
-                            false,
-                        );
-                        window.with_content_mask(
-                            Some(ContentMask {
-                                bounds: image_bounds.intersect(&bounds),
-                            }),
-                            |window| {
-                                for mark in &overlays {
-                                    drawing::paint(mark, layout.get(), window, cx);
-                                    if mark.tool == Tool::Magnifier {
-                                        effects::paint_lens(
-                                            mark,
-                                            layout.get(),
-                                            live_lens
-                                                .as_ref()
-                                                .filter(|(key, _)| {
-                                                    *key == effects::LensKey::new(
-                                                        self_revision,
-                                                        mark,
-                                                    )
-                                                })
-                                                .map(|(_, image)| image.clone()),
-                                            window,
-                                        );
-                                    }
-                                }
-                                if let Some(mark) = &selected_mark
-                                    && matches!(
-                                        mark.tool,
-                                        Tool::Arrow | Tool::Magnifier | Tool::Spotlight
-                                    )
-                                {
-                                    arrow::paint_handles(mark, layout.get(), window);
-                                }
-                                if let Some((left, top, right, bottom)) =
-                                    selection_bounds.filter(|_| {
-                                        selected_mark.as_ref().is_none_or(|m| {
-                                            !matches!(
-                                                m.tool,
-                                                Tool::Arrow | Tool::Magnifier | Tool::Spotlight
-                                            )
-                                        })
-                                    })
-                                {
-                                    let l = layout.get();
-                                    let b = Bounds::new(
-                                        point(px(l.x + left * l.scale), px(l.y + top * l.scale)),
-                                        size(
-                                            px((right - left) * l.scale),
-                                            px((bottom - top) * l.scale),
-                                        ),
-                                    )
-                                    .dilate(px(4.));
-                                    window.paint_quad(quad(
-                                        b,
-                                        px(3.),
-                                        gpui::transparent_black(),
-                                        px(1.),
-                                        rgb(0x4c8dff),
-                                        Default::default(),
-                                    ));
-                                }
-                                text_input::paint(
-                                    &text_entity,
-                                    layout.get(),
-                                    image_bounds,
+                            let x = f32::from(bounds.origin.x)
+                                + (f32::from(bounds.size.width) - w) / 2.
+                                + pan.0;
+                            let y = f32::from(bounds.origin.y)
+                                + (f32::from(bounds.size.height) - h) / 2.
+                                + pan.1;
+                            layout.set(Layout {
+                                x,
+                                y,
+                                scale,
+                                width: dimensions.0 as f32,
+                                height: dimensions.1 as f32,
+                            });
+                            let image_bounds = Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+                            let inside = backdrop.map_or(0., |b| b.inside_padding as f32 * scale);
+                            let padded_bounds = image_bounds.dilate(px(inside));
+                            let preview_bounds =
+                                image_bounds.dilate(px(preview_padding as f32 * scale));
+                            let framing = backdrop.map(|b| b.layout(dimensions));
+                            let frame_bounds = framing.map_or(image_bounds, |frame| {
+                                Bounds::new(
+                                    point(
+                                        px(x - frame.origin.0 as f32 * scale),
+                                        px(y - frame.origin.1 as f32 * scale),
+                                    ),
+                                    size(
+                                        px(frame.dimensions.0 as f32 * scale),
+                                        px(frame.dimensions.1 as f32 * scale),
+                                    ),
+                                )
+                            });
+                            if let Some(document) = &composition_source {
+                                window.paint_quad(fill(
+                                    frame_bounds,
+                                    document.animation_backdrop().background(),
+                                ));
+                                composition_preview.borrow_mut().paint(
+                                    clip_time,
+                                    seek,
+                                    frame_bounds,
+                                    animation_playing
+                                        && clip_time < document.animation_seconds() as f32,
                                     window,
-                                    cx,
                                 );
-                            },
-                        );
-                    },
-                )
-                .h_full()
-                .flex_1()
-                .min_w_0(),
+                                return;
+                            }
+                            if let Some(b) = backdrop {
+                                window.paint_quad(quad(
+                                    frame_bounds,
+                                    px(0.),
+                                    b.background(),
+                                    px(0.),
+                                    rgb(0xffffff),
+                                    Default::default(),
+                                ));
+                                if b.motion != animation::Motion::Still {
+                                    window.with_content_mask(
+                                        Some(ContentMask {
+                                            bounds: frame_bounds.intersect(&bounds),
+                                        }),
+                                        |window| {
+                                            animation::paint(
+                                                b,
+                                                animation_phase,
+                                                frame_bounds,
+                                                px(0.),
+                                                &mut motion_preview.borrow_mut(),
+                                                animation_playing,
+                                                window,
+                                            )
+                                        },
+                                    );
+                                }
+                                if b.shadow > 0 {
+                                    window.with_content_mask(
+                                        Some(ContentMask {
+                                            bounds: frame_bounds.intersect(&bounds),
+                                        }),
+                                        |window| {
+                                            window.paint_shadows(
+                                                padded_bounds,
+                                                px(b.inner_radius as f32 * scale).into(),
+                                                &[BoxShadow {
+                                                    color: rgba(0x00000038).into(),
+                                                    offset: point(
+                                                        px(0.),
+                                                        px(b.shadow as f32 * scale * 0.25),
+                                                    ),
+                                                    blur_radius: px(b.shadow as f32 * scale),
+                                                    spread_radius: px(0.),
+                                                }],
+                                            );
+                                        },
+                                    );
+                                }
+                            } else {
+                                window.paint_shadows(
+                                    image_bounds,
+                                    Default::default(),
+                                    &[
+                                        BoxShadow {
+                                            color: rgba(0x17203320).into(),
+                                            offset: point(px(0.), px(12.)),
+                                            blur_radius: px(32.),
+                                            spread_radius: px(0.),
+                                        },
+                                        BoxShadow {
+                                            color: rgba(0x17203310).into(),
+                                            offset: point(px(0.), px(2.)),
+                                            blur_radius: px(6.),
+                                            spread_radius: px(0.),
+                                        },
+                                    ],
+                                );
+                            }
+                            if backdrop.is_none() {
+                                window.paint_quad(quad(
+                                    image_bounds,
+                                    px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)),
+                                    rgb(0xffffff),
+                                    px(1.),
+                                    rgb(0xd8d8e1),
+                                    Default::default(),
+                                ));
+                            }
+                            let _ = window.paint_image(
+                                preview_bounds,
+                                px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)).into(),
+                                image,
+                                0,
+                                false,
+                            );
+                            window.with_content_mask(
+                                Some(ContentMask {
+                                    bounds: image_bounds.intersect(&bounds),
+                                }),
+                                |window| {
+                                    for mark in &overlays {
+                                        drawing::paint(mark, layout.get(), window, cx);
+                                        if mark.tool == Tool::Magnifier {
+                                            effects::paint_lens(
+                                                mark,
+                                                layout.get(),
+                                                live_lens
+                                                    .as_ref()
+                                                    .filter(|(key, _)| {
+                                                        *key == effects::LensKey::new(
+                                                            self_revision,
+                                                            mark,
+                                                        )
+                                                    })
+                                                    .map(|(_, image)| image.clone()),
+                                                window,
+                                            );
+                                        }
+                                    }
+                                    if let Some(mark) = &selected_mark
+                                        && matches!(
+                                            mark.tool,
+                                            Tool::Arrow | Tool::Magnifier | Tool::Spotlight
+                                        )
+                                    {
+                                        arrow::paint_handles(mark, layout.get(), window);
+                                    }
+                                    if let Some((left, top, right, bottom)) = selection_bounds
+                                        .filter(|_| {
+                                            selected_mark.as_ref().is_none_or(|m| {
+                                                !matches!(
+                                                    m.tool,
+                                                    Tool::Arrow | Tool::Magnifier | Tool::Spotlight
+                                                )
+                                            })
+                                        })
+                                    {
+                                        let l = layout.get();
+                                        let b = Bounds::new(
+                                            point(
+                                                px(l.x + left * l.scale),
+                                                px(l.y + top * l.scale),
+                                            ),
+                                            size(
+                                                px((right - left) * l.scale),
+                                                px((bottom - top) * l.scale),
+                                            ),
+                                        )
+                                        .dilate(px(4.));
+                                        window.paint_quad(quad(
+                                            b,
+                                            px(3.),
+                                            gpui::transparent_black(),
+                                            px(1.),
+                                            rgb(0x4c8dff),
+                                            Default::default(),
+                                        ));
+                                    }
+                                    text_input::paint(
+                                        &text_entity,
+                                        layout.get(),
+                                        image_bounds,
+                                        window,
+                                        cx,
+                                    );
+                                },
+                            );
+                        },
+                    )
+                    .h_full()
+                    .flex_1()
+                    .min_w_0(),
+                    crate::accessibility::Node::group(format!(
+                        "Screenshot canvas, {} by {} pixels, {} annotations",
+                        dimensions.0,
+                        dimensions.1,
+                        self.document.marks.len()
+                    )),
+                ),
             )
             .when(self.panels.backdrop, |el| {
                 el.child(self.backdrop_controls(cx))

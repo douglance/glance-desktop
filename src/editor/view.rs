@@ -45,26 +45,26 @@ impl Editor {
             Tool::Magnifier => "Magnifier · M · drag from detail to lens".into(),
             _ => format!("{} · {}", tool.label(), key).into(),
         };
-        div()
-            .id(SharedString::from(format!("tool-{name}")))
-            .debug_selector(move || format!("tool-{name}"))
-            .size(px(30.))
-            .flex_shrink_0()
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_md()
-            .cursor_pointer()
-            .bg(rgb(if active { 0xffe9e4 } else { 0xfcfcfd }))
-            .hover(|s| s.bg(rgb(0xf0f1f5)))
-            .active(|s| s.bg(rgb(0xe5e7ed)))
-            .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
-            .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone())).into())
-            .on_click(
-                cx.listener(move |this, _, _, cx| {
+        let button =
+            div()
+                .id(SharedString::from(format!("tool-{name}")))
+                .debug_selector(move || format!("tool-{name}"))
+                .size(px(30.))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .rounded_md()
+                .cursor_pointer()
+                .bg(rgb(if active { 0xffe9e4 } else { 0xfcfcfd }))
+                .hover(|s| s.bg(rgb(0xf0f1f5)))
+                .active(|s| s.bg(rgb(0xe5e7ed)))
+                .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
+                .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone())).into())
+                .on_click(cx.listener(move |this, _, _, cx| {
                     this.dispatch_ui(Action::SelectTool { tool }, cx)
-                }),
-            )
+                }));
+        self.accessible_button(tool.label(), true, Action::SelectTool { tool }, button)
     }
     pub(super) fn compact_button(
         &self,
@@ -74,7 +74,7 @@ impl Editor {
         cx: &Context<Self>,
         action: Action,
     ) -> impl IntoElement {
-        div()
+        let button = div()
             .id(label)
             .size(px(30.))
             .flex_shrink_0()
@@ -87,7 +87,11 @@ impl Editor {
             .hover(|s| s.bg(rgb(0xf0f1f5)))
             .child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.into())).into())
-            .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
+            .on_click(cx.listener({
+                let action = action.clone();
+                move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)
+            }));
+        self.accessible_button(crate::platform::shortcut_label(label), true, action, button)
     }
     pub(super) fn button(
         &self,
@@ -121,7 +125,7 @@ impl Editor {
         } else {
             None
         };
-        div()
+        let button = div()
             .id(SharedString::from(label.to_string()))
             .px_3()
             .py_1()
@@ -140,7 +144,11 @@ impl Editor {
                 el.child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             })
             .child(crate::platform::shortcut_label(label))
-            .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
+            .on_click(cx.listener({
+                let action = action.clone();
+                move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)
+            }));
+        self.accessible_button(crate::platform::shortcut_label(label), true, action, button)
     }
     fn export_progress(&self, progress: u32, cx: &Context<Self>) -> impl IntoElement {
         let progress = progress.min(100);
@@ -251,7 +259,7 @@ impl Render for Editor {
             Tool::Spotlight,
             Tool::Magnifier,
         ];
-        div()
+        let contents = div()
             .size_full()
             .relative()
             .flex()
@@ -556,6 +564,7 @@ impl Render for Editor {
             })
             .when_some(self.feedback.copy, |el, feedback| {
                 el.child(self.copy_confirmation(feedback))
-            })
+            });
+        self.accessibility.root(contents)
     }
 }

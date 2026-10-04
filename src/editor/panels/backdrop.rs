@@ -11,7 +11,7 @@ use gpui::{prelude::*, *};
 use std::{cell::Cell, rc::Rc};
 
 #[derive(Clone, Copy, PartialEq)]
-pub(in crate::editor) enum Popup {
+pub(crate) enum Popup {
     Format,
     Export,
 }
@@ -34,7 +34,7 @@ impl Editor {
             Motion::Liquid => "motion-liquid",
             Motion::Lava => "motion-lava",
         };
-        div()
+        let button = div()
             .id(motion.label())
             .debug_selector(move || format!("backdrop-motion-{}", motion.label()))
             .w(px(110.))
@@ -60,7 +60,13 @@ impl Editor {
             .child(motion.label())
             .on_click(cx.listener(move |this, _, _, cx| {
                 this.dispatch_ui(Action::SelectMotion { motion }, cx)
-            }))
+            }));
+        self.accessible_button(
+            motion.label(),
+            true,
+            Action::SelectMotion { motion },
+            button,
+        )
     }
 
     fn popup_count(&self, popup: Popup) -> usize {
@@ -80,7 +86,7 @@ impl Editor {
         let bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
         let painted_bounds = bounds.clone();
         let value = control.value(b);
-        div()
+        let element = div()
             .flex()
             .flex_col()
             .gap_1()
@@ -173,9 +179,19 @@ impl Editor {
                         )
                         .size_full(),
                     ),
-            )
+            );
+        self.accessible_slider(
+            control.label(),
+            value as f64,
+            (control.min() as f64, control.max() as f64, 1.),
+            move |value| Action::SetBackdropControl {
+                control,
+                value: value.round() as u32,
+            },
+            element,
+        )
     }
-    fn open_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
+    pub(in crate::editor) fn open_popup(&mut self, popup: Popup, cx: &mut Context<Self>) {
         if self.is_busy() && self.video_export.progress.is_none() {
             return;
         }
@@ -201,7 +217,12 @@ impl Editor {
         };
         cx.notify();
     }
-    fn choose_popup(&mut self, popup: Popup, index: usize, cx: &mut Context<Self>) {
+    pub(in crate::editor) fn choose_popup(
+        &mut self,
+        popup: Popup,
+        index: usize,
+        cx: &mut Context<Self>,
+    ) {
         self.panels.popup = None;
         match popup {
             Popup::Format => self.dispatch_ui(
@@ -255,6 +276,25 @@ impl Editor {
         cx.notify();
         true
     }
+    fn accessible_popup_node(
+        &self,
+        popup: Popup,
+        index: Option<usize>,
+        label: String,
+    ) -> crate::accessibility::Node {
+        let sender = self.sender.clone();
+        let scope = self.tool_scope();
+        crate::accessibility::Node::button(
+            label,
+            true,
+            Rc::new(move |request| {
+                if matches!(request, crate::accessibility::Request::Press) {
+                    let _ =
+                        sender.try_send(crate::Message::AccessibilityPopup(scope, popup, index));
+                }
+            }),
+        )
+    }
     fn dropdown(&self, popup: Popup, trigger: AnyElement, cx: &Context<Self>) -> impl IntoElement {
         let trigger_bounds = Rc::new(Cell::new(Bounds::<Pixels>::default()));
         let painted_bounds = trigger_bounds.clone();
@@ -263,6 +303,18 @@ impl Editor {
             .backdrop
             .or(self.panels.backdrop_disabled)
             .unwrap_or_default();
+        let trigger = self.accessibility.element(
+            trigger,
+            self.accessible_popup_node(
+                popup,
+                None,
+                if popup == Popup::Format {
+                    format!("Format: {}", b.format.short_label())
+                } else {
+                    "Export".into()
+                },
+            ),
+        );
         div()
             .relative()
             .flex_1()
@@ -328,40 +380,49 @@ impl Editor {
                                         };
                                         div()
                                             .child(
-                                                div()
-                                                    .id(("popup-option", index))
-                                                    .debug_selector(move || {
-                                                        format!("popup-option-{index}")
-                                                    })
-                                                    .h(px(28.))
-                                                    .px_2()
-                                                    .flex()
-                                                    .items_center()
-                                                    .gap_2()
-                                                    .rounded_md()
-                                                    .text_xs()
-                                                    .cursor_pointer()
-                                                    .bg(rgb(if self.panels.popup_index == index {
-                                                        0xe5f4f0
-                                                    } else {
-                                                        0xffffff
-                                                    }))
-                                                    .hover(|s| s.bg(rgb(0xe5f4f0)))
-                                                    .child(div().w(px(12.)).child(
-                                                        if popup == Popup::Format
-                                                            && b.format == Format::ALL[index]
-                                                        {
-                                                            "✓"
-                                                        } else {
-                                                            ""
-                                                        },
-                                                    ))
-                                                    .child(label)
-                                                    .on_click(cx.listener(
-                                                        move |this, _, _, cx| {
-                                                            this.choose_popup(popup, index, cx)
-                                                        },
-                                                    )),
+                                                self.accessibility.element(
+                                                    div()
+                                                        .id(("popup-option", index))
+                                                        .debug_selector(move || {
+                                                            format!("popup-option-{index}")
+                                                        })
+                                                        .h(px(28.))
+                                                        .px_2()
+                                                        .flex()
+                                                        .items_center()
+                                                        .gap_2()
+                                                        .rounded_md()
+                                                        .text_xs()
+                                                        .cursor_pointer()
+                                                        .bg(rgb(
+                                                            if self.panels.popup_index == index {
+                                                                0xe5f4f0
+                                                            } else {
+                                                                0xffffff
+                                                            },
+                                                        ))
+                                                        .hover(|s| s.bg(rgb(0xe5f4f0)))
+                                                        .child(div().w(px(12.)).child(
+                                                            if popup == Popup::Format
+                                                                && b.format == Format::ALL[index]
+                                                            {
+                                                                "✓"
+                                                            } else {
+                                                                ""
+                                                            },
+                                                        ))
+                                                        .child(label)
+                                                        .on_click(cx.listener(
+                                                            move |this, _, _, cx| {
+                                                                this.choose_popup(popup, index, cx)
+                                                            },
+                                                        )),
+                                                    self.accessible_popup_node(
+                                                        popup,
+                                                        Some(index),
+                                                        label.into(),
+                                                    ),
+                                                ),
                                             )
                                             .when(popup == Popup::Format && index == 6, |el| {
                                                 el.child(div().h(px(1.)).my_1().bg(rgb(0xe5e5ec)))
@@ -534,7 +595,8 @@ impl Editor {
                                 } else {
                                     b.motion == Motion::Still && b.gradient == gradient
                                 };
-                                div()
+                                let action = if moving { Action::SelectMotion { motion: if b.motion == Motion::Still { Motion::Flow } else { b.motion } } } else { Action::SetBackdropFill { gradient } };
+                                let button = div()
                                     .id(label)
                                     .debug_selector(move || format!("backdrop-mode-{label}"))
                                     .flex_1()
@@ -547,21 +609,9 @@ impl Editor {
                                     .cursor_pointer()
                                     .bg(rgb(if active { 0xffffff } else { 0xeff0f4 }))
                                     .text_color(rgb(if active { 0x292d37 } else { 0x646976 }))
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        let action = if moving {
-                                            Action::SelectMotion {
-                                                motion: if b.motion == Motion::Still {
-                                                    Motion::Flow
-                                                } else {
-                                                    b.motion
-                                                },
-                                            }
-                                        } else {
-                                            Action::SetBackdropFill { gradient }
-                                        };
-                                        this.dispatch_ui(action, cx);
-                                    }))
-                                    .child(label)
+                                    .on_click(cx.listener({ let action = action.clone(); move |this, _, _, cx| this.dispatch_ui(action.clone(), cx) }))
+                                    .child(label);
+                                self.accessible_button(label, true, action, button)
                             }),
                     ),
             )
@@ -622,7 +672,7 @@ impl Editor {
                             colors: None,
                             ..b
                         };
-                        div()
+                        let button = div()
                             .id(("backdrop-preset", i))
                             .debug_selector(move || format!("backdrop-preset-{i}"))
                             .flex_1()
@@ -640,7 +690,8 @@ impl Editor {
                             .tooltip(move |_, cx| cx.new(|_| HoverLabel(name.into())).into())
                             .on_click(cx.listener(move |this, _, _, cx| {
                                 this.dispatch_ui(Action::SetBackdropPreset { preset: i }, cx)
-                            }))
+                            }));
+                        self.accessible_button(format!("Palette {name}"), true, Action::SetBackdropPreset { preset: i }, button)
                     })),
             )
             .child(
@@ -658,9 +709,9 @@ impl Editor {
                         div()
                             .flex()
                             .gap_2()
-                            .child(self.color_pickers[0].clone())
+                            .child(self.accessible_color("Backdrop color", b.colors()[0].to_be_bytes()[1..].try_into().unwrap(), |rgb| Action::SetBackdropColor { stop: 0, rgb }, self.color_pickers[0].clone()))
                             .when(b.gradient || b.motion != Motion::Still, |el| {
-                                el.child(self.color_pickers[1].clone())
+                                el.child(self.accessible_color("Backdrop color 2", b.colors()[1].to_be_bytes()[1..].try_into().unwrap(), |rgb| Action::SetBackdropColor { stop: 1, rgb }, self.color_pickers[1].clone()))
                             }),
                     ),
             )
@@ -705,7 +756,7 @@ impl Editor {
             })
             .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
             .child(
-                div()
+                self.accessible_button("Enable backdrop", true, Action::ToggleBackdropEnabled, div()
                     .id("backdrop-enabled")
                     .debug_selector(|| "backdrop-enabled".into())
                     .flex()
@@ -734,7 +785,7 @@ impl Editor {
                     .child("Enable backdrop")
                     .on_click(cx.listener(|this, _, _, cx| {
                         this.dispatch_ui(Action::ToggleBackdropEnabled, cx);
-                    })),
+                    }))),
             )
     }
 }

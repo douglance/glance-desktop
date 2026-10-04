@@ -2176,6 +2176,7 @@ dependencies = [
  "metal",
  "objc",
  "rand 0.8.8",
+ "raw-window-handle",
  "reqwest",
  "resvg",
  "serde",

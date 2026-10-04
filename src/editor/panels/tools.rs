@@ -160,7 +160,31 @@ impl Editor {
         input.update(cx, |input, cx| {
             input.set_value(value, unit, limits, self.tool_scope(), cx)
         });
-        controls::field(label, input.clone())
+        let sender = self.sender.clone();
+        let scope = self.tool_scope();
+        let (min, max, step) = limits;
+        let callback = std::rc::Rc::new(move |request| {
+            use crate::accessibility::Request;
+            let next = match request {
+                Request::SetValue(next) => next as f32,
+                Request::Increment => (value + step).min(max),
+                Request::Decrement => (value - step).max(min),
+                Request::Press | Request::SetText(_) => return,
+            };
+            let _ = sender.try_send(crate::Message::AccessibilityNumber(scope, label, next));
+        });
+        controls::field(
+            label,
+            self.accessibility.element(
+                input.clone(),
+                crate::accessibility::Node::slider(
+                    label,
+                    value as f64,
+                    (min as f64, max as f64),
+                    callback,
+                ),
+            ),
+        )
     }
     pub(in crate::editor) fn tool_controls(&mut self, cx: &mut Context<Self>) -> impl IntoElement {
         let tool = self.options_tool();
@@ -198,7 +222,7 @@ impl Editor {
                             .enumerate()
                             .map(|(i, (mut color, name))| {
                                 color[3] = settings.color[3];
-                                div()
+                                let button = div()
                                     .id(("tool-color", i))
                                     .debug_selector(move || format!("tool-color-{i}"))
                                     .size(px(23.))
@@ -217,10 +241,23 @@ impl Editor {
                                     })
                                     .on_click(cx.listener(move |this, _, _, cx| {
                                         this.dispatch_ui(Action::SetColor { color }, cx)
-                                    }))
+                                    }));
+                                self.accessible_button(
+                                    format!("Color {name}"),
+                                    true,
+                                    Action::SetColor { color },
+                                    button,
+                                )
                             }),
                     )
-                    .child(div().ml_1().child(self.tool_color_picker.clone())),
+                    .child(div().ml_1().child(self.accessible_color(
+                        "Custom color",
+                        [settings.color[0], settings.color[1], settings.color[2]],
+                        move |rgb| Action::SetColor {
+                            color: [rgb[0], rgb[1], rgb[2], settings.color[3]],
+                        },
+                        self.tool_color_picker.clone(),
+                    ))),
             ));
         }
         let mut primary: Vec<AnyElement> = vec![];

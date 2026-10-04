@@ -16,6 +16,11 @@ Notable user-visible changes are recorded here.
 
 - MP4/GIF exports now show a persistent progress bar, percentage and cancel button
   at the bottom of the window, including when the inspector is closed or scrolled.
+- Animation entrance duration and delay labels no longer overlap their values
+  in the compact sidebar.
+- macOS accessibility now exposes toolbar and inspector controls, current values,
+  color hex editing, menus and canvas dimensions. Accessible edits use the shared
+  actions and reject stale targets.
 
 ## [0.2.0] - 2026-10-04
 

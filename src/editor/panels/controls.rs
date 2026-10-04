@@ -178,7 +178,7 @@ impl Editor {
     ) -> AnyElement {
         let (active, enabled) = state;
         let debug_id = id.clone();
-        div()
+        let element = div()
             .id(SharedString::from(id))
             .debug_selector(move || debug_id.clone())
             .flex_1()
@@ -198,13 +198,20 @@ impl Editor {
             } else {
                 0x555966
             }))
-            .tooltip(move |_, cx| cx.new(|_| HoverLabel(label.clone().into())).into())
+            .tooltip({
+                let label = label.clone();
+                move |_, cx| cx.new(|_| HoverLabel(label.clone().into())).into()
+            })
             .when(enabled, |el| {
-                el.cursor_pointer().hover(|s| s.bg(rgb(0xe9e9ef))).on_click(
-                    cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)),
-                )
+                el.cursor_pointer()
+                    .hover(|s| s.bg(rgb(0xe9e9ef)))
+                    .on_click(cx.listener({
+                        let action = action.clone();
+                        move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)
+                    }))
             })
             .child(content)
-            .into_any_element()
+            .into_any_element();
+        self.accessible_button(label, enabled, action, element)
     }
 }
