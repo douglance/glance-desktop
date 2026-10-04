@@ -4,6 +4,8 @@ Notable user-visible changes are recorded here.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-04
+
 ### Changed
 
 - Animation sidebar now focuses on foreground effects and playback; backdrop
