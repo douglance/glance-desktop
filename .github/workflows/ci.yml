@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate and bundle (macOS)
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Lint and type-check all targets
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Run tests
+        run: cargo test --locked
+      - name: Build app bundle
+        env:
+          GLANCE_CODESIGN_IDENTITY: "-"
+        run: ./scripts/bundle.sh debug
+      - name: Verify bundle and license notices
+        run: |
+          codesign --verify --deep --strict target/Glance.app
+          test -x target/Glance.app/Contents/MacOS/Glance
+          test -x target/Glance.app/Contents/MacOS/glance-video-encoder
+          test -x target/Glance.app/Contents/MacOS/glance-video-frame
+          for notice in LICENSE THIRD_PARTY_NOTICES.md GPUI-LICENSE Lucide-LICENSE; do
+            test -s "target/Glance.app/Contents/Resources/$notice"
+          done

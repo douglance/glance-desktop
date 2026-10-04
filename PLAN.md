@@ -1,5 +1,9 @@
 # Glance proof of concept
 
+This file records the original scope and development history; its early feature
+lists and test counts describe earlier builds. For current capabilities, setup,
+and architecture, see [README.md](README.md) and [the architecture guide](docs/architecture.md).
+
 Reference: https://shottr.cc/ and the supplied toolbar/editor screenshot.
 Shottr combines global capture shortcuts with immediate markup and export. Its
 larger feature set includes OCR, scrolling capture, overlays, rulers, backgrounds,

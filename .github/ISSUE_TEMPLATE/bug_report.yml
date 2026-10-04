@@ -1,0 +1,37 @@
+name: Bug report
+description: Report a reproducible problem in Glance.
+title: "Bug: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use synthetic images and remove sensitive details from screenshots and logs.
+        For vulnerabilities, follow SECURITY.md instead of posting details here.
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: macOS version, Apple Silicon or Intel, and Glance commit/build.
+      placeholder: "macOS 15, Apple Silicon, commit abc1234"
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal sample image if it helps.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: Include any error message and a screenshot or recording when useful.
+    validations:
+      required: true

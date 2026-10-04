@@ -2,3 +2,12 @@
 /.build
 /.runtime
 .DS_Store
+
+# Local configuration and signing material belong outside the repository.
+.env
+.env.*
+!.env.example
+*.keychain-db
+*.p12
+*.pfx
+*.pem
