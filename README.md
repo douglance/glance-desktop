@@ -34,10 +34,15 @@ sharing is optional.
 
 ## Build and install
 
-Glance is in early development. **Build from source** to try it; there are no
-published app downloads yet.
+Glance is in early development. Download the initial
+[v0.1.0 release](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0)
+for Apple Silicon macOS or Omarchy x86_64, or build from source below.
 
 ### macOS
+
+Download `Glance-0.1.0-macos-arm64.zip`, extract it, and move `Glance.app` to
+Applications. The download is ad-hoc signed and not notarized, so macOS may
+block opening it. For a persistent local signing identity, build from source:
 
 Requires **macOS 12+**, Xcode Command Line Tools, and a current stable Rust
 installation via [rustup](https://rustup.rs/). Full Xcode and FFmpeg are not
@@ -95,7 +100,7 @@ Use **Ctrl** in place of **⌘** for editor shortcuts.
 
 Published releases also receive an Apple Silicon macOS ZIP, currently ad-hoc
 signed and not notarized. Packages are built only when a release is published;
-PRs and pushes to `main` run checks. There are no published downloads yet;
+PRs and pushes to `main` run checks;
 the [Omarchy guide](docs/linux.md) covers source builds and checksum verification.
 
 ## Your first screenshot

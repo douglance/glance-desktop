@@ -20,9 +20,9 @@ glance
 
 Pacman installs the declared dependencies. A working Vulkan GPU driver is also
 required; keep the driver appropriate to your hardware. Packages are built only
-when a GitHub release is published, including a prerelease. There are no
-published downloads yet; use the source instructions below until the first
-release. The package places Glance and its helpers in `/usr/lib/glance/bin`,
+when a GitHub release is published, including a prerelease. The initial release
+is [v0.1.0](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0).
+The package places Glance and its helpers in `/usr/lib/glance/bin`,
 links `/usr/bin/glance`, and installs the launcher/icon/license notices.
 
 ## Capture from Hyprland

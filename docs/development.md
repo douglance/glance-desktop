@@ -137,7 +137,9 @@ commands, and [performance notes](../PERFORMANCE.md) for benchmark boundaries.
 
 ## Releases
 
-There are no published app releases yet. Before distributing a release, verify
+The initial release is
+[v0.1.0](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0).
+Before distributing a release, verify
 capture permissions, clipboard, dialogs, native input, and media exports on a
 real Mac. Public distribution also needs an Apple distribution-signing and
 notarization process; the local development certificate is not that process.
