@@ -10,6 +10,9 @@ entrance over a still or absent backdrop and always begins at time zero.
 The native Animation panel focuses on the foreground track and playback;
 backdrop settings live in Backdrop and exports in the toolbar Export menu.
 These commands remain available through the same shared MCP actions.
+Image-entrance sampling uses the same cached Metal path for preview, PNG read-back,
+and MP4/GIF on macOS, with a CPU fallback. Effect names, timing, undo and revision
+conflicts keep their existing semantics.
 
 ChatGPT or another MCP client can edit the **real native GPUI window** using structured tools. GPUI stays native; there is no web canvas or screenshot-click automation. The stdio companion connects to the opted-in editor over a private Unix socket.
 

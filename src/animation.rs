@@ -304,7 +304,7 @@ pub struct Renderer {
     pub width: u32,
     pub height: u32,
     b: Backdrop,
-    foreground: RgbaImage,
+    foreground: std::sync::Arc<RgbaImage>,
     image_animation: ImageAnimation,
     image_bounds: (f32, f32, f32, f32),
     transparent_background: bool,
@@ -376,7 +376,7 @@ impl Renderer {
             width: w,
             height: h,
             b,
-            foreground,
+            foreground: std::sync::Arc::new(foreground),
             image_animation: ImageAnimation::default(),
             image_bounds: (left_f, top_f, sw, sh),
             transparent_background: false,
@@ -403,7 +403,7 @@ impl Renderer {
         renderer
     }
     pub fn frame(&self, phase: f32) -> RgbaImage {
-        let foreground = entrance::foreground(
+        let foreground = entrance::render_foreground(
             &self.foreground,
             self.image_animation,
             self.image_bounds,
@@ -469,7 +469,11 @@ impl Renderer {
             }
         }
         for (p, fg) in out.pixels_mut().zip(foreground.pixels()) {
-            p.blend(fg);
+            match fg[3] {
+                0 => {}
+                255 => *p = *fg,
+                _ => p.blend(fg),
+            }
             if !self.transparent_background {
                 p[3] = 255;
             }

@@ -83,6 +83,9 @@ Capture, annotate, frame, and share from one native macOS window.
   time** slider let you inspect any frame. Under **After entrance**, choose
   **Hold**, or **Exit** for a repeating clip that returns to the empty backdrop. Backdrop
   motion is independent: choose an effect in **Backdrop → Motion**, or keep it still.
+  On macOS, foreground reveal and transform sampling runs on Metal in the preview
+  and export workers, with a CPU fallback. Effect/timing edits reuse the prepared
+  card, and preview quality changes keep the previous frame visible while rendering.
   Entrances also work without a backdrop. The image, annotations, rounded image
   corners, and shadow animate together. Close the panel or click the canvas to
   return to annotation editing. Slider drags are undoable as one step; seeking

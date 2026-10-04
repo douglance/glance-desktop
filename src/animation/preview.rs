@@ -193,6 +193,21 @@ impl Preview {
         self.base = None;
         self.quality = AdaptiveQuality::default();
     }
+    pub fn suspend(&mut self) {
+        self.worker.clear();
+        self.requested = None;
+    }
+    pub fn paint_cached(&self, b: Backdrop, bounds: Bounds<Pixels>, window: &mut Window) {
+        if self.base.is_some_and(|base| {
+            base.motion == b.motion
+                && base.preset == b.preset
+                && base.seed == b.seed
+                && base.colors == b.colors
+        }) && let Some(image) = &self.image
+        {
+            let _ = window.paint_image(bounds, gpui::px(0.).into(), image.clone(), 0, false);
+        }
+    }
     fn select_key(&mut self, spec: Spec, tick: u32, playing: bool) -> Key {
         let key = match self.requested {
             // A busy/inactive window's clock may still advance. Completion
@@ -427,6 +442,45 @@ mod tests {
         assert_eq!(worker.take_completed().unwrap().request.key, frozen);
         worker.request(frozen, false);
         assert!(worker.shared.mailbox.lock().unwrap().pending.is_none());
+    }
+    #[test]
+    fn composition_handoff_keeps_backdrop_and_rejects_in_flight_work() {
+        let (worker, starts, release, notifications) = blocked_worker();
+        let first = key(7, Motion::Liquid);
+        worker.request(first, true);
+        starts.recv_timeout(TIMEOUT).unwrap();
+        let image = crate::editor::render_image(image::RgbaImage::new(1, 1));
+        let mut preview = Preview {
+            worker,
+            image: Some(image.clone()),
+            requested: Some((first, true)),
+            base: Some(first.spec),
+            quality: AdaptiveQuality::default(),
+        };
+        preview.suspend();
+        assert!(Arc::ptr_eq(preview.image.as_ref().unwrap(), &image));
+        assert!(
+            preview
+                .worker
+                .shared
+                .mailbox
+                .lock()
+                .unwrap()
+                .pending
+                .is_none()
+        );
+        let resumed = key(20, Motion::Liquid);
+        preview.worker.request(resumed, false);
+        release.send(()).unwrap();
+        assert_eq!(starts.recv_timeout(TIMEOUT).unwrap(), resumed);
+        assert!(preview.worker.take_completed().is_none());
+        assert!(notifications.try_recv().is_err());
+        release.send(()).unwrap();
+        notifications.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(
+            preview.worker.take_completed().unwrap().request.key,
+            resumed
+        );
     }
     #[test]
     fn suspended_redraws_hold_the_phase_until_playback_resumes() {

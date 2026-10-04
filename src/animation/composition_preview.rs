@@ -12,6 +12,15 @@ struct Spec {
     backdrop: Backdrop,
     animation: ImageAnimation,
 }
+impl Spec {
+    fn same_render_layout(self, other: Self) -> bool {
+        let backdrop = |mut b: Backdrop| {
+            b.seconds = 0;
+            b
+        };
+        self.edge == other.edge && backdrop(self.backdrop) == backdrop(other.backdrop)
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Key {
     spec: Spec,
@@ -134,6 +143,54 @@ impl Drop for Worker {
     }
 }
 
+struct Prepared {
+    source: Arc<Document>,
+    pixels: image::RgbaImage,
+    spec: Spec,
+    renderer: Renderer,
+}
+impl Prepared {
+    fn renderer(source: &Document, pixels: &image::RgbaImage, spec: Spec) -> Renderer {
+        let mut renderer =
+            Renderer::with_animation(pixels, spec.backdrop, Some(spec.edge), spec.animation);
+        renderer.transparent_background = source.backdrop.is_none();
+        renderer
+    }
+    fn new(request: &Request) -> Self {
+        let pixels = request.source.render(None);
+        let spec = request.key.spec;
+        let renderer = Self::renderer(&request.source, &pixels, spec);
+        Self {
+            source: request.source.clone(),
+            pixels,
+            spec,
+            renderer,
+        }
+    }
+    fn update(&mut self, request: &Request) {
+        let pixels_changed = !Arc::ptr_eq(&self.source, &request.source)
+            && (!Arc::ptr_eq(&self.source.base, &request.source.base)
+                || self.source.marks != request.source.marks);
+        if pixels_changed {
+            self.pixels = request.source.render(None);
+        }
+        let spec = request.key.spec;
+        if pixels_changed
+            || !self.spec.same_render_layout(spec)
+            || self.source.backdrop.is_none() != request.source.backdrop.is_none()
+        {
+            self.renderer = Self::renderer(&request.source, &self.pixels, spec);
+        } else {
+            // Timing/effect edits keep the expensive annotated card, resize and
+            // shadow cache. They still change the worker generation via Spec.
+            self.renderer.image_animation = spec.animation;
+            self.renderer.b.seconds = spec.backdrop.seconds;
+        }
+        self.spec = spec;
+        self.source = request.source.clone();
+    }
+}
+
 pub struct CompositionPreview {
     worker: Worker,
     source: Option<(u64, Arc<Document>)>,
@@ -143,22 +200,21 @@ pub struct CompositionPreview {
 }
 impl CompositionPreview {
     pub fn new(notify: impl Fn() + Send + 'static) -> Self {
-        let mut cached: Option<(Spec, Renderer)> = None;
+        let mut cached: Option<Prepared> = None;
         Self {
             worker: Worker::new(
                 move |request| {
                     let spec = request.key.spec;
-                    if cached.as_ref().is_none_or(|(old, _)| *old != spec) {
-                        cached = Some((
-                            spec,
-                            Renderer::for_document(&request.source, Some(spec.edge)),
-                        ));
+                    if let Some(prepared) = &mut cached {
+                        prepared.update(request);
+                    } else {
+                        cached = Some(Prepared::new(request));
                     }
                     crate::editor::render_image(
                         cached
                             .as_ref()
                             .unwrap()
-                            .1
+                            .renderer
                             .frame(request.key.tick as f32 / 30. / spec.animation.seconds as f32),
                     )
                 },
@@ -217,10 +273,12 @@ impl CompositionPreview {
         {
             key.tick = previous.tick;
         }
-        if self
-            .requested
-            .is_some_and(|(previous, _)| previous.spec != spec || previous.seek != seek)
-            && let Some(image) = self.image.take()
+        if self.requested.is_some_and(|(previous, _)| {
+            previous.spec.revision != spec.revision
+                || previous.spec.backdrop != spec.backdrop
+                || previous.spec.animation != spec.animation
+                || previous.seek != seek
+        }) && let Some(image) = self.image.take()
         {
             let _ = window.drop_image(image);
         }
@@ -252,6 +310,149 @@ impl CompositionPreview {
 mod tests {
     use super::*;
     use std::sync::mpsc;
+    #[gpui::test]
+    fn quality_changes_keep_the_painted_frame_but_revisions_clear_it(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        use gpui::{prelude::*, *};
+        use std::{cell::RefCell, rc::Rc};
+        struct View(Rc<RefCell<CompositionPreview>>);
+        impl Render for View {
+            fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+                let preview = self.0.clone();
+                canvas(
+                    |bounds, _, _| bounds,
+                    move |bounds, _, window, _| {
+                        preview.borrow_mut().paint(0.4, 0, bounds, true, window);
+                    },
+                )
+                .size_full()
+            }
+        }
+        let (release, gate) = mpsc::channel::<()>();
+        let mut document = Document::new(image::RgbaImage::new(2, 2));
+        document.image_animation.effect = super::super::Entrance::Tilt;
+        let document = Arc::new(document);
+        let image = crate::editor::render_image(image::RgbaImage::new(2, 2));
+        let spec = Spec {
+            revision: 0,
+            edge: 960,
+            backdrop: document.animation_backdrop(),
+            animation: document.image_animation,
+        };
+        let mut preview = CompositionPreview {
+            worker: Worker::new(
+                move |_| {
+                    let _ = gate.recv();
+                    crate::editor::render_image(image::RgbaImage::new(2, 2))
+                },
+                || {},
+            ),
+            source: Some((0, document.clone())),
+            image: Some(image.clone()),
+            requested: Some((
+                Key {
+                    spec,
+                    tick: 12,
+                    seek: 0,
+                },
+                true,
+            )),
+            quality: AdaptiveQuality::default(),
+        };
+        for _ in 0..5 {
+            preview.quality.observe(Duration::from_millis(30));
+        }
+        assert_eq!(preview.quality.edge(true), 720);
+        let preview = Rc::new(RefCell::new(preview));
+        let view = cx.add_window(|_, _| View(preview.clone()));
+        let mut visual = VisualTestContext::from_window(*view, cx);
+        visual.simulate_resize(size(px(1050.), px(600.)));
+        visual.run_until_parked();
+        assert!(Arc::ptr_eq(
+            preview.borrow().image.as_ref().unwrap(),
+            &image
+        ));
+        view.update(&mut visual, |_, _, cx| {
+            preview.borrow_mut().source = Some((1, document));
+            cx.notify();
+        })
+        .unwrap();
+        visual.run_until_parked();
+        assert!(preview.borrow().image.is_none());
+        drop(release);
+    }
+
+    #[test]
+    fn timing_edits_reuse_prepared_pixels_but_image_edits_rebuild_them() {
+        let mut document = Document::new(image::RgbaImage::from_pixel(
+            64,
+            40,
+            image::Rgba([220, 30, 60, 255]),
+        ));
+        document.backdrop = Some(Backdrop {
+            motion: super::super::Motion::Liquid,
+            padding: 12,
+            ..Default::default()
+        });
+        document.image_animation.effect = super::super::Entrance::Tilt;
+        let request = |document: &Document, revision| Request {
+            key: Key {
+                spec: Spec {
+                    revision,
+                    edge: 96,
+                    backdrop: document.animation_backdrop(),
+                    animation: document.image_animation,
+                },
+                tick: 12,
+                seek: revision,
+            },
+            generation: revision,
+            source: Arc::new(document.render_snapshot()),
+        };
+        let mut prepared = Prepared::new(&request(&document, 0));
+        let foreground = prepared.renderer.foreground.clone();
+        document.image_animation.effect = super::super::Entrance::Pop;
+        document.image_animation.seconds = 6;
+        document.backdrop.as_mut().unwrap().seconds = 6;
+        prepared.update(&request(&document, 1));
+        assert!(Arc::ptr_eq(&prepared.renderer.foreground, &foreground));
+        assert_eq!(prepared.renderer.image_animation, document.image_animation);
+        assert_eq!(
+            prepared.renderer.frame(0.1),
+            Renderer::for_document(&document, Some(96)).frame(0.1)
+        );
+
+        document.marks.push(crate::document::Mark {
+            style: Default::default(),
+            tool: crate::document::Tool::Rectangle,
+            curve: None,
+            points: vec![(10., 10.), (40., 30.)],
+            color: [20, 200, 100, 255],
+            width: 3.,
+            text: String::new(),
+        });
+        prepared.update(&request(&document, 2));
+        assert!(!Arc::ptr_eq(&prepared.renderer.foreground, &foreground));
+        assert_eq!(
+            prepared.renderer.frame(0.5),
+            Renderer::for_document(&document, Some(96)).frame(0.5)
+        );
+
+        let foreground = prepared.renderer.foreground.clone();
+        document.base = Arc::new(image::RgbaImage::from_pixel(
+            64,
+            40,
+            image::Rgba([30, 80, 220, 255]),
+        ));
+        prepared.update(&request(&document, 3));
+        assert!(!Arc::ptr_eq(&prepared.renderer.foreground, &foreground));
+        assert_eq!(
+            prepared.renderer.frame(0.5),
+            Renderer::for_document(&document, Some(96)).frame(0.5)
+        );
+    }
+
     #[test]
     fn worker_bounds_queue_and_rejects_frames_after_seek() {
         let (started, starts) = mpsc::channel();

@@ -63,6 +63,20 @@ inspector, and confirm the footer remains visible and advances until completion.
 
 ### Image entrance checks
 
+Combined preview regressions cover retaining the displayed frame during adaptive
+quality changes, rejecting stale work during background-to-composition handoff,
+and reusing prepared pixels for timing/effect edits while rebuilding after source
+or annotation edits. Metal sampling is compared to the CPU sampler for all three
+entrances at five transition positions, including transparency and cache replacement.
+
+The explicit `foreground_sampling_benchmark` uses synthetic cards and no files
+or network. On 2026-10-04, debug 960×640 sampling measured CPU/Metal respectively:
+Diagonal 22.95/0.50 ms, Pop 154.47/0.45 ms, Tilt 146.52/0.63 ms. Combined Liquid
+and foreground rendering at 960×740 measured 29.54–31.20 ms/frame. These timings
+exclude GPUI image conversion/upload/display and renderer preparation; they are
+worker measurements, not native display FPS. Desktop motion/design acceptance
+and slower-Mac performance still need verification.
+
 The Animation sidebar offers diagonal reveal, spring pop, and 3D settle. Tests
 check each entrance over all eight motions and a static background, exact settled
 pixels, hidden endpoints without a ghost shadow, premultiplied-alpha sampling,

@@ -14,6 +14,9 @@ Notable user-visible changes are recorded here.
 
 ### Fixed
 
+- Foreground animations over moving backdrops use cached Metal sampling on macOS,
+  reuse the prepared card during effect/timing edits, and avoid blank flashes
+  while preview quality changes or the combined preview starts.
 - MP4/GIF exports now show a persistent progress bar, percentage and cancel button
   at the bottom of the window, including when the inspector is closed or scrolled.
 - Animation entrance duration and delay labels no longer overlap their values

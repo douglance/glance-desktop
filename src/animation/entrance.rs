@@ -1,6 +1,8 @@
 //! Image entrances are a separate track from the looping backdrop.
 use image::{Rgba, RgbaImage};
 use std::borrow::Cow;
+#[cfg(target_os = "macos")]
+mod gpu;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -271,6 +273,29 @@ pub(super) fn foreground<'a>(
         })
     };
     Cow::Owned(out)
+}
+
+pub(super) fn render_foreground(
+    cached: &std::sync::Arc<RgbaImage>,
+    animation: ImageAnimation,
+    bounds: (f32, f32, f32, f32),
+    seconds: f32,
+) -> Cow<'_, RgbaImage> {
+    #[cfg(target_os = "macos")]
+    if let p = animation.progress(seconds)
+        && p > 0.
+        && p < 1.
+    {
+        match gpu::frame(cached, animation.effect, bounds, p) {
+            Ok(image) => return Cow::Owned(image),
+            Err(error) => {
+                static WARNING: std::sync::Once = std::sync::Once::new();
+                WARNING
+                    .call_once(|| eprintln!("Image animation shader: {error}; using CPU fallback"));
+            }
+        }
+    }
+    foreground(cached, animation, bounds, seconds)
 }
 
 #[cfg(test)]

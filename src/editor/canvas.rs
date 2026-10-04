@@ -67,7 +67,9 @@ impl Editor {
             composition_preview.borrow_mut().clear(window);
         }
         let motion_preview = self.playback.motion_preview.clone();
-        if composition || !backdrop.is_some_and(|b| b.motion.uses_shader()) {
+        if composition {
+            motion_preview.borrow_mut().suspend();
+        } else if !backdrop.is_some_and(|b| b.motion.uses_shader()) {
             motion_preview.borrow_mut().clear(window);
         }
         let animation_phase = self.animation_phase();
@@ -167,6 +169,11 @@ impl Editor {
                                     frame_bounds,
                                     document.animation_backdrop().background(),
                                 ));
+                                motion_preview.borrow().paint_cached(
+                                    document.animation_backdrop(),
+                                    frame_bounds,
+                                    window,
+                                );
                                 composition_preview.borrow_mut().paint(
                                     clip_time,
                                     seek,
