@@ -68,9 +68,9 @@ impl Mark {
         }
         let pad = self.width / 2.;
         if self.tool == Tool::Arrow {
-            for p in crate::arrow::samples(self)
+            for p in crate::style::line_points(self)
                 .into_iter()
-                .chain(crate::arrow::head(self))
+                .chain(crate::style::heads(self).into_iter().flatten())
             {
                 b.0 = b.0.min(p.0);
                 b.1 = b.1.min(p.1);
@@ -78,6 +78,11 @@ impl Mark {
                 b.3 = b.3.max(p.1);
             }
         }
+        let pad = if self.tool == Tool::Arrow && !crate::style::dots(self).is_empty() {
+            (self.width * 2.).max(3.)
+        } else {
+            pad
+        };
         (b.0 - pad, b.1 - pad, b.2 + pad, b.3 + pad)
     }
     pub fn hit(&self, p: (f32, f32), tolerance: f32) -> bool {
@@ -97,25 +102,39 @@ impl Mark {
         let t = tolerance + self.width / 2.;
         match self.tool {
             Tool::Pen => {
-                self.points.windows(2).any(|s| distance(p, s[0], s[1]) <= t)
+                crate::style::pen_points(self)
+                    .windows(2)
+                    .any(|s| distance(p, s[0], s[1]) <= t)
                     || distance(p, a, a) <= t
             }
             Tool::Arrow => {
-                let head = crate::arrow::head(self);
-                crate::arrow::samples(self)
+                crate::style::line_points(self)
                     .windows(2)
                     .any(|s| distance(p, s[0], s[1]) <= t)
-                    || crate::arrow::inside_triangle(p, head)
-                    || (0..3).any(|i| distance(p, head[i], head[(i + 1) % 3]) <= tolerance)
+                    || crate::style::heads(self)
+                        .into_iter()
+                        .any(|h| crate::arrow::inside_triangle(p, h))
+                    || crate::style::dots(self)
+                        .iter()
+                        .any(|d| distance(p, *d, *d) <= (self.width * 2.).max(3.) + tolerance)
             }
-            Tool::Rectangle => [
-                (a, (z.0, a.1)),
-                ((z.0, a.1), z),
-                (z, (a.0, z.1)),
-                ((a.0, z.1), a),
-            ]
-            .into_iter()
-            .any(|(a, b)| distance(p, a, b) <= t),
+            Tool::Rectangle => {
+                let pts = crate::style::box_points(self);
+                if self.style.fill == crate::style::Fill::Filled {
+                    let mut inside = false;
+                    for pair in pts.windows(2) {
+                        let (a, b) = (pair[0], pair[1]);
+                        if (a.1 > p.1) != (b.1 > p.1)
+                            && p.0 < (b.0 - a.0) * (p.1 - a.1) / (b.1 - a.1) + a.0
+                        {
+                            inside = !inside;
+                        }
+                    }
+                    inside || pts.windows(2).any(|s| distance(p, s[0], s[1]) <= tolerance)
+                } else {
+                    pts.windows(2).any(|s| distance(p, s[0], s[1]) <= t)
+                }
+            }
             Tool::Magnifier => {
                 (p.0 - z.0).hypot(p.1 - z.1) <= crate::effects::radius(self) + tolerance
                     || (p.0 - a.0).hypot(p.1 - a.1)
@@ -154,6 +173,7 @@ mod tests {
     use super::*;
     fn mark(tool: Tool, points: Vec<(f32, f32)>) -> Mark {
         Mark {
+            style: Default::default(),
             tool,
             curve: None,
             points,

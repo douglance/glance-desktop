@@ -1,5 +1,13 @@
 # Glance local MCP companion
 
+Image entrances are available through `dispatch_action`: `toggle_animation_panel`,
+`select_entrance` (`effect`: `none`, `diagonal`, `pop`, or `tilt`),
+`set_image_animation` (`animation`: `effect`, `duration_ms`, `delay_ms`, `seconds`,
+`exit`), `set_animation_control`, `seek_animation` (`seconds`), and
+`replay_animation`. `get_document` includes `image_animation`; `get_editor_state`
+includes the Animation panel and playback time. MP4/GIF export accepts an image
+entrance over a still or absent backdrop and always begins at time zero.
+
 ChatGPT or another MCP client can edit the **real native GPUI window** using structured tools. GPUI stays native; there is no web canvas or screenshot-click automation. The stdio companion connects to the opted-in editor over a private Unix socket.
 
 ## Build and start
@@ -37,13 +45,14 @@ This repo supplies the MCP server and native bridge. It does not create an OpenA
 - `open_editor`: bring the connected native app forward.
 - `dispatch_action`: submit the same typed action as toolbar buttons and shortcuts.
 - `get_editor_state`: read tool, selection, zoom, panels, status, and operation progress, including while workers are busy.
-- `get_document`: dimensions, revision, backdrop, editable marks and current IDs.
+- `get_document`: dimensions, revision, backdrop, image animation, editable marks and current IDs.
 - `import_image`: exactly one local `path`, image `base64`, or `clipboard: true`. Replaces the current document.
 - `add_annotation`, `update_annotation`, `move_annotation`, `delete_annotation`: editable pen, arrow (including quadratic curve), box, text, highlight, pixelate, counter objects.
 - `crop_image`, `resize_image`, `set_backdrop`, `undo`, `redo`: native document edits.
 - `read_image`: rasterize the current canvas into model-visible PNG content, optionally at animation `phase` 0..1. Preview maximum edge defaults to 1600; never upscales.
 - `export_png`: full resolution image to a new local file.
-- `export_mp4`: animated background with fixed foreground, H.264/30fps, 2–15 seconds, max edge 1920. Requires a motion backdrop.
+- `export_mp4`: backdrop motion and/or image entrance, H.264/30fps, 2–15 seconds, max edge 1920. Requires a motion backdrop or image entrance; starts at time zero.
+- `export_gif`: the same composition with infinite repeat, 20fps, max edge 960.
 - `read_video_frame`: rasterize an MP4 at a timestamp into model-visible PNG content using AVFoundation. No FFmpeg dependency.
 
 Example workflow:
@@ -88,6 +97,8 @@ its other fields carry the parameters. For example:
 {"action":{"type":"copy_image"}}
 {"action":{"type":"resize","scale":2,"smart":true},"expected_revision":7}
 {"action":{"type":"set_backdrop","backdrop":{"motion":"aurora","padding":80}}}
+{"action":{"type":"set_backdrop_format","format":"shorts"}}
+{"action":{"type":"toggle_backdrop_enabled"}}
 {"action":{"type":"export_animation","format":"gif"}}
 ```
 
@@ -108,6 +119,14 @@ the path-based export tools when a native save dialog is unwanted.
 Restart the automation-enabled editor and MCP companion after rebuilding to
 use the new action tools.
 
+Every user-facing command and setting should have a semantic MCP path in the
+same change. `src/mcp/contract_tests.rs` compares the actual serializable action
+inventory with discovery and checks complete payloads against both the schema
+and Rust deserialization. CI runs these checks with `cargo test --locked`.
+Raw `edit` actions use indices and are intentionally replaced by revision-scoped
+document tools. Pointer slider gestures use `set_backdrop_control` or
+`set_animation_control` instead. Worker completion actions are not serializable.
+
 ## Verification
 
 `cargo test --locked` covers MCP discovery, schemas, import/edit/read-back, arrow geometry, undo, stale IDs, output-file protection, and GPUI-thread application/conflict handling on GPUI's virtual platform. `cargo test --release --locked native_mcp_video_roundtrip -- --ignored --nocapture` additionally exercises the built encoder/decoder against real MP4 and PNG files. Native desktop visibility and ChatGPT account/tunnel connection require a manual acceptance pass.
@@ -117,3 +136,32 @@ use the new action tools.
 `add_annotation` / `update_annotation` also accept `spotlight` and `magnifier` marks. Spotlight uses two opposite rectangle corners. Magnifier uses two points: source center and lens center; its radius is `width × 12` pixels (18–300), and `text` specifies zoom (1.5–4, default 2). Source and lens can be moved independently by replacing the mark's points. These objects support native selection, delete, and undo.
 
 `export_gif` uses the same moving backdrop and output-path rules as `export_mp4`, returning `image/gif`, local path, duration and fps. GIFs repeat indefinitely at 20 fps, max edge 960. The palette is learned across one cycle and reused for every frame. The native bridge must be restarted on the new build to use new tool/object types.
+
+### Annotation options
+
+`get_editor_state` includes `tool_options` for the selected annotation or active
+tool. The native sidebar and MCP share these actions:
+
+```json
+{"type":"set_appearance","style":{"dash":"dashed","start":"none","end":"arrow"}}
+{"type":"set_appearance","style":{"fill":"filled","radius":12}}
+{"type":"set_appearance","style":{"cleanup":"adaptive"}}
+{"type":"add_line_point"}
+{"type":"straighten_line"}
+{"type":"set_magnifier_zoom","zoom":3}
+{"type":"set_counter_number","number":5}
+{"type":"set_crop_ratio","ratio":1.7777778}
+```
+
+Appearance replaces the style (omitted fields take their default values), edits
+the selection, and remembers it for that tool's next annotation. `add_line_point`
+and `straighten_line` require a selected line. Other settings work before drawing.
+A mark's optional `style` object also round-trips through annotation tools. Legacy
+marks retain their original appearance. Lines support up to 32 points; `curve`
+controls a two-point line. Opacity is the alpha channel of `set_color`.
+
+Stored annotation widths and corner radii can exceed sidebar ranges after a
+resize. Annotation tools accept these physical sizes up to 32768 pixels (width
+must be positive) so marks returned by `get_document` remain editable. The
+`set_stroke_width` action still uses the toolbar's 0.5–64 pixel range. Resizes
+reject transformed geometry outside document limits before changing history.

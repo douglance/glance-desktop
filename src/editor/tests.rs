@@ -935,3 +935,211 @@ fn backdrop_grid_modes_and_format_menu_work_at_minimum_window_size(cx: &mut Test
             .unwrap()
     );
 }
+
+#[gpui::test]
+fn sidebar_options_edit_selection_remember_each_tool_and_undo(cx: &mut TestAppContext) {
+    use super::actions::Action;
+    use crate::style::{Cleanup, Fill, Style};
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.dispatch(
+            Action::SelectTool {
+                tool: Tool::Rectangle,
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(Action::SetStrokeWidth { width: 8. }, cx)
+            .unwrap();
+        e.dispatch(
+            Action::SetAppearance {
+                style: Style {
+                    fill: Fill::Filled,
+                    radius: 12.,
+                    ..Default::default()
+                },
+            },
+            cx,
+        )
+        .unwrap();
+        reset_layout(e);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(80., 80.), cx);
+        assert_eq!(e.document.marks[0].width, 8.);
+        assert_eq!(e.document.marks[0].style.fill, Fill::Filled);
+        e.dispatch(
+            Action::SetColor {
+                color: [255, 0, 0, 128],
+            },
+            cx,
+        )
+        .unwrap();
+        assert_eq!(e.document.export().get_pixel(45, 45).0, [128, 0, 0, 255]);
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.marks[0].color[3], 255);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    view.update(cx, |e, _, cx| {
+        e.receive(
+            Message::Preview(
+                e.preview.revision,
+                e.document.marks.len(),
+                0,
+                render_image(e.document.render(None)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::SelectTool { tool: Tool::Pen }, cx)
+            .unwrap();
+        assert_eq!(e.tool_settings().width, 5.);
+        e.dispatch(
+            Action::SetAppearance {
+                style: Style {
+                    cleanup: Cleanup::Adaptive,
+                    ..Default::default()
+                },
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(
+            Action::SelectTool {
+                tool: Tool::Rectangle,
+            },
+            cx,
+        )
+        .unwrap();
+        assert_eq!(e.tool_settings().width, 8.);
+        assert_eq!(e.tool_settings().style.fill, Fill::Filled);
+        e.dispatch(Action::SelectTool { tool: Tool::Pen }, cx)
+            .unwrap();
+        assert_eq!(e.tool_settings().style.cleanup, Cleanup::Adaptive);
+    })
+    .unwrap();
+}
+#[gpui::test]
+fn sidebar_add_point_and_magnifier_defaults_work_before_drawing(cx: &mut TestAppContext) {
+    use super::actions::Action;
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.dispatch(Action::SelectTool { tool: Tool::Arrow }, cx)
+            .unwrap();
+        reset_layout(e);
+        e.begin(&down(10., 50.), w, cx);
+        e.finish(&up(90., 50.), cx);
+        e.dispatch(Action::AddLinePoint, cx).unwrap();
+        assert_eq!(e.document.marks[0].points.len(), 3);
+        e.begin(&down(50., 50.), w, cx);
+        e.finish(&up(50., 20.), cx);
+        assert_eq!(e.document.marks[0].points[1], (50., 20.));
+        e.dispatch(Action::StraightenLine, cx).unwrap();
+        assert_eq!(e.document.marks[0].points.len(), 2);
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.marks[0].points.len(), 3);
+    })
+    .unwrap();
+    cx.run_until_parked();
+    view.update(cx, |e, w, cx| {
+        e.receive(
+            Message::Preview(
+                e.preview.revision,
+                e.document.marks.len(),
+                0,
+                render_image(e.document.render(None)),
+            ),
+            cx,
+        );
+        e.dispatch(
+            Action::SelectTool {
+                tool: Tool::Magnifier,
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(Action::SetMagnifierZoom { zoom: 4. }, cx)
+            .unwrap();
+        reset_layout(e);
+        e.begin(&down(20., 20.), w, cx);
+        e.finish(&up(70., 70.), cx);
+        assert_eq!(crate::effects::zoom(e.document.marks.last().unwrap()), 4.);
+    })
+    .unwrap();
+}
+#[gpui::test]
+fn every_tool_sidebar_fits_the_minimum_window_and_sidebar_scroll_does_not_pan(
+    cx: &mut TestAppContext,
+) {
+    use super::actions::Action;
+    let view = editor(cx);
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    for tool in [
+        Tool::Select,
+        Tool::Pen,
+        Tool::Arrow,
+        Tool::Rectangle,
+        Tool::Text,
+        Tool::Highlight,
+        Tool::Pixelate,
+        Tool::Crop,
+        Tool::Counter,
+        Tool::Spotlight,
+        Tool::Magnifier,
+    ] {
+        view.update(&mut visual, |e, _, cx| {
+            e.dispatch(Action::SelectTool { tool }, cx).unwrap()
+        })
+        .unwrap();
+        visual.run_until_parked();
+        let b = visual.debug_bounds("tool-panel").unwrap();
+        assert_eq!(b.size.width, px(260.));
+        assert!(b.origin.x >= px(0.) && b.right() <= px(1050.));
+        let pan = view.update(&mut visual, |e, _, _| e.viewport.pan).unwrap();
+        visual.simulate_event(gpui::ScrollWheelEvent {
+            position: point(b.origin.x + px(100.), b.origin.y + px(100.)),
+            delta: gpui::ScrollDelta::Pixels(point(px(0.), px(-30.))),
+            modifiers: Default::default(),
+            touch_phase: gpui::TouchPhase::Moved,
+        });
+        view.update(&mut visual, |e, _, _| assert_eq!(e.viewport.pan, pan))
+            .unwrap();
+    }
+}
+
+#[gpui::test]
+fn sidebar_buttons_change_objects_without_starting_canvas_gestures(cx: &mut TestAppContext) {
+    use super::actions::Action;
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.dispatch(
+            Action::SelectTool {
+                tool: Tool::Rectangle,
+            },
+            cx,
+        )
+        .unwrap();
+        reset_layout(e);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(80., 80.), cx);
+    })
+    .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(size(px(1050.), px(860.)));
+    visual.run_until_parked();
+    for selector in ["thickness-more", "fill-Filled", "corner-radius-more"] {
+        let p = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_mouse_down(p, MouseButton::Left, Default::default());
+        visual.simulate_mouse_up(p, MouseButton::Left, Default::default());
+        visual.run_until_parked();
+    }
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks.len(), 1);
+        assert_eq!(e.document.marks[0].width, 6.);
+        assert_eq!(e.document.marks[0].style.fill, crate::style::Fill::Filled);
+        assert_eq!(e.document.marks[0].style.radius, 4.);
+        assert!(!e.interaction.gesture.is_active());
+        assert_eq!(e.interaction.selected, Some(0));
+    })
+    .unwrap();
+}

@@ -46,6 +46,10 @@ impl Editor {
         if self.is_busy() {
             return;
         }
+        // Return to the editing pose before hit-testing annotations.
+        if self.panels.animation {
+            self.panels.animation = false;
+        }
         if self.viewport.space_down {
             self.begin_pan(e.position, cx);
             return;
@@ -104,33 +108,28 @@ impl Editor {
             cx.notify();
             return;
         }
+        let settings = self.interaction.defaults[self.interaction.tool.index()];
+        self.interaction.color = settings.color;
+        self.interaction.width = settings.width;
         let mut mark = Mark {
+            style: settings.style,
             tool: self.interaction.tool,
             curve: None,
             points: vec![p],
             color: self.interaction.color,
-            width: match self.interaction.tool {
-                Tool::Text => self.interaction.width.max(20. / 7.),
-                Tool::Counter => self.interaction.width.max(20. / 4.4),
-                _ => self.interaction.width,
-            },
+            width: settings.width,
             text: if self.interaction.tool == Tool::Magnifier {
-                "2".into()
+                settings.magnification.to_string()
             } else {
                 String::new()
             },
         };
         if self.interaction.tool == Tool::Counter {
-            mark.text = (self
-                .document
-                .marks
-                .iter()
-                .filter(|m| m.tool == Tool::Counter)
-                .filter_map(|m| m.text.parse::<usize>().ok())
-                .max()
-                .unwrap_or(0)
-                .saturating_add(1))
-            .to_string();
+            mark.text = self.counter_number().to_string();
+            self.interaction.next_counter = self
+                .interaction
+                .next_counter
+                .map(|n| n.saturating_add(1).min(999));
             self.dispatch_ui(
                 Action::Edit {
                     edit: DocumentAction::AddAnnotation { mark },
@@ -176,6 +175,9 @@ impl Editor {
         cx.notify();
     }
     pub(super) fn motion(&mut self, e: &MouseMoveEvent, cx: &mut Context<Self>) {
+        if self.animation_slider_move(e.position, cx) {
+            return;
+        }
         if self.backdrop_slider_move(e.position, cx) {
             return;
         }
@@ -215,10 +217,17 @@ impl Editor {
                     mark.points.push(p);
                 } else {
                     mark.points.truncate(1);
-                    mark.points.push(navigation::endpoint(
+                    mark.points.push(navigation::crop_endpoint(
+                        self.interaction.crop_ratio,
+                        navigation::endpoint(
+                            mark.tool,
+                            mark.points[0],
+                            p,
+                            e.modifiers.shift,
+                            self.viewport.layout.get(),
+                        ),
                         mark.tool,
                         mark.points[0],
-                        p,
                         e.modifiers.shift,
                         self.viewport.layout.get(),
                     ));
@@ -238,10 +247,17 @@ impl Editor {
             Gesture::EditingArrow { drag, handle } => (drag, Some(handle)),
             Gesture::Drawing(mut mark) => {
                 if let Some(p) = self.coordinate(e.position, true) {
-                    mark.points.push(navigation::endpoint(
+                    mark.points.push(navigation::crop_endpoint(
+                        self.interaction.crop_ratio,
+                        navigation::endpoint(
+                            mark.tool,
+                            mark.points[0],
+                            p,
+                            e.modifiers.shift,
+                            self.viewport.layout.get(),
+                        ),
                         mark.tool,
                         mark.points[0],
-                        p,
                         e.modifiers.shift,
                         self.viewport.layout.get(),
                     ));
@@ -281,7 +297,9 @@ impl Editor {
                 return;
             }
             Gesture::Idle => return,
-            Gesture::Panning(_) | Gesture::AdjustingBackdrop(..) => {
+            Gesture::Panning(_)
+            | Gesture::AdjustingBackdrop(..)
+            | Gesture::AdjustingAnimation(..) => {
                 cx.notify();
                 return;
             }
@@ -548,7 +566,9 @@ impl Editor {
         );
     }
     pub(super) fn scroll(&mut self, e: &ScrollWheelEvent, cx: &mut Context<Self>) {
-        if self.interaction.gesture.is_active() {
+        if self.interaction.gesture.is_active()
+            || !self.viewport.canvas_bounds.get().contains(&e.position)
+        {
             return;
         }
         let delta = e.delta.pixel_delta(px(24.));

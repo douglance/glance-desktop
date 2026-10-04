@@ -30,6 +30,13 @@ instead of invoking input handlers or fabricating key events. The MCP
 `dispatch_action` tool submits the same actions; `get_editor_state` reports
 live state and background progress. See [action examples](../mcp/README.md#editor-actions).
 
+MCP discovery has its own input schema in `src/mcp.rs`. Contract tests in
+`src/mcp/contract_tests.rs` compare it with Serde's actual action inventory and
+validate complete round-trip payloads for every exposed action. New commands
+must ship their MCP path, read-back and docs together. Intentional exclusions
+cover raw document indices and pointer slider gestures, which have semantic
+MCP alternatives; prepared worker results cannot be deserialized.
+
 The document, geometry, compositors, macOS integration, Glance protocol, and
 video encoder remain separate modules. Interaction tests use GPUI's virtual
 platform in `src/editor/tests.rs`, without controlling the user's desktop.
@@ -43,11 +50,21 @@ overlays; compositing and export run on workers. Inside padding repeats the
 nearest screenshot edge pixels before rounding and shadow. Worker-built editor
 textures carry their padding amount with the revision, so stale textures cannot
 change foreground geometry. Annotation coordinates remain in the original
-capture.
+capture, and animations transform the padded foreground as one image.
 
 `src/animation/preview.rs` renders shader previews off the UI thread and adapts
 quality to measured render cost. `src/shaders/motion.metal` and the CPU
 implementations share the same periodic effects.
+
+`src/animation/entrance.rs` evaluates the independent image track: diagonal
+alpha masking, spring scale, or a perspective projection. The annotated image
+and shadow are cached once, and transformed sampling uses premultiplied alpha.
+`composition_preview.rs` uses a persistent worker with one running frame and
+one latest pending request, rejects results after edits/seeks, and shares the
+adaptive preview quality policy. Preview and PNG/MP4/GIF use the same compositor.
+Entrances use absolute clip time; backdrop phase remains periodic. Video exports
+start at time zero, and an optional exit restores the background at the loop end.
+Normal editing uses the settled image pose, preserving annotation hit testing.
 
 `src/platform.rs` owns macOS capture, clipboard, and file dialogs.
 `native/video_encoder.swift` and `native/video_frame.swift` are small AVFoundation

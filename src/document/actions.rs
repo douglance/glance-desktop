@@ -32,6 +32,9 @@ pub(crate) enum DocumentAction {
     SetBackdrop {
         backdrop: Option<Backdrop>,
     },
+    SetImageAnimation {
+        animation: crate::animation::ImageAnimation,
+    },
     Undo,
     Redo,
 }
@@ -50,11 +53,15 @@ pub(crate) struct EditOutcome {
     pub(crate) selection: Selection,
 }
 pub(crate) fn validate_mark(mark: &Mark) -> Result<(), String> {
+    mark.style.validate()?;
     if matches!(mark.tool, Tool::Select | Tool::Crop)
         || mark.points.is_empty()
         || mark.points.len() > 2000
         || !mark.width.is_finite()
-        || !(0.5..=64.).contains(&mark.width)
+        // Stored geometry scales with the image and can lie outside toolbar
+        // settings after resizing. Keep it bounded and editable.
+        || mark.width <= 0.
+        || mark.width > 32768.
         || mark.text.len() > 8000
     {
         return Err("Invalid mark tool, points, width or text".into());
@@ -77,15 +84,13 @@ pub(crate) fn validate_mark(mark: &Mark) -> Result<(), String> {
     }
     if matches!(
         mark.tool,
-        Tool::Arrow
-            | Tool::Rectangle
-            | Tool::Highlight
-            | Tool::Pixelate
-            | Tool::Spotlight
-            | Tool::Magnifier
+        Tool::Rectangle | Tool::Highlight | Tool::Pixelate | Tool::Spotlight | Tool::Magnifier
     ) && mark.points.len() != 2
     {
         return Err("This tool requires two endpoints".into());
+    }
+    if mark.tool == Tool::Arrow && !(2..=32).contains(&mark.points.len()) {
+        return Err("Lines require 2..32 points".into());
     }
     Ok(())
 }
@@ -163,6 +168,7 @@ impl DocumentAction {
                     return Err("Crop must lie inside the source image and be at least 2×2".into());
                 }
                 document.commit(Mark {
+                    style: Default::default(),
                     tool: Tool::Crop,
                     curve: None,
                     points: vec![(x, y), (x + width, y + height)],
@@ -197,10 +203,27 @@ impl DocumentAction {
                 {
                     return Err("Backdrop values out of range".into());
                 }
+                let mut animation = document.image_animation;
+                if let Some(b) = backdrop {
+                    animation.seconds = b.seconds;
+                    animation.validate()?;
+                }
                 outcome.changed = document.backdrop != backdrop;
                 if outcome.changed {
                     document.remember();
                     document.backdrop = backdrop;
+                    document.image_animation = animation;
+                }
+            }
+            Self::SetImageAnimation { animation } => {
+                animation.validate()?;
+                outcome.changed = document.image_animation != animation;
+                if outcome.changed {
+                    document.remember();
+                    document.image_animation = animation;
+                    if let Some(b) = &mut document.backdrop {
+                        b.seconds = animation.seconds;
+                    }
                 }
             }
             Self::Undo => {
@@ -228,9 +251,118 @@ fn check_points(document: &Document, added: usize, removed: usize) -> Result<(),
 mod tests {
     use super::*;
     #[test]
+    fn resized_annotation_sizes_remain_editable_and_invalid_resize_is_atomic() {
+        let mut d = Document::new(image::RgbaImage::new(200, 200));
+        DocumentAction::AddAnnotation {
+            mark: Mark {
+                style: crate::style::Style {
+                    radius: 128.,
+                    ..Default::default()
+                },
+                tool: Tool::Rectangle,
+                points: vec![(20., 20.), (180., 180.)],
+                curve: None,
+                width: 32.,
+                color: [255; 4],
+                text: String::new(),
+            },
+        }
+        .apply(&mut d)
+        .unwrap();
+        DocumentAction::Resize {
+            scale: 4.,
+            smart: false,
+        }
+        .apply(&mut d)
+        .unwrap();
+        assert_eq!(d.marks[0].width, 128.);
+        assert_eq!(d.marks[0].style.radius, 512.);
+        DocumentAction::MoveAnnotation {
+            index: 0,
+            delta: (1., 1.),
+            remember: true,
+        }
+        .apply(&mut d)
+        .unwrap();
+        let mut mark = d.marks[0].clone();
+        mark.color = [255, 0, 0, 128];
+        DocumentAction::UpdateAnnotation { index: 0, mark }
+            .apply(&mut d)
+            .unwrap();
+        d.undo();
+        d.undo();
+        assert_eq!(d.marks[0].points[0], (80., 80.));
+        d.undo();
+        assert_eq!(d.marks[0].style.radius, 128.);
+        assert_eq!(d.base.dimensions(), (200, 200));
+        // Repeated downsizing can legitimately produce sub-toolbar widths.
+        DocumentAction::Resize {
+            scale: 0.1,
+            smart: false,
+        }
+        .apply(&mut d)
+        .unwrap();
+        DocumentAction::Resize {
+            scale: 0.1,
+            smart: false,
+        }
+        .apply(&mut d)
+        .unwrap();
+        DocumentAction::MoveAnnotation {
+            index: 0,
+            delta: (0.1, 0.1),
+            remember: true,
+        }
+        .apply(&mut d)
+        .unwrap();
+        let mut far = d.marks[0].clone();
+        far.points = vec![(20000., 10.), (21000., 20.)];
+        DocumentAction::UpdateAnnotation {
+            index: 0,
+            mark: far,
+        }
+        .apply(&mut d)
+        .unwrap();
+        let base = d.base.clone();
+        let marks = d.marks.clone();
+        let undo = d.undo.len();
+        assert!(
+            DocumentAction::Resize {
+                scale: 4.,
+                smart: false
+            }
+            .apply(&mut d)
+            .is_err()
+        );
+        assert!(std::sync::Arc::ptr_eq(&base, &d.base));
+        assert_eq!(d.marks, marks);
+        assert_eq!(d.undo.len(), undo);
+    }
+    #[test]
+    fn animated_export_without_backdrop_keeps_source_alpha_and_history() {
+        let source = image::RgbaImage::from_pixel(25, 19, image::Rgba([40, 150, 180, 128]));
+        let mut d = Document::new(source.clone());
+        DocumentAction::SetImageAnimation {
+            animation: crate::animation::ImageAnimation {
+                effect: crate::animation::Entrance::Pop,
+                ..Default::default()
+            },
+        }
+        .apply(&mut d)
+        .unwrap();
+        assert_eq!(d.export_at(0.5), source);
+        assert!(d.export_at(0.).pixels().all(|p| p[3] == 0));
+        d.undo();
+        assert!(!d.image_animation.enabled());
+        d.redo();
+        assert!(d.image_animation.enabled());
+        assert_eq!(d.render_snapshot().image_animation, d.image_animation);
+    }
+    #[test]
     fn invalid_edits_preserve_document_and_history() {
         let mut document = Document::new(image::RgbaImage::new(100, 80));
         let mark = Mark {
+            style: Default::default(),
             tool: Tool::Arrow,
             points: vec![(10., 10.), (50., 40.)],
             curve: Some((30., 5.)),

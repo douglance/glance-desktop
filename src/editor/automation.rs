@@ -16,8 +16,11 @@ impl Editor {
                     "revision":self.preview.revision, "busy":self.is_busy(), "operation":operation,
                     "tool":self.interaction.tool, "selected":self.interaction.selected,
                     "text_editing":self.interaction.text_edit.is_some(), "gesture_active":self.interaction.gesture.is_active(),
+                    "tool_options": {"tool":self.options_tool(), "color":self.tool_settings().color, "width":self.tool_settings().width, "style":self.tool_settings().style, "magnification":self.tool_settings().magnification, "crop_ratio":self.interaction.crop_ratio, "counter_number":self.counter_number()},
                     "zoom":self.viewport.zoom, "pan":self.viewport.pan,
-                    "panels":{"backdrop":self.panels.backdrop,"enhance":self.panels.enhance},
+                    "panels":{"tools":!self.panels.backdrop && !self.panels.enhance && !self.panels.animation,"backdrop":self.panels.backdrop,"enhance":self.panels.enhance,"animation":self.panels.animation},
+                    "image_animation":self.document.image_animation,
+                    "playback":{"paused":self.playback.paused,"time":self.clip_time(),"seconds":self.document.animation_seconds()},
                     "status":self.feedback.status,
                 })));
             }
@@ -50,7 +53,7 @@ impl Editor {
                 let _ = reply.send(Ok(Snapshot {
                     document: self.document.clone(),
                     revision: self.preview.revision,
-                    phase: self.animation_phase(),
+                    phase: self.export_phase(),
                 }));
             }
             Request::Apply {

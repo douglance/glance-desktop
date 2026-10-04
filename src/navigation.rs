@@ -139,3 +139,66 @@ mod tests {
         assert_eq!(translation((0., 0.), (20., 4.), true), (20., 0.));
     }
 }
+
+/// Fit a ratio-constrained crop within the image in either drag direction.
+pub fn crop_endpoint(
+    ratio: Option<f32>,
+    p: (f32, f32),
+    tool: Tool,
+    start: (f32, f32),
+    shift: bool,
+    layout: Layout,
+) -> (f32, f32) {
+    if tool != Tool::Crop || shift {
+        return p;
+    }
+    let Some(ratio) = ratio else {
+        return p;
+    };
+    let dx = p.0 - start.0;
+    let dy = p.1 - start.1;
+    let sx = if dx < 0. { -1. } else { 1. };
+    let sy = if dy < 0. { -1. } else { 1. };
+    let max_w = if sx > 0. {
+        layout.width - start.0
+    } else {
+        start.0
+    };
+    let max_h = if sy > 0. {
+        layout.height - start.1
+    } else {
+        start.1
+    };
+    let w = dx.abs().max(dy.abs() * ratio).min(max_w).min(max_h * ratio);
+    (start.0 + sx * w, start.1 + sy * w / ratio)
+}
+
+#[cfg(test)]
+mod crop_ratio_tests {
+    use super::*;
+    #[test]
+    fn aspect_crops_fit_edges_in_both_directions_and_shift_overrides() {
+        let l = Layout {
+            width: 100.,
+            height: 80.,
+            scale: 1.,
+            ..Default::default()
+        };
+        for ratio in [1., 4. / 3., 16. / 9., 9. / 16.] {
+            for (start, end) in [
+                ((10., 10.), (99., 79.)),
+                ((90., 70.), (0., 0.)),
+                ((10., 70.), (99., 0.)),
+                ((90., 10.), (0., 79.)),
+            ] {
+                let p = crop_endpoint(Some(ratio), end, Tool::Crop, start, false, l);
+                assert!(p.0 >= 0. && p.0 <= 100. && p.1 >= 0. && p.1 <= 80.);
+                assert!(((p.0 - start.0).abs() / (p.1 - start.1).abs() - ratio).abs() < 0.001);
+            }
+        }
+        assert_eq!(
+            crop_endpoint(Some(16. / 9.), (50., 50.), Tool::Crop, (10., 10.), true, l),
+            (50., 50.)
+        );
+    }
+}

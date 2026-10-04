@@ -40,13 +40,14 @@ pub fn spotlight_raster(out: &mut RgbaImage, marks: &[&Mark]) {
         .iter()
         .map(|m| region(m, out.width() as f32, out.height() as f32))
         .collect();
+    let dim = focus.iter().map(|m| m.style.dim).fold(0_f32, f32::max);
     for (x, y, p) in out.enumerate_pixels_mut() {
         let inside = regions.iter().any(|&(l, t, r, b)| {
             x as f32 + 0.5 >= l && x as f32 + 0.5 < r && y as f32 + 0.5 >= t && y as f32 + 0.5 < b
         });
         if !inside {
             for c in &mut p.0[..3] {
-                *c = (*c as f32 * 0.32).round() as u8
+                *c = (*c as f32 * (1. - dim)).round() as u8
             }
         }
     }
@@ -152,7 +153,7 @@ pub fn magnifier_raster(out: &mut RgbaImage, source: &RgbaImage, m: &Mark) {
 }
 pub fn paint_spotlight(m: &Mark, l: Layout, w: &mut Window) {
     let (x, y, r, b) = region(m, l.width, l.height);
-    let dim = rgba(0x000000ad);
+    let dim = rgba((m.style.dim * 255.).round() as u32);
     for (x, y, width, height) in [
         (0., 0., l.width, y),
         (0., b, l.width, l.height - b),
@@ -259,6 +260,7 @@ mod tests {
     use super::*;
     fn mark(tool: Tool, a: (f32, f32), b: (f32, f32)) -> Mark {
         Mark {
+            style: Default::default(),
             tool,
             points: vec![a, b],
             color: [255, 0, 100, 255],

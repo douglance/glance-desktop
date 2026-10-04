@@ -84,6 +84,12 @@ impl Editor {
                 let _ = motion_sender.try_send(Message::MotionPreviewReady);
             },
         )));
+        let composition_sender = sender.clone();
+        let composition_preview = Rc::new(std::cell::RefCell::new(
+            crate::animation::CompositionPreview::new(move || {
+                let _ = composition_sender.try_send(Message::MotionPreviewReady);
+            }),
+        ));
         let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
         let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
         let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
@@ -147,6 +153,9 @@ impl Editor {
                 tool: Tool::Select,
                 color: [255, 56, 100, 255],
                 width: 5.,
+                defaults: [Default::default(); 11],
+                crop_ratio: None,
+                next_counter: None,
 
                 text_edit: None,
                 text_session: 0,
@@ -174,6 +183,8 @@ impl Editor {
             },
             playback: PlaybackState {
                 motion_preview,
+                composition_preview,
+                seek: 0,
                 epoch: std::time::Instant::now(),
                 paused: false,
                 position: 0.,
@@ -189,6 +200,7 @@ impl Editor {
                 popup_index: 0,
                 backdrop: false,
                 enhance: false,
+                animation: false,
                 resize_scale: 2.,
                 resize_smart: true,
             },

@@ -48,6 +48,20 @@ pub(crate) enum Action {
     SetStrokeWidth {
         width: f32,
     },
+    SetAppearance {
+        style: crate::style::Style,
+    },
+    SetMagnifierZoom {
+        zoom: f32,
+    },
+    SetCounterNumber {
+        number: u32,
+    },
+    SetCropRatio {
+        ratio: Option<f32>,
+    },
+    AddLinePoint,
+    StraightenLine,
     CycleStrokeWidth,
     CycleMagnifierZoom,
     NudgeSelection {
@@ -68,6 +82,7 @@ pub(crate) enum Action {
     },
     ToggleBackdrop,
     ToggleEnhance,
+    ToggleAnimationPanel,
     ClosePanel {
         panel: Panel,
     },
@@ -107,6 +122,25 @@ pub(crate) enum Action {
         position: (f32, f32),
     },
     TogglePlayback,
+    ReplayAnimation,
+    SeekAnimation {
+        seconds: f32,
+    },
+    SelectEntrance {
+        effect: crate::animation::Entrance,
+    },
+    SetImageAnimation {
+        animation: crate::animation::ImageAnimation,
+    },
+    SetAnimationControl {
+        control: crate::animation::AnimationControl,
+        value: u32,
+    },
+    BeginAnimationAdjustment {
+        control: crate::animation::AnimationControl,
+        track: (f32, f32, f32, f32),
+        position: (f32, f32),
+    },
     ExportAnimation {
         format: AnimationFormat,
     },
@@ -122,6 +156,7 @@ pub(crate) enum Action {
 pub(crate) enum Panel {
     Backdrop,
     Enhance,
+    Animation,
 }
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]

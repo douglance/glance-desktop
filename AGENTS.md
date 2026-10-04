@@ -34,6 +34,24 @@ See `docs/architecture.md` for details and `docs/usage.md` for current behavior.
   provenance. Keep signing material and credentials outside Git.
 - Keep PRs focused and update usage docs when behavior or shortcuts change.
 
+## MCP parity
+
+- Every user-facing command or editable setting needs a semantic MCP path through
+  the shared application/document actions, plus state read-back where relevant.
+  Implement UI and MCP support in the same change.
+- Update `src/mcp.rs` discovery/schema and `mcp/README.md` with action, parameter,
+  annotation, or export changes. A serializable Rust action alone is not enough:
+  the published MCP schema must accept and describe it.
+- Keep `src/mcp/contract_tests.rs` passing. It compares Serde's action inventory
+  with the published schema and validates a complete round-trip payload for every
+  exposed action. Add parameterized fixtures for new actions and behavior tests
+  through the bridge/shared dispatcher for changed semantics, including state,
+  undo and revision conflicts where applicable.
+- Internal prepared results and pointer gestures may stay unexposed; record a
+  reason and semantic alternative in the contract test's explicit exclusions.
+  Prefer revision-scoped document tools over raw annotation indices. Never expose
+  worker completion actions or require fabricated input events for parity.
+
 ## Validation
 
 ```sh

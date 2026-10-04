@@ -5,6 +5,10 @@ use gpui::{
 };
 use image::{Pixel, RgbaImage};
 use std::f32::consts::TAU;
+mod entrance;
+pub use entrance::{AnimationControl, Entrance, ImageAnimation};
+mod composition_preview;
+pub use composition_preview::CompositionPreview;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -286,6 +290,9 @@ pub struct Renderer {
     pub height: u32,
     b: Backdrop,
     foreground: RgbaImage,
+    image_animation: ImageAnimation,
+    image_bounds: (f32, f32, f32, f32),
+    transparent_background: bool,
 }
 impl Renderer {
     pub fn new(source: &RgbaImage, mut b: Backdrop, max_edge: Option<u32>) -> Self {
@@ -355,9 +362,38 @@ impl Renderer {
             height: h,
             b,
             foreground,
+            image_animation: ImageAnimation::default(),
+            image_bounds: (left_f, top_f, sw, sh),
+            transparent_background: false,
         }
     }
+    pub fn with_animation(
+        source: &RgbaImage,
+        b: Backdrop,
+        max_edge: Option<u32>,
+        animation: ImageAnimation,
+    ) -> Self {
+        let mut renderer = Self::new(source, b, max_edge);
+        renderer.image_animation = animation;
+        renderer
+    }
+    pub fn for_document(document: &crate::document::Document, max_edge: Option<u32>) -> Self {
+        let mut renderer = Self::with_animation(
+            &document.render(None),
+            document.animation_backdrop(),
+            max_edge,
+            document.image_animation,
+        );
+        renderer.transparent_background = document.backdrop.is_none();
+        renderer
+    }
     pub fn frame(&self, phase: f32) -> RgbaImage {
+        let foreground = entrance::foreground(
+            &self.foreground,
+            self.image_animation,
+            self.image_bounds,
+            phase * self.image_animation.seconds as f32,
+        );
         let s = scene(self.b, phase);
         let mut out = if self.b.motion.uses_shader() {
             crate::motion_shader::frame(
@@ -370,11 +406,11 @@ impl Renderer {
         } else {
             RgbaImage::new(self.width, self.height)
         };
-        if !self.b.motion.uses_shader() {
+        if !self.b.motion.uses_shader() && !self.transparent_background {
             for y in 0..self.height {
                 let c = mix(s.top, s.bottom, (y as f32 + 0.5) / self.height as f32);
                 for x in 0..self.width {
-                    let fg = self.foreground.get_pixel(x, y);
+                    let fg = foreground.get_pixel(x, y);
                     out.put_pixel(
                         x,
                         y,
@@ -398,7 +434,7 @@ impl Renderer {
             let y1 = (cy + r + 1.).max(0.).min(self.height as f32) as u32;
             for y in y0..y1 {
                 for x in x0..x1 {
-                    if self.foreground.get_pixel(x, y)[3] == 255 {
+                    if foreground.get_pixel(x, y)[3] == 255 {
                         continue;
                     }
                     let distance = (x as f32 + 0.5 - cx).hypot(y as f32 + 0.5 - cy);
@@ -415,9 +451,11 @@ impl Renderer {
                 }
             }
         }
-        for (p, fg) in out.pixels_mut().zip(self.foreground.pixels()) {
+        for (p, fg) in out.pixels_mut().zip(foreground.pixels()) {
             p.blend(fg);
-            p[3] = 255;
+            if !self.transparent_background {
+                p[3] = 255;
+            }
         }
         out
     }
@@ -425,6 +463,51 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn every_image_entrance_composes_with_all_backdrops_and_holds_exactly() {
+        let source = RgbaImage::from_pixel(64, 40, image::Rgba([230, 40, 70, 210]));
+        let empty = RgbaImage::new(64, 40);
+        for motion in std::iter::once(Motion::Still).chain(Motion::EFFECTS) {
+            let b = Backdrop {
+                motion,
+                padding: 14,
+                inner_radius: 7,
+                inside_padding: 9,
+                shadow: 8,
+                ..Default::default()
+            };
+            let static_renderer = Renderer::new(&source, b, None);
+            let background = Renderer::new(&empty, Backdrop { shadow: 0, ..b }, None);
+            for effect in [Entrance::Diagonal, Entrance::Pop, Entrance::Tilt] {
+                let animation = ImageAnimation {
+                    effect,
+                    exit: true,
+                    ..Default::default()
+                };
+                let renderer = Renderer::with_animation(&source, b, None, animation);
+                assert_eq!(
+                    renderer.frame(0.),
+                    background.frame(0.),
+                    "{effect:?} {motion:?} starts on background alone"
+                );
+                assert_ne!(
+                    renderer.frame(0.14),
+                    background.frame(0.14),
+                    "{effect:?} {motion:?} reveals image"
+                );
+                assert_eq!(
+                    renderer.frame(0.5),
+                    static_renderer.frame(0.5),
+                    "{effect:?} {motion:?} preserves settled pixels"
+                );
+                assert_eq!(
+                    renderer.frame(1.),
+                    background.frame(1.),
+                    "{effect:?} {motion:?} exits without ghost shadow"
+                );
+            }
+        }
+    }
     #[test]
     fn liquid_export_blends_transparency_and_extends_edges() {
         let source = RgbaImage::from_pixel(20, 12, image::Rgba([250, 80, 30, 128]));

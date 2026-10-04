@@ -39,6 +39,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                         })
                         .collect();
                     d.commit(Mark {
+                        style: Default::default(),
                         tool,
                         curve: None,
                         points,
@@ -81,6 +82,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                 }
                 8 if d.base.width() > 6 && d.base.height() > 6 => {
                     d.commit(Mark {
+                        style: Default::default(),
                         tool: Tool::Crop,
                         curve: None,
                         points: vec![

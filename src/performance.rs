@@ -37,6 +37,7 @@ fn drawing_preparation_benchmark() {
     );
     for count in [500, 2000, 10000] {
         let mark = Mark {
+            style: Default::default(),
             tool: Tool::Pen,
             curve: None,
             points: (0..count)
@@ -77,6 +78,7 @@ fn drawing_preparation_benchmark() {
         );
     }
     let arrow = Mark {
+        style: Default::default(),
         tool: Tool::Arrow,
         points: vec![(100., 1900.), (3500., 1900.)],
         curve: Some((1800., -1000.)),
@@ -96,6 +98,7 @@ fn drawing_preparation_benchmark() {
     );
     let mut document = Document::new(RgbaImage::from_pixel(3840, 2160, Rgba([0, 0, 0, 255])));
     let mark = Mark {
+        style: Default::default(),
         tool: Tool::Pen,
         curve: None,
         points: vec![(10., 10.), (100., 100.)],

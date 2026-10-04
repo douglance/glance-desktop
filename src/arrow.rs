@@ -20,27 +20,14 @@ pub fn samples(m: &Mark) -> Vec<Point> {
         .map(|i| at(m, i as f32 / steps as f32))
         .collect()
 }
-/// Trim only the hidden tail of the shaft, preserving the original quadratic.
-pub fn shaft_end(m: &Mark) -> f32 {
-    let h = head(m);
-    let inset = (h[0].0 - (h[1].0 + h[2].0) * 0.5).hypot(h[0].1 - (h[1].1 + h[2].1) * 0.5) * 0.8;
-    let mut length = 0.;
-    let mut previous = at(m, 1.);
-    for i in (0..128).rev() {
-        let t = i as f32 / 128.;
-        let p = at(m, t);
-        length += (p.0 - previous.0).hypot(p.1 - previous.1);
-        if length >= inset {
-            return t;
-        }
-        previous = p;
-    }
-    0.
-}
 pub fn head(m: &Mark) -> [Point; 3] {
     let a = m.points[0];
     let b = *m.points.last().unwrap();
-    let c = m.curve.unwrap_or(a);
+    let c = if m.points.len() > 2 {
+        m.points[m.points.len() - 2]
+    } else {
+        m.curve.unwrap_or(a)
+    };
     let d = (b.0 - c.0, b.1 - c.1);
     let n = d.0.hypot(d.1);
     let d = if n > 0.001 {
@@ -48,9 +35,15 @@ pub fn head(m: &Mark) -> [Point; 3] {
     } else {
         (1., 0.)
     };
-    let len = (m.width * 4.)
-        .max(16.)
-        .min((b.0 - a.0).hypot(b.1 - a.1) * 0.45);
+    let length = if m.points.len() > 2 {
+        m.points
+            .windows(2)
+            .map(|p| (p[1].0 - p[0].0).hypot(p[1].1 - p[0].1))
+            .sum()
+    } else {
+        (b.0 - a.0).hypot(b.1 - a.1)
+    };
+    let len = (m.width * 4.).max(16.).min(length * 0.45);
     let half = len * 0.42;
     [
         b,
@@ -65,15 +58,27 @@ pub fn inside_triangle(p: Point, h: [Point; 3]) -> bool {
         && ((h[1].0 - h[0].0) * (h[2].1 - h[0].1) - (h[1].1 - h[0].1) * (h[2].0 - h[0].0)).abs()
             > 0.001
 }
-pub fn handles(m: &Mark) -> [Point; 3] {
-    [m.points[0], at(m, 0.5), *m.points.last().unwrap()]
+pub fn handles(m: &Mark) -> Vec<Point> {
+    if m.tool == Tool::Arrow && m.points.len() > 2 {
+        m.points.clone()
+    } else {
+        vec![m.points[0], at(m, 0.5), *m.points.last().unwrap()]
+    }
 }
 pub fn handle_at(m: &Mark, p: Point, tolerance: f32) -> Option<usize> {
     if !matches!(m.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight) || m.points.len() < 2 {
         return None;
     }
     // Endpoints win when a short arrow's handles overlap.
-    [0, 2, 1]
+    let order: Vec<usize> = if m.tool == Tool::Arrow && m.points.len() > 2 {
+        std::iter::once(0)
+            .chain(std::iter::once(m.points.len() - 1))
+            .chain(1..m.points.len() - 1)
+            .collect()
+    } else {
+        vec![0, 2, 1]
+    };
+    order
         .into_iter()
         .filter(|i| m.tool == Tool::Arrow || *i != 1)
         .find(|i| {
@@ -83,6 +88,26 @@ pub fn handle_at(m: &Mark, p: Point, tolerance: f32) -> Option<usize> {
 }
 pub fn drag(m: &mut Mark, handle: Option<usize>, delta: Point, shift: bool) {
     if delta == (0., 0.) {
+        return;
+    }
+    if m.tool == Tool::Arrow && m.points.len() > 2 {
+        if let Some(i) = handle {
+            let mut p = (m.points[i].0 + delta.0, m.points[i].1 + delta.1);
+            if shift {
+                let fixed = m.points[if i == 0 { 1 } else { i - 1 }];
+                let d = (p.0 - fixed.0, p.1 - fixed.1);
+                let angle = (d.1.atan2(d.0) / std::f32::consts::FRAC_PI_4).round()
+                    * std::f32::consts::FRAC_PI_4;
+                let length = d.0.hypot(d.1);
+                p = (
+                    fixed.0 + angle.cos() * length,
+                    fixed.1 + angle.sin() * length,
+                );
+            }
+            m.points[i] = p;
+        } else {
+            m.translate(delta.0, delta.1);
+        }
         return;
     }
     let p = handle
@@ -143,7 +168,7 @@ pub fn paint_handles(m: &Mark, l: Layout, w: &mut gpui::Window) {
     }
 }
 pub fn raster(out: &mut image::RgbaImage, m: &Mark) {
-    use image::{GrayImage, Luma, Pixel, Rgba, imageops};
+    use image::{GrayImage, Luma, Rgba, imageops};
     use imageproc::{
         drawing::{draw_filled_circle_mut, draw_polygon_mut},
         point::Point,
@@ -158,36 +183,53 @@ pub fn raster(out: &mut image::RgbaImage, m: &Mark) {
     }
     let mut mask = GrayImage::new((right - x) * 2, (bottom - y) * 2);
     let map = |p: (f32, f32)| ((p.0 - x as f32) * 2., (p.1 - y as f32) * 2.);
-    let t = shaft_end(m);
-    let steps = if m.curve.is_some() { 64 } else { 1 };
-    let pts: Vec<_> = (0..=steps)
-        .map(|i| at(m, t * i as f32 / steps as f32))
-        .collect();
+    let pts = crate::style::shaft(m);
     let radius = m.width.round().max(1.) as i32;
-    let h = head(m);
-    for pair in pts.windows(2) {
-        let a = map(pair[0]);
-        let b = map(pair[1]);
-        let steps = (b.0 - a.0).hypot(b.1 - a.1).ceil().max(1.) as usize;
-        for i in 0..=steps {
-            let t = i as f32 / steps as f32;
+    for stroke in crate::style::strokes(&pts, m.style.dash, m.width) {
+        if stroke.len() == 1 {
+            let p = map(stroke[0]);
             draw_filled_circle_mut(
                 &mut mask,
-                (
-                    (a.0 + (b.0 - a.0) * t).round() as i32,
-                    (a.1 + (b.1 - a.1) * t).round() as i32,
-                ),
+                (p.0.round() as i32, p.1.round() as i32),
                 radius,
                 Luma([255]),
             );
         }
+        for pair in stroke.windows(2) {
+            let a = map(pair[0]);
+            let b = map(pair[1]);
+            let steps = (b.0 - a.0).hypot(b.1 - a.1).ceil().max(1.) as usize;
+            for i in 0..=steps {
+                let t = i as f32 / steps as f32;
+                draw_filled_circle_mut(
+                    &mut mask,
+                    (
+                        (a.0 + (b.0 - a.0) * t).round() as i32,
+                        (a.1 + (b.1 - a.1) * t).round() as i32,
+                    ),
+                    radius,
+                    Luma([255]),
+                );
+            }
+        }
     }
-    let polygon = h.map(|p| {
+    for h in crate::style::heads(m) {
+        let polygon = h.map(|p| {
+            let p = map(p);
+            Point::new(p.0.round() as i32, p.1.round() as i32)
+        });
+        if polygon[0] != polygon[1] && polygon[1] != polygon[2] && polygon[0] != polygon[2] {
+            draw_polygon_mut(&mut mask, &polygon, Luma([255]));
+        }
+    }
+    for p in crate::style::dots(m) {
         let p = map(p);
-        Point::new(p.0.round() as i32, p.1.round() as i32)
-    });
-    if polygon[0] != polygon[1] && polygon[1] != polygon[2] && polygon[0] != polygon[2] {
-        draw_polygon_mut(&mut mask, &polygon, Luma([255]));
+        draw_filled_circle_mut(
+            &mut mask,
+            (p.0.round() as i32, p.1.round() as i32),
+            (m.width * 2.).max(3.).round() as i32 * 2,
+            Luma([255]),
+        );
     }
     let small = imageops::resize(&mask, right - x, bottom - y, imageops::FilterType::Triangle);
     for (dx, dy, p) in small.enumerate_pixels() {
@@ -196,15 +238,28 @@ pub fn raster(out: &mut image::RgbaImage, m: &Mark) {
         }
         let mut color = m.color;
         color[3] = ((color[3] as u16 * p[0] as u16 + 127) / 255) as u8;
-        out.get_pixel_mut(x + dx, y + dy).blend(&Rgba(color));
+        crate::style::blend(out.get_pixel_mut(x + dx, y + dy), Rgba(color));
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn zero_length_arrow_keeps_the_live_stroke_in_exports() {
+        let mut m = mark();
+        m.points = vec![(30., 30.), (30., 30.)];
+        m.curve = None;
+        for end in [crate::style::End::None, crate::style::End::Arrow] {
+            m.style.end = end;
+            let mut out = image::RgbaImage::new(60, 60);
+            raster(&mut out, &m);
+            assert_eq!(out.get_pixel(30, 30).0, m.color);
+        }
+    }
     fn mark() -> Mark {
         Mark {
+            style: Default::default(),
             tool: Tool::Arrow,
             points: vec![(20., 100.), (180., 100.)],
             curve: Some((100., -20.)),

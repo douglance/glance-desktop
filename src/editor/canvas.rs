@@ -54,14 +54,32 @@ impl Editor {
         let layout = self.viewport.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let composition_preview = self.playback.composition_preview.clone();
+        let composition = self.panels.animation && self.document.image_animation.enabled();
+        let composition_source = composition.then(|| {
+            composition_preview
+                .borrow_mut()
+                .source(&self.document, self_revision)
+        });
+        let clip_time = self.clip_time();
+        let seek = self.playback.seek;
+        if !composition {
+            composition_preview.borrow_mut().clear(window);
+        }
         let motion_preview = self.playback.motion_preview.clone();
-        if !backdrop.is_some_and(|b| b.motion.uses_shader()) {
+        if composition || !backdrop.is_some_and(|b| b.motion.uses_shader()) {
             motion_preview.borrow_mut().clear(window);
         }
         let animation_phase = self.animation_phase();
         let animation_playing =
             !self.playback.paused && !self.is_busy() && window.is_window_active();
-        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still) && animation_playing {
+        if animation_playing
+            && (if composition {
+                clip_time < self.document.animation_seconds() as f32
+            } else {
+                backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
+            })
+        {
             window.request_animation_frame();
         }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
@@ -136,6 +154,21 @@ impl Editor {
                                 ),
                             )
                         });
+                        if let Some(document) = &composition_source {
+                            window.paint_quad(fill(
+                                frame_bounds,
+                                document.animation_backdrop().background(),
+                            ));
+                            composition_preview.borrow_mut().paint(
+                                clip_time,
+                                seek,
+                                frame_bounds,
+                                animation_playing
+                                    && clip_time < document.animation_seconds() as f32,
+                                window,
+                            );
+                            return;
+                        }
                         if let Some(b) = backdrop {
                             window.paint_quad(quad(
                                 frame_bounds,
@@ -300,8 +333,15 @@ impl Editor {
             .when(self.panels.backdrop, |el| {
                 el.child(self.backdrop_controls(cx))
             })
+            .when(
+                !self.panels.backdrop && !self.panels.enhance && !self.panels.animation,
+                |el| el.child(self.tool_controls(cx)),
+            )
             .when(self.panels.enhance, |el| {
                 el.child(self.enhance_controls(cx))
+            })
+            .when(self.panels.animation, |el| {
+                el.child(self.animation_controls(cx))
             })
     }
 }

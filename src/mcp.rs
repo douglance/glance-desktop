@@ -20,7 +20,16 @@ pub fn tools() -> Vec<Value> {
     let number = json!({"type":"number"});
     let path = json!({"type":"string","description":"Absolute path on the Mac running Glance."});
     let revision = json!({"type":"integer","minimum":0});
-    let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]). All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","minimum":0.5,"maximum":64},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
+    let style = json!({"type":"object","properties":{
+        "dash":{"type":"string","enum":["solid","dashed","dotted"]},
+        "fill":{"type":"string","enum":["outline","filled"]},
+        "radius":{"type":"number","minimum":0,"maximum":32768},
+        "cleanup":{"type":"string","enum":["raw","smooth","adaptive"]},
+        "start":{"type":"string","enum":["none","arrow","dot"]},
+        "end":{"type":"string","enum":["none","arrow","dot"]},
+        "dim":{"type":"number","minimum":0,"maximum":0.95}
+    },"additionalProperties":false});
+    let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]), style (optional dash/fill/radius/cleanup/start/end/dim). Lines allow 2..32 points; a two-point line can have a curve. All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"style":style,"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","exclusiveMinimum":0,"maximum":32768},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
     vec![
         tool(
             "get_editor_state",
@@ -33,16 +42,23 @@ pub fn tools() -> Vec<Value> {
             "dispatch_action",
             "Dispatch the same typed action as the native toolbar and shortcuts. Example: action={\"type\":\"select_tool\",\"tool\":\"arrow\"}. Other examples: fit, copy_image, copy_remote, resize (scale, smart), set_backdrop (backdrop), export_animation (format: mp4/gif). Copy/paste/undo/redo/delete are contextual to inline text. Image actions commit inline text. Returns revision and operation_id: a non-null ID means background work was accepted, not completed. Capture/open/save/export may show native dialogs. Existing revision-scoped annotation tools are also available.",
             json!({"action":{"type":"object","properties":{
-                "type":{"type":"string","enum":["show","capture","open_image","open_path","save_image","copy_image","copy_remote","paste_image","copy","cut","paste","undo","redo","delete","duplicate_selection","select_tool","set_color","set_stroke_width","cycle_stroke_width","cycle_magnifier_zoom","nudge_selection","fit","actual_size","zoom","zoom_at","pan_by","toggle_backdrop","toggle_enhance","close_panel","set_resize_scale","toggle_smart_resize","apply_resize","resize","rotate","set_backdrop","set_backdrop_fill","select_motion","set_backdrop_preset","set_backdrop_control","toggle_playback","export_animation","cancel_export","reveal_export","commit_text","cancel","help","quit"]},
+                "type":{"type":"string","enum":["show","capture","open_image","open_path","save_image","copy_image","copy_remote","paste_image","copy","cut","paste","undo","redo","delete","duplicate_selection","select_tool","set_color","set_stroke_width","set_appearance","set_magnifier_zoom","set_counter_number","set_crop_ratio","add_line_point","straighten_line","cycle_stroke_width","cycle_magnifier_zoom","nudge_selection","fit","actual_size","zoom","zoom_at","pan_by","toggle_backdrop","toggle_enhance","close_panel","set_resize_scale","toggle_smart_resize","apply_resize","resize","rotate","set_backdrop","set_backdrop_format","toggle_backdrop_enabled","set_backdrop_fill","select_motion","set_backdrop_preset","set_backdrop_control","toggle_animation_panel","select_entrance","set_image_animation","set_animation_control","seek_animation","replay_animation","toggle_playback","export_animation","cancel_export","reveal_export","commit_text","cancel","help","quit"]},
                 "area":{"type":"boolean"}, "path":path, "tool":{"type":"string"},
                 "color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},
+                "style":style,"zoom":number,"number":{"type":"integer","minimum":1,"maximum":999},"ratio":{"type":["number","null"],"minimum":0.1,"maximum":10},
                 "width":number,"factor":number,"scale":number,"smart":{"type":"boolean"},
                 "delta":{"type":"array","items":number,"minItems":2,"maxItems":2},
                 "anchor":{"type":"array","items":number,"minItems":2,"maxItems":2},
-                "remember":{"type":"boolean"}, "panel":{"type":"string","enum":["backdrop","enhance"]},
+                "remember":{"type":"boolean"}, "panel":{"type":"string","enum":["backdrop","enhance","animation"]},
                 "backdrop":{"type":["object","null"]},"gradient":{"type":"boolean"},"motion":{"type":"string"},
                 "preset":{"type":"integer","minimum":0},"control":{"type":"string"},"value":{"type":"integer","minimum":0},
-                "format":{"type":"string","enum":["mp4","gif"]}
+                "format":{"type":"string","enum":["mp4","gif","auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},"animation":{"type":"object","description":"Image entrance settings; omitted fields use defaults. The entrance, delay and optional exit must fit within the clip.","properties":{
+                    "effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},
+                    "duration_ms":{"type":"integer","minimum":200,"maximum":2000},
+                    "delay_ms":{"type":"integer","minimum":0,"maximum":1000},
+                    "seconds":{"type":"integer","minimum":2,"maximum":15},
+                    "exit":{"type":"boolean"}
+                },"additionalProperties":false},"seconds":number
             },"required":["type"],"additionalProperties":false},"expected_revision":revision}),
             &["action"],
             false,
@@ -56,7 +72,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "get_document",
-            "Read dimensions, backdrop and editable objects. Object IDs are revision-scoped; refresh after any edit.",
+            "Read dimensions, backdrop, image animation and editable objects. Object IDs are revision-scoped; refresh after any edit.",
             json!({}),
             &[],
             true,
@@ -147,14 +163,14 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "export_mp4",
-            "Rasterize animated backdrop + fixed screenshot/annotations into H.264 MP4 (30fps, max1920px, 2–15 seconds). Requires motion backdrop. Existing files are never overwritten.",
+            "Export backdrop motion and/or image entrance with annotations into H.264 MP4 (30fps, max1920px, 2–15 seconds), starting at time zero. Requires a motion backdrop or image entrance; entrances also work over a still or absent backdrop. Existing files are never overwritten.",
             json!({"path":path}),
             &[],
             false,
         ),
         tool(
             "export_gif",
-            "Export an infinitely repeating GIF of one complete backdrop cycle (20fps, max960px, 2–15 seconds). Fixed palette keeps foreground stable. Requires moving backdrop. Existing files are never overwritten.",
+            "Export an infinitely repeating GIF of backdrop motion and/or image entrance (20fps, max960px, 2–15 seconds), starting at time zero. Uses a fixed palette. Requires a motion backdrop or image entrance; entrances also work over a still or absent backdrop. Existing files are never overwritten.",
             json!({"path":path}),
             &[],
             false,
@@ -368,12 +384,15 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
         }
         "export_mp4" | "export_gif" => {
             let is_gif = name == "export_gif";
-            if !s
-                .document
-                .backdrop
-                .is_some_and(|b| b.motion != Motion::Still)
+            if !s.document.image_animation.enabled()
+                && !s
+                    .document
+                    .backdrop
+                    .is_some_and(|b| b.motion != Motion::Still)
             {
-                return Err("Set a motion backdrop before exporting an animation".into());
+                return Err(
+                    "Set a motion backdrop or image entrance before exporting an animation".into(),
+                );
             }
             let path = output(args, if is_gif { "gif" } else { "mp4" })?;
             // Reserve destination before encoding; release it on any failure.
@@ -399,7 +418,7 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
                 return Err(result.err().unwrap_or("Video canceled".into()));
             }
             return Ok((
-                json!({"path":path,"mimeType":if is_gif {"image/gif"} else {"video/mp4"},"seconds":s.document.backdrop.unwrap().seconds,"fps":if is_gif{20}else{30},"loop":true,"revision":s.revision}),
+                json!({"path":path,"mimeType":if is_gif {"image/gif"} else {"video/mp4"},"seconds":s.document.animation_seconds(),"fps":if is_gif{20}else{30},"loop":true,"revision":s.revision}),
                 false,
                 false,
             ));
@@ -531,6 +550,9 @@ fn validate(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
     }
     if let Some(n) = value.as_f64()
         && (schema["minimum"].as_f64().is_some_and(|min| n < min)
+            || schema["exclusiveMinimum"]
+                .as_f64()
+                .is_some_and(|min| n <= min)
             || schema["maximum"].as_f64().is_some_and(|max| n > max))
     {
         return Err(format!("Out of range: {path}"));
@@ -576,6 +598,9 @@ fn validate(value: &Value, schema: &Value, path: &str) -> Result<(), String> {
 }
 
 #[cfg(test)]
+mod contract_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     fn snapshot() -> Snapshot {
@@ -591,6 +616,41 @@ mod tests {
     }
     fn arrow() -> Value {
         json!({"tool":"arrow","points":[[10,10],[60,50]],"curve":[30,5],"color":[255,56,100,255],"width":3,"text":""})
+    }
+    #[test]
+    fn resized_annotation_geometry_round_trips_through_mcp() {
+        let mut s = snapshot();
+        let mut mark = arrow();
+        mark["width"] = json!(32);
+        mark["style"] = json!({"radius":128});
+        operate("add_annotation", &json!({"mark":mark}), &mut s).unwrap();
+        operate("resize_image", &json!({"scale":4,"smart":false}), &mut s).unwrap();
+        let (document, _, _) = operate("get_document", &json!({}), &mut s).unwrap();
+        let object = &document["objects"][0];
+        let mut mark = object["mark"].clone();
+        assert_eq!(mark["width"].as_f64(), Some(128.));
+        assert_eq!(mark["style"]["radius"].as_f64(), Some(512.));
+        mark["color"] = json!([10, 20, 30, 128]);
+        operate(
+            "update_annotation",
+            &json!({"id":object["id"],"mark":mark}),
+            &mut s,
+        )
+        .unwrap();
+        operate("resize_image", &json!({"scale":0.1,"smart":false}), &mut s).unwrap();
+        operate("resize_image", &json!({"scale":0.1,"smart":false}), &mut s).unwrap();
+        operate("resize_image", &json!({"scale":0.1,"smart":false}), &mut s).unwrap();
+        let mark = serde_json::to_value(&s.document.marks[0]).unwrap();
+        assert!(mark["width"].as_f64().unwrap() < 0.5);
+        operate(
+            "update_annotation",
+            &json!({"id":"7:0","mark":mark}),
+            &mut s,
+        )
+        .unwrap();
+        let mut zero_width = mark;
+        zero_width["width"] = json!(0);
+        assert!(validate_tool("add_annotation", &json!({"mark":zero_width})).is_err());
     }
     #[test]
     fn editable_workflow_and_raster_readback() {

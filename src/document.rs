@@ -20,6 +20,9 @@ pub enum Tool {
     Magnifier,
 }
 impl Tool {
+    pub fn index(self) -> usize {
+        self as usize
+    }
     pub fn label(self) -> &'static str {
         match self {
             Self::Spotlight => "Spotlight",
@@ -38,6 +41,8 @@ impl Tool {
 }
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Mark {
+    #[serde(default)]
+    pub style: crate::style::Style,
     pub tool: Tool,
     /// Quadratic control point; None is a straight arrow.
     pub curve: Option<(f32, f32)>,
@@ -51,12 +56,14 @@ struct Snapshot {
     base: Arc<RgbaImage>,
     marks: Vec<Mark>,
     backdrop: Option<crate::backdrop::Backdrop>,
+    image_animation: crate::animation::ImageAnimation,
 }
 #[derive(Clone)]
 pub struct Document {
     pub base: Arc<RgbaImage>,
     pub marks: Vec<Mark>,
     pub backdrop: Option<crate::backdrop::Backdrop>,
+    pub image_animation: crate::animation::ImageAnimation,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
 }
@@ -66,6 +73,7 @@ impl Document {
             base: Arc::new(base),
             marks: vec![],
             backdrop: None,
+            image_animation: Default::default(),
             undo: vec![],
             redo: vec![],
         }
@@ -75,6 +83,7 @@ impl Document {
             base: self.base.clone(),
             marks: self.marks.clone(),
             backdrop: self.backdrop,
+            image_animation: self.image_animation,
             undo: vec![],
             redo: vec![],
         }
@@ -84,6 +93,7 @@ impl Document {
             base: self.base.clone(),
             marks: self.marks.clone(),
             backdrop: self.backdrop,
+            image_animation: self.image_animation,
         }
     }
     pub fn remember(&mut self) {
@@ -118,6 +128,7 @@ impl Document {
             self.base = previous.base;
             self.marks = previous.marks;
             self.backdrop = previous.backdrop;
+            self.image_animation = previous.image_animation;
         }
     }
     pub fn redo(&mut self) {
@@ -126,6 +137,7 @@ impl Document {
             self.base = next.base;
             self.marks = next.marks;
             self.backdrop = next.backdrop;
+            self.image_animation = next.image_animation;
         }
     }
     #[cfg(test)]
@@ -160,6 +172,9 @@ impl Document {
         out
     }
     pub fn export_at(&self, phase: f32) -> RgbaImage {
+        if self.image_animation.enabled() {
+            return crate::animation::Renderer::for_document(self, None).frame(phase);
+        }
         if let Some(b) = self.backdrop
             && b.motion != crate::animation::Motion::Still
         {
@@ -167,6 +182,25 @@ impl Document {
         } else {
             self.export()
         }
+    }
+    pub fn animation_seconds(&self) -> u32 {
+        if self.image_animation.enabled() {
+            self.image_animation.seconds
+        } else {
+            self.backdrop.map_or(5, |b| b.seconds)
+        }
+    }
+    pub fn animation_backdrop(&self) -> crate::backdrop::Backdrop {
+        let mut b = self.backdrop.unwrap_or(crate::backdrop::Backdrop {
+            preset: 7,
+            padding: 0,
+            shadow: 0,
+            inner_radius: 0,
+            inside_padding: 0,
+            ..Default::default()
+        });
+        b.seconds = self.animation_seconds();
+        b
     }
     pub fn export(&self) -> RgbaImage {
         let image = self.render(None);
@@ -183,10 +217,8 @@ impl Document {
         }
         let sx = target.0 as f32 / self.base.width() as f32;
         let sy = target.1 as f32 / self.base.height() as f32;
-        let resized = crate::enhance::resize(&self.base, target, smart);
-        self.remember();
-        self.base = Arc::new(resized);
-        for mark in &mut self.marks {
+        let mut marks = self.marks.clone();
+        for mark in &mut marks {
             for p in &mut mark.points {
                 p.0 *= sx;
                 p.1 *= sy;
@@ -196,7 +228,13 @@ impl Document {
                 c.1 *= sy;
             }
             mark.width *= (sx + sy) * 0.5;
+            mark.style.radius *= (sx + sy) * 0.5;
+            actions::validate_mark(mark)?;
         }
+        let resized = crate::enhance::resize(&self.base, target, smart);
+        self.remember();
+        self.base = Arc::new(resized);
+        self.marks = marks;
         Ok(())
     }
     pub fn rotate(&mut self) {
@@ -277,49 +315,49 @@ pub(crate) fn paint(out: &mut RgbaImage, mark: &Mark) {
                 let em_size = (mark.width * 7.).max(1.);
                 let scale = em_size * font.height_unscaled()
                     / font.units_per_em().unwrap_or(font.height_unscaled());
+                use image::{GrayImage, Luma};
+                let bounds = mark.bounds();
+                // Advance bounds are for selection; glyph ink (such as j's
+                // negative bearing or accented capitals) extends beyond them.
+                // Reserve an em around the Arial label, clipped to the image.
+                let margin = em_size.ceil();
+                let x = (bounds.0.floor() - margin).max(0.) as u32;
+                let y = (bounds.1.floor() - margin).max(0.) as u32;
+                let right = (bounds.2.ceil() + margin).max(0.).min(out.width() as f32) as u32;
+                let bottom = (bounds.3.ceil() + margin).max(0.).min(out.height() as f32) as u32;
+                if x >= right || y >= bottom {
+                    return;
+                }
+                let mut mask = GrayImage::new(right - x, bottom - y);
                 draw_text_mut(
-                    out,
-                    color,
-                    a.0 as i32,
-                    (a.1 + (em_size - scale) / 2.).round() as i32,
+                    &mut mask,
+                    Luma([255]),
+                    (a.0 - x as f32) as i32,
+                    (a.1 + (em_size - scale) / 2. - y as f32).round() as i32,
                     scale,
                     font,
                     &mark.text,
                 );
+                for (dx, dy, p) in mask.enumerate_pixels() {
+                    if p[0] == 0 {
+                        continue;
+                    }
+                    let mut tint = color;
+                    tint[3] = ((tint[3] as u16 * p[0] as u16 + 127) / 255) as u8;
+                    crate::style::blend(out.get_pixel_mut(x + dx, y + dy), tint);
+                }
             }
         }
-        Tool::Pen => {
-            if mark.points.len() == 1 {
-                thick_line(out, a, a, mark.width, color);
-            }
-            for pair in mark.points.windows(2) {
-                thick_line(out, pair[0], pair[1], mark.width, color);
-            }
-        }
+        Tool::Pen | Tool::Rectangle => paint_shape(out, mark),
         Tool::Arrow => crate::arrow::raster(out, mark),
-        Tool::Rectangle | Tool::Crop => {
-            let c = if mark.tool == Tool::Crop {
-                Rgba([255, 255, 255, 255])
-            } else {
-                color
-            };
+        Tool::Crop => {
             for (start, end) in [
                 (a, (b.0, a.1)),
                 ((b.0, a.1), b),
                 (b, (a.0, b.1)),
                 ((a.0, b.1), a),
             ] {
-                thick_line(
-                    out,
-                    start,
-                    end,
-                    if mark.tool == Tool::Crop {
-                        2.
-                    } else {
-                        mark.width
-                    },
-                    c,
-                );
+                thick_line(out, start, end, 2., Rgba([255; 4]));
             }
         }
         Tool::Highlight => {
@@ -327,9 +365,9 @@ pub(crate) fn paint(out: &mut RgbaImage, mark: &Mark) {
             for yy in y..y + h {
                 for xx in x..x + w {
                     let p = out.get_pixel_mut(xx, yy);
-                    for (channel, tint) in p.0[..3].iter_mut().zip(mark.color[..3].iter()) {
-                        *channel = (*channel as f32 * 0.65 + *tint as f32 * 0.35).round() as u8;
-                    }
+                    let mut tint = color;
+                    tint[3] = (mark.color[3] as f32 * 0.35).round() as u8;
+                    crate::style::blend(p, tint);
                 }
             }
         }
@@ -359,12 +397,85 @@ pub(crate) fn paint(out: &mut RgbaImage, mark: &Mark) {
         }
     }
 }
+/// A single coverage mask prevents translucent stroke joints from darkening.
+fn paint_shape(out: &mut RgbaImage, m: &Mark) {
+    use image::{GrayImage, Luma, imageops};
+    use imageproc::{drawing::draw_polygon_mut, point::Point};
+    let b = m.bounds();
+    let x = b.0.floor().max(0.) as u32;
+    let y = b.1.floor().max(0.) as u32;
+    let right = (b.2.ceil() + 2.).max(0.).min(out.width() as f32) as u32;
+    let bottom = (b.3.ceil() + 2.).max(0.).min(out.height() as f32) as u32;
+    if x >= right || y >= bottom {
+        return;
+    }
+    let mut mask = GrayImage::new((right - x) * 2, (bottom - y) * 2);
+    let map = |p: (f32, f32)| ((p.0 - x as f32) * 2., (p.1 - y as f32) * 2.);
+    let points = if m.tool == Tool::Pen {
+        crate::style::pen_points(m)
+    } else {
+        crate::style::box_points(m)
+    };
+    if m.tool == Tool::Rectangle && m.style.fill == crate::style::Fill::Filled {
+        let mut polygon: Vec<_> = points
+            .iter()
+            .take(points.len() - 1)
+            .map(|&p| {
+                let p = map(p);
+                Point::new(p.0.round() as i32, p.1.round() as i32)
+            })
+            .collect();
+        polygon.dedup();
+        if polygon.len() >= 3 && polygon.first() != polygon.last() {
+            draw_polygon_mut(&mut mask, &polygon, Luma([255]));
+        }
+    } else {
+        let radius = m.width.round().max(1.) as i32;
+        let dash = if m.tool == Tool::Pen {
+            crate::style::Dash::Solid
+        } else {
+            m.style.dash
+        };
+        for path in crate::style::strokes(&points, dash, m.width) {
+            let pairs: Vec<_> = if path.len() == 1 {
+                vec![(path[0], path[0])]
+            } else {
+                path.windows(2).map(|p| (p[0], p[1])).collect()
+            };
+            for (a, b) in pairs {
+                let (a, b) = (map(a), map(b));
+                let steps = (b.0 - a.0).hypot(b.1 - a.1).ceil().max(1.) as usize;
+                for i in 0..=steps {
+                    let t = i as f32 / steps as f32;
+                    draw_filled_circle_mut(
+                        &mut mask,
+                        (
+                            (a.0 + (b.0 - a.0) * t).round() as i32,
+                            (a.1 + (b.1 - a.1) * t).round() as i32,
+                        ),
+                        radius,
+                        Luma([255]),
+                    );
+                }
+            }
+        }
+    }
+    let mask = imageops::resize(&mask, right - x, bottom - y, imageops::FilterType::Triangle);
+    for (dx, dy, p) in mask.enumerate_pixels() {
+        if p[0] > 0 {
+            let mut color = m.color;
+            color[3] = ((color[3] as u16 * p[0] as u16 + 127) / 255) as u8;
+            crate::style::blend(out.get_pixel_mut(x + dx, y + dy), Rgba(color));
+        }
+    }
+}
 pub fn demo() -> RgbaImage {
     let mut image = RgbaImage::from_pixel(1200, 760, Rgba([22, 27, 36, 255]));
     let label = |image: &mut RgbaImage, x: f32, y: f32, text: &str, size: f32, color: [u8; 4]| {
         paint(
             image,
             &Mark {
+                style: Default::default(),
                 tool: Tool::Text,
                 curve: None,
                 points: vec![(x, y)],
@@ -463,8 +574,45 @@ pub fn demo() -> RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn text_exports_preserve_glyph_overhangs() {
+        use ab_glyph::Font;
+        let font = ab_glyph::FontArc::try_from_vec(
+            std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf").unwrap(),
+        )
+        .unwrap();
+        let em = 35.;
+        let scale = em * font.height_unscaled() / font.units_per_em().unwrap();
+        for text in ["j", "Á", "f", "jÁfy"] {
+            let mark = Mark {
+                style: Default::default(),
+                tool: Tool::Text,
+                points: vec![(20., 20.)],
+                curve: None,
+                color: [255; 4],
+                width: em / 7.,
+                text: text.into(),
+            };
+            let mut actual = RgbaImage::new(160, 100);
+            paint(&mut actual, &mark);
+            let mut expected = image::GrayImage::new(160, 100);
+            draw_text_mut(
+                &mut expected,
+                image::Luma([255]),
+                20,
+                (20. + (em - scale) / 2.).round() as i32,
+                scale,
+                &font,
+                text,
+            );
+            for ((x, y, actual), expected) in actual.enumerate_pixels().zip(expected.pixels()) {
+                assert_eq!(actual[3], expected[0], "{text}: clipped glyph at {x},{y}");
+            }
+        }
+    }
     fn mark(tool: Tool, a: (f32, f32), b: (f32, f32)) -> Mark {
         Mark {
+            style: Default::default(),
             tool,
             curve: None,
             points: vec![a, b],
