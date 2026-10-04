@@ -4,6 +4,12 @@ Notable user-visible changes are recorded here.
 
 ## [Unreleased]
 
+### Added
+
+- Incurs CLI and MCP access to the complete editor API, plus a private shared
+  Code Mode service with async JavaScript, lifecycle controls, and persistent
+  execution history and large results.
+
 ### Changed
 
 - Animation sidebar now focuses on foreground effects and playback; backdrop

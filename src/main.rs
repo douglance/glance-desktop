@@ -3,6 +3,8 @@ mod animation;
 mod arrow;
 mod automation;
 mod backdrop;
+mod cli;
+mod code_mode;
 mod color_picker;
 mod document;
 mod drawing;
@@ -31,6 +33,22 @@ use editor::Editor;
 pub(crate) use editor::{Layout, Message};
 use gpui::*;
 fn main() {
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().is_some_and(|arg| arg == "--codemode-mcp") {
+        if let Err(error) = cli::run_code_mcp() {
+            eprintln!("Glance Code Mode: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if argv.first().is_some_and(|arg| arg == "--cli") {
+        argv.remove(0);
+        if let Err(error) = cli::run(argv) {
+            eprintln!("Glance CLI: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
     if std::env::args().any(|arg| arg == "--mcp") {
         if let Err(error) = mcp::run() {
             eprintln!("Glance MCP: {error}");

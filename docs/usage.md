@@ -200,3 +200,8 @@ Numeric values support exact edits and increment/decrement; color fields accept
 `#RGB` or `#RRGGBB` and preserve annotation opacity. These edits use the same
 validation and undo behavior as mouse input. The canvas reports its source size
 and annotation count; drawing and on-canvas text still require ordinary input.
+
+## Terminal and agent interfaces
+
+See [CLI, MCP, and Code Mode](interfaces.md) for the Incurs command catalog,
+complete editor-tool mapping, and shared local Code Mode service.
