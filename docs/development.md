@@ -111,6 +111,26 @@ It does not create releases; publishing one is an explicit maintainer action.
 Intermediate Actions artifacts are retained for 14 days; release assets remain
 available on the [Releases page](https://github.com/modem-dev/glance-desktop/releases).
 
+Linux releases restore two compiled-dependency caches: the regular CI check/test
+cache and an optimized release cache. The
+[dependency warmer](../.github/workflows/linux-dependencies.yml) saves the
+optimized cache on `main` when Cargo/toolchain or build-workflow configuration
+changes. It builds the locked dependencies with a temporary placeholder binary
+and the real release profile. Packaging and download uploads stay release-only.
+The app itself and its final optimization/linking still run for each release.
+
+Warm the cache manually from `main` after a Rust toolchain update or cache
+eviction:
+
+```sh
+gh workflow run linux-dependencies.yml --ref main
+```
+
+Release and warmer jobs must keep their Rust version, profile environment, and
+`linux-release-deps-v1` shared key aligned. Rust-cache also keys compiled outputs
+by architecture, Rust environment, and dependency configuration. Tags can restore
+caches from `main`; caches saved under one tag cannot warm a different tag.
+
 Release packaging currently uses ad-hoc macOS signing
 (`GLANCE_CODESIGN_IDENTITY=-`) and verifies the bundle and notices. Only the
 asset-upload job has repository write permission; no signing secrets are needed.

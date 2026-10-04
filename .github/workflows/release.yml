@@ -31,7 +31,6 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: release
           save-if: false
       - name: Check formatting
         run: cargo fmt --check
@@ -87,10 +86,14 @@ jobs:
         with:
           persist-credentials: false
           ref: ${{ github.event.release.tag_name }}
-      - name: Cache Rust dependencies
+      - name: Restore Rust check dependencies
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: release
+          save-if: false
+      - name: Restore optimized Linux dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: linux-release-deps-v1
           save-if: false
       - name: Check formatting
         run: cargo fmt --check

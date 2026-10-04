@@ -1,0 +1,52 @@
+name: Linux release dependencies
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - .cargo/**
+      - rust-toolchain*
+      - .github/workflows/ci.yml
+      - .github/workflows/release.yml
+      - .github/workflows/linux-dependencies.yml
+      - scripts/warm-linux-dependencies.sh
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-release-dependencies
+  cancel-in-progress: true
+
+jobs:
+  dependencies:
+    name: Cache optimized dependencies (Linux x86_64)
+    # Release tags can restore caches from main, but not from other tags.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    timeout-minutes: 45
+    # Keep these inputs identical to the release job's Rust environment.
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    steps:
+      - name: Install build dependencies
+        run: |
+          pacman -Syu --needed --noconfirm git rust clang cmake \
+            fontconfig freetype2 libx11 libxcb libxkbcommon libxkbcommon-x11 \
+            wayland vulkan-icd-loader
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Restore and save optimized dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: linux-release-deps-v1
+      - name: Compile locked release dependencies
+        run: ./scripts/warm-linux-dependencies.sh
