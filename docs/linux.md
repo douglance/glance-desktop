@@ -56,7 +56,7 @@ the build/runtime dependencies:
 ```sh
 sudo pacman -S --needed base-devel rust clang cmake \
   fontconfig freetype2 libx11 libxcb libxkbcommon libxkbcommon-x11 \
-  wayland vulkan-icd-loader ttf-dejavu grim slurp wl-clipboard zenity ffmpeg
+  wayland vulkan-icd-loader xdg-utils ttf-dejavu grim slurp wl-clipboard zenity ffmpeg
 git clone https://github.com/modem-dev/glance-desktop.git
 cd glance-desktop
 ./scripts/package-linux.sh
