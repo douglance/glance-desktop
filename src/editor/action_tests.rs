@@ -303,3 +303,114 @@ fn menu_undo_operates_on_inline_text_without_touching_document(cx: &mut TestAppC
     })
     .unwrap();
 }
+
+#[gpui::test]
+fn inside_padding_preserves_capture_and_annotations_and_groups_slider_history(
+    cx: &mut TestAppContext,
+) {
+    use crate::backdrop::{Backdrop, Control};
+    use std::sync::Arc;
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.dispatch(
+            Action::SetBackdrop {
+                backdrop: Some(Backdrop::default()),
+            },
+            cx,
+        )
+        .unwrap();
+        let base = e.document.base.clone();
+        let marks = e.document.marks.clone();
+        let dimensions = base.dimensions();
+        e.dispatch(
+            Action::BeginBackdropAdjustment {
+                control: Control::InsidePadding,
+                track: (0., 0., 200., 24.),
+                position: (20., 12.),
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(
+            Action::SetBackdropControl {
+                control: Control::InsidePadding,
+                value: 48,
+            },
+            cx,
+        )
+        .unwrap();
+        e.cancel_gesture();
+        assert!(Arc::ptr_eq(&base, &e.document.base));
+        assert_eq!(e.document.marks, marks);
+        assert_eq!(
+            e.document.export().dimensions(),
+            (dimensions.0 + 224, dimensions.1 + 224)
+        );
+        let preview = super::preview_base(&e.document);
+        let expected_ratio = (dimensions.0 + 96) as f32 / (dimensions.1 + 96) as f32;
+        assert!((preview.width() as f32 / preview.height() as f32 - expected_ratio).abs() < 0.002);
+        let revision = e.preview.revision;
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 0);
+        assert!(e.preview.revision > revision);
+        e.receive(
+            super::Message::Preview(
+                e.preview.revision,
+                marks.len(),
+                0,
+                super::render_image(super::preview_base(&e.document)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::Redo, cx).unwrap();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 48);
+        e.receive(
+            super::Message::Preview(
+                e.preview.revision,
+                marks.len(),
+                48,
+                super::render_image(super::preview_base(&e.document)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::ToggleBackdropEnabled, cx).unwrap();
+        assert_eq!(e.document.export().dimensions(), dimensions);
+        let revision = e.preview.revision;
+        // A different slider can re-enable a saved style with inside padding.
+        e.dispatch(
+            Action::BeginBackdropAdjustment {
+                control: Control::Shadow,
+                track: (0., 0., 60., 24.),
+                position: (24., 12.),
+            },
+            cx,
+        )
+        .unwrap();
+        e.cancel_gesture();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 48);
+        assert!(e.preview.revision > revision);
+        assert!(e.preview.rendering);
+        assert!(
+            e.dispatch(
+                Action::SetBackdropControl {
+                    control: Control::InsidePadding,
+                    value: 201
+                },
+                cx
+            )
+            .is_err()
+        );
+        assert!(
+            e.dispatch(
+                Action::SetBackdrop {
+                    backdrop: Some(Backdrop {
+                        inside_padding: 513,
+                        ..Default::default()
+                    })
+                },
+                cx
+            )
+            .is_err()
+        );
+    });
+}

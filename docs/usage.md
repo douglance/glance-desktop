@@ -34,13 +34,17 @@ Capture, annotate, frame, and share from one native macOS window.
 - **Backdrop:** open the toolbar panel to frame the image with a solid color or
   gradient. **Format** offers Auto, 1:1, 4:3, 3:2, 16:9, 4:5, 9:16 and named
   YouTube/Shorts/Pinterest presets. Fixed formats expand the background and center
-  the full screenshot without cropping or stretching it. Padding is the minimum
-  space on each side. Padding, shadow, image corners and backdrop corners are
+  the full screenshot without cropping or stretching it. **Outside padding** is
+  the minimum backdrop space on each side. **Inside padding** adds space within
+  the screenshot by repeating its nearest edge pixels (and corner pixels),
+  preserving their transparency. Image corners and shadow follow the expanded
+  screenshot; the capture and editable annotations keep their original size and
+  coordinates. Outside padding, inside padding, image corners and shadow are
   always visible in a 2×2 grid above **Solid / Gradient / Motion**. **Done** closes
   the panel; **Enable backdrop** toggles framing while keeping the current style.
   Each slider gesture is one undo step. Copy and
-  PNG save include the backdrop at full resolution; rounded outer corners are
-  transparent in the PNG.
+  PNG save include the backdrop and inside padding at full resolution. The output
+  canvas has square corners.
 - **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Starfield,
   Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations stay fixed while the
   background moves. Set a **2–15 second** duration (5 seconds by default),
@@ -49,7 +53,7 @@ Capture, annotate, frame, and share from one native macOS window.
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
   1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
   is one seamless cycle; duration also controls the preview's cycle speed.
-  **Export → Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
+  **Export → Cancel export** or Escape stops it. Transparent pixels use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
   Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
   and separate; Aurora has rippling light curtains; Contours has terrain lines

@@ -116,6 +116,7 @@ mod tests {
             motion: crate::animation::Motion::Lava,
             seconds: 2,
             padding: 15,
+            inside_padding: 9,
             inner_radius: 0,
             shadow: 0,
             ..Default::default()
@@ -126,6 +127,7 @@ mod tests {
         options.set_color_output(gif::ColorOutput::RGBA);
         let mut decoder = options.read_info(File::open(&path).unwrap()).unwrap();
         assert_eq!(decoder.repeat(), gif::Repeat::Infinite);
+        assert_eq!((decoder.width(), decoder.height()), (88, 78));
         let mut count = 0;
         let mut duration = 0;
         let mut center = None;
@@ -136,6 +138,8 @@ mod tests {
             duration += frame.delay as u32;
             let offset = (30 * frame.width as usize + 35) * 4;
             let pixel = &frame.buffer[offset..offset + 4];
+            let padding_offset = (30 * frame.width as usize + 15) * 4;
+            assert_eq!(&frame.buffer[padding_offset..padding_offset + 4], pixel);
             if let Some(previous) = &center {
                 assert_eq!(pixel, previous)
             } else {

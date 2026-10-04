@@ -330,17 +330,19 @@ fn stale_previews_cannot_overwrite_new_edits(cx: &mut TestAppContext) {
         let old = e.preview.image.clone();
         e.preview.revision = 5;
         e.receive(
-            Message::Preview(4, 99, render_image(image::RgbaImage::new(2, 2))),
+            Message::Preview(4, 99, 40, render_image(image::RgbaImage::new(2, 2))),
             cx,
         );
         assert!(Arc::ptr_eq(&e.preview.image, &old));
         assert_ne!(e.preview.mark_count, 99);
+        assert_eq!(e.preview.inside_padding, 0);
         e.receive(
-            Message::Preview(5, 0, render_image(image::RgbaImage::new(100, 100))),
+            Message::Preview(5, 0, 12, render_image(image::RgbaImage::new(100, 100))),
             cx,
         );
         assert!(!Arc::ptr_eq(&e.preview.image, &old));
         assert_eq!(e.preview.mark_count, 0);
+        assert_eq!(e.preview.inside_padding, 12);
     })
     .unwrap();
 }
@@ -502,6 +504,7 @@ fn arrow_handles_edit_independently_and_new_marks_stay_selected(cx: &mut TestApp
             Message::Preview(
                 e.preview.revision,
                 0,
+                0,
                 render_image((*e.document.base).clone()),
             ),
             cx,
@@ -658,6 +661,7 @@ fn preview_completion_does_not_unlock_an_active_operation(cx: &mut TestAppContex
             Message::Preview(
                 e.preview.revision,
                 0,
+                0,
                 render_image((*e.document.base).clone()),
             ),
             cx,
@@ -680,6 +684,7 @@ fn preview_completion_does_not_unlock_an_active_operation(cx: &mut TestAppContex
         e.receive(
             Message::Preview(
                 e.preview.revision,
+                0,
                 0,
                 render_image((*e.document.base).clone()),
             ),
@@ -858,10 +863,10 @@ fn backdrop_grid_modes_and_format_menu_work_at_minimum_window_size(cx: &mut Test
         }
         let mode_bounds = visual.debug_bounds(selector).unwrap();
         let bounds: Vec<_> = [
-            "backdrop-Padding",
-            "backdrop-Shadow",
+            "backdrop-Outside padding",
+            "backdrop-Inside padding",
             "backdrop-Image corners",
-            "backdrop-Backdrop corners",
+            "backdrop-Shadow",
         ]
         .into_iter()
         .map(|selector| visual.debug_bounds(selector).unwrap())

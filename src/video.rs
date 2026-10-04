@@ -85,7 +85,7 @@ pub fn encode(
         let mut data = renderer
             .frame(start_phase + frame as f32 / count as f32)
             .into_raw();
-        // MP4 has no alpha. Composite rounded output corners onto a soft ivory matte.
+        // MP4 has no alpha. Composite transparent pixels onto a soft ivory matte.
         for p in data.as_chunks_mut::<4>().0 {
             let a = p[3] as u16;
             for channel in p.iter_mut().take(3) {

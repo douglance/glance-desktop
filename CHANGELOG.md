@@ -16,6 +16,9 @@ yet; the current development version is 0.1.0.
 
 ### Changed
 
+- Replaced backdrop canvas corners with inside padding that extends screenshot
+  edge pixels, with matching image corners, shadows, preview and PNG/GIF/MP4 output.
+
 - Reorganized the README around trying the app and sharing visual context, with
   separate usage, development, and architecture guides.
 

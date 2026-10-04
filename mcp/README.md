@@ -57,8 +57,13 @@ Example workflow:
 4. Move/delete/update using an ID returned by the latest state. IDs include a revision and expire after every edit. Optional `expected_revision` rejects stale mutations.
 5. Set a moving backdrop:
    ```json
-   {"backdrop":{"motion":"lava","preset":0,"padding":100,"seconds":5,"inner_radius":18,"shadow":24}}
+   {"backdrop":{"motion":"lava","preset":0,"padding":100,"inside_padding":24,"seconds":5,"inner_radius":18,"shadow":24}}
    ```
+   `padding` is the backdrop margin; `inside_padding` repeats the nearest
+   screenshot edge pixels before rounding and shadow. Both accept 0–512 physical
+   pixels. Annotation coordinates continue to refer to the original image. The
+   former `outer_radius` option has been removed.
+
 6. Call `read_image` to inspect, `export_mp4` to encode, and `read_video_frame` with the returned path and `seconds: 2.5` to inspect a video frame.
 
 Local paths refer to the Mac. ChatGPT upload/file IDs are not native file paths; the client must supply image bytes as base64 or stage the image locally. There is no automatic ChatGPT attachment download integration in this prototype. PNG image tool responses are inline; MP4 exports return a **local path**, not a cloud-downloadable attachment.

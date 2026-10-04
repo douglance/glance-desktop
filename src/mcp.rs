@@ -113,7 +113,7 @@ pub fn tools() -> Vec<Value> {
         tool(
             "set_backdrop",
             "Set framing and animation. Preset 0 teal, 1 ocean, 2 lavender, 3 sunset, 4 rose, 5 cream, 6 slate, 7 white. Omitted properties use defaults. enabled=false removes it.",
-            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"outer_radius":{"type":"integer","minimum":0,"maximum":256},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
+            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"inside_padding":{"type":"integer","minimum":0,"maximum":512},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
             &[],
             false,
         ),
@@ -654,11 +654,11 @@ mod tests {
         assert_eq!(s.document.base.dimensions(), (100, 80));
         operate(
             "set_backdrop",
-            &json!({"backdrop":{"motion":"lava","padding":10,"seconds":10}}),
+            &json!({"backdrop":{"motion":"lava","padding":10,"inside_padding":6,"seconds":10}}),
             &mut s,
         )
         .unwrap();
-        assert_eq!(s.document.export_at(0.).dimensions(), (120, 100));
+        assert_eq!(s.document.export_at(0.).dimensions(), (132, 112));
         operate(
             "set_backdrop",
             &json!({"backdrop":{"format":"shorts","motion":"liquid","padding":10}}),
@@ -671,6 +671,8 @@ mod tests {
         for (name, args) in [
             ("set_backdrop", json!({"backdrop":{"format":"unknown"}})),
             ("set_backdrop", json!({"backdrop":{"preset":8}})),
+            ("set_backdrop", json!({"backdrop":{"inside_padding":513}})),
+            ("set_backdrop", json!({"backdrop":{"outer_radius":4}})),
             ("resize_image", json!({"scale":2,"smart":"yes"})),
             ("crop_image", json!({"x":-1,"y":0,"width":5,"height":5})),
             ("read_image", json!({"phase":5})),

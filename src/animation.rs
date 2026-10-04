@@ -286,18 +286,18 @@ pub struct Renderer {
     pub height: u32,
     b: Backdrop,
     foreground: RgbaImage,
-    outer: Vec<u8>,
 }
 impl Renderer {
     pub fn new(source: &RgbaImage, mut b: Backdrop, max_edge: Option<u32>) -> Self {
         let dimensions = b.dimensions(source.dimensions());
+        let source = b.extend_edges(source);
         let (w, h) = max_edge.map_or(dimensions, |cap| b.format.video_dimensions(dimensions, cap));
         let scale = (w as f32 / dimensions.0 as f32)
             .min(h as f32 / dimensions.1 as f32)
             .min(1.);
         let source = if scale < 1. {
             std::borrow::Cow::Owned(crate::enhance::resize(
-                source,
+                &source,
                 (
                     (source.width() as f32 * scale).round().max(1.) as u32,
                     (source.height() as f32 * scale).round().max(1.) as u32,
@@ -305,14 +305,12 @@ impl Renderer {
                 false,
             ))
         } else {
-            std::borrow::Cow::Borrowed(source)
+            source
         };
         b.padding = (b.padding as f32 * scale).round() as u32;
         b.inner_radius = (b.inner_radius as f32 * scale).round() as u32;
-        b.outer_radius = (b.outer_radius as f32 * scale).round() as u32;
         b.shadow = (b.shadow as f32 * scale).round() as u32;
         let mut foreground = RgbaImage::new(w, h);
-        let mut outer = vec![0; w as usize * h as usize];
         let frame = crate::backdrop::Frame::centered((w, h), source.dimensions());
         let (left, top) = frame.origin;
         let (left_f, top_f) = (left as f32, top as f32);
@@ -321,14 +319,6 @@ impl Renderer {
         for (x, y, p) in foreground.enumerate_pixels_mut() {
             let px = x as f32 + 0.5;
             let py = y as f32 + 0.5;
-            outer[(y * w + x) as usize] = (crate::backdrop::coverage(crate::backdrop::distance(
-                px,
-                py,
-                w as f32,
-                h as f32,
-                b.outer_radius as f32,
-            )) * 255.)
-                .round() as u8;
             if b.shadow > 0 {
                 let blur = b.shadow as f32;
                 let d = crate::backdrop::distance(
@@ -365,7 +355,6 @@ impl Renderer {
             height: h,
             b,
             foreground,
-            outer,
         }
     }
     pub fn frame(&self, phase: f32) -> RgbaImage {
@@ -426,13 +415,9 @@ impl Renderer {
                 }
             }
         }
-        for (i, ((_, _, p), fg)) in out
-            .enumerate_pixels_mut()
-            .zip(self.foreground.pixels())
-            .enumerate()
-        {
+        for (p, fg) in out.pixels_mut().zip(self.foreground.pixels()) {
             p.blend(fg);
-            p[3] = self.outer[i];
+            p[3] = 255;
         }
         out
     }
@@ -441,14 +426,14 @@ impl Renderer {
 mod tests {
     use super::*;
     #[test]
-    fn liquid_export_blends_transparency_and_clips_outer_corners() {
+    fn liquid_export_blends_transparency_and_extends_edges() {
         let source = RgbaImage::from_pixel(20, 12, image::Rgba([250, 80, 30, 128]));
         let b = Backdrop {
             motion: Motion::Liquid,
             preset: 1,
             padding: 8,
             inner_radius: 0,
-            outer_radius: 6,
+            inside_padding: 6,
             shadow: 0,
             ..Default::default()
         };
@@ -456,14 +441,13 @@ mod tests {
         let output = renderer.frame(0.37);
         let background =
             crate::motion_shader::frame(renderer.width, renderer.height, 1, Motion::Liquid, 0.37);
-        let mut expected = *background.get_pixel(18, 14);
+        let mut expected = *background.get_pixel(24, 20);
         expected.blend(source.get_pixel(10, 6));
-        // Final alpha comes from the outer frame coverage, independently of
-        // image::Pixel's floating-point alpha rounding during blending.
+        // The backdrop stays opaque when compositing translucent image pixels.
         expected[3] = 255;
-        assert_eq!(*output.get_pixel(18, 14), expected);
-        assert_eq!(output.get_pixel(0, 0)[3], 0);
-        assert_eq!(output.get_pixel(18, 14)[3], 255);
+        assert_eq!(*output.get_pixel(24, 20), expected);
+        assert_eq!(output.get_pixel(0, 0)[3], 255);
+        assert_eq!(output.get_pixel(24, 20)[3], 255);
         assert_eq!(output.get_pixel(18, 1), background.get_pixel(18, 1));
     }
     #[test]

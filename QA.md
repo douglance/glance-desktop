@@ -223,3 +223,23 @@ are signed first, then the staged bundle is signed and strictly verified.
 satisfy the same certificate-based requirement. The renamed bundle passed this
 check locally. Glance uses `sh.glance.desktop` and needs a one-time Screen
 Recording grant after the rename; actual desktop capture remains a manual pass.
+
+## Inside padding
+
+Replaced canvas corner rounding with nearest-edge pixel extension inside the
+screenshot's rounded corners and shadow. Coverage checks all edges and corners,
+zero and large padding, source alpha, fixed output ratios, capped animation
+frames, PNG round trips, decoded GIF padding, grouped slider undo/redo, restoring
+saved padding through another slider, and stale preview geometry. The minimum
+window test checks the revised 2×2 controls in all three backdrop modes.
+
+Formatting, Clippy and the automated suite pass. Synthetic before/after PNGs were generated and inspected;
+native live slider responsiveness remains a manual desktop check.
+
+```sh
+cargo test --locked inside_padding_visual_qa -- --ignored
+```
+
+Samples are written to `target/inside-padding-qa`. On the desktop, try a capture
+with different colors on each edge, drag Inside padding, then check annotation
+placement, image corners, shadow, backdrop disable/enable, and undo/redo.

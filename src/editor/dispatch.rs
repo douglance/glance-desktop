@@ -94,7 +94,7 @@ impl Editor {
                 if b.preset >= PRESETS.len()
                     || b.padding > 512
                     || b.inner_radius > 256
-                    || b.outer_radius > 256
+                    || b.inside_padding > 512
                     || b.shadow > 128
                     || !(2..=15).contains(&b.seconds) =>
             {
@@ -319,18 +319,24 @@ impl Editor {
                     self.cancel_gesture();
                     self.document.remember();
                 }
+                let enabling = self.document.backdrop.is_none();
+                let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
                 let b = self.document.backdrop.get_or_insert_with(|| {
                     self.panels.backdrop_disabled.take().unwrap_or_default()
                 });
                 let previous = *b;
                 control.set(b, value);
-                let changed = previous != *b;
+                let changed = enabling || previous != *b;
+                let padding_changed = previous_padding != b.inside_padding;
                 if control == Control::Duration {
                     self.playback.position = phase * b.seconds as f32;
                     self.playback.epoch = std::time::Instant::now();
                 }
                 if changed {
                     self.preview.revision += 1;
+                    if padding_changed {
+                        self.schedule_preview();
+                    }
                 }
             }
             Action::BeginBackdropAdjustment {
@@ -341,6 +347,10 @@ impl Editor {
                 self.commit_text(cx);
                 self.cancel_gesture();
                 self.document.remember();
+                if self.document.backdrop.is_none() {
+                    self.preview.revision += 1;
+                }
+                let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document.backdrop.get_or_insert_with(|| {
                     self.panels.backdrop_disabled.take().unwrap_or_default()
                 });
@@ -352,6 +362,9 @@ impl Editor {
                     ),
                 );
                 self.backdrop_slider_move(point(px(position.0), px(position.1)), cx);
+                if previous_padding != self.document.backdrop.map_or(0, |b| b.inside_padding) {
+                    self.schedule_preview();
+                }
             }
             Action::TogglePlayback => self.toggle_animation(cx),
             Action::ExportAnimation { format } => match format {

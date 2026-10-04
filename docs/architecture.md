@@ -39,7 +39,11 @@ platform in `src/editor/tests.rs`, without controlling the user's desktop.
 The app is Rust with GPUI; Metal shaders compile at runtime. Screenshot pixels
 are immutable and shared across undo states. Geometry and annotations use
 physical image pixels, including Retina captures. Live gestures paint GPU
-overlays; compositing and export run on workers.
+overlays; compositing and export run on workers. Inside padding repeats the
+nearest screenshot edge pixels before rounding and shadow. Worker-built editor
+textures carry their padding amount with the revision, so stale textures cannot
+change foreground geometry. Annotation coordinates remain in the original
+capture.
 
 `src/animation/preview.rs` renders shader previews off the UI thread and adapts
 quality to measured render cost. `src/shaders/motion.metal` and the CPU

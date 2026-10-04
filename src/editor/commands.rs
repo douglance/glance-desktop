@@ -429,6 +429,7 @@ impl Editor {
             let backdrop = matches!(edit, DocumentAction::SetBackdrop { .. });
             let previous_motion = self.document.backdrop.map(|b| b.motion);
             let previous_format = self.document.backdrop.map(|b| b.format);
+            let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
             let outcome = edit.apply(&mut self.document)?;
             match outcome.selection {
                 Selection::Keep => {}
@@ -450,9 +451,12 @@ impl Editor {
                         self.playback.epoch = std::time::Instant::now();
                         self.playback.paused = false;
                     }
-                    // Framing is painted separately; invalidate in-flight snapshots
-                    // without re-rasterizing the unchanged foreground on each slider tick.
+                    // Background styling is painted separately. Rebuild the foreground
+                    // only when edge padding changes; reject all old snapshots.
                     self.preview.revision += 1;
+                    if previous_padding != self.document.backdrop.map_or(0, |b| b.inside_padding) {
+                        self.schedule_preview();
+                    }
                 } else {
                     if wait_for_preview {
                         self.preview.mark_count = usize::MAX;

@@ -66,7 +66,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                         motion: crate::animation::Motion::Still,
                         seconds: 5,
                         inner_radius: random(&mut seed) % 30,
-                        outer_radius: random(&mut seed) % 20,
+                        inside_padding: random(&mut seed) % 20,
                         shadow: random(&mut seed) % 15,
                     });
                 }

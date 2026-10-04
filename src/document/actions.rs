@@ -191,7 +191,7 @@ impl DocumentAction {
                     && (b.preset >= PRESETS.len()
                         || b.padding > 512
                         || b.inner_radius > 256
-                        || b.outer_radius > 256
+                        || b.inside_padding > 512
                         || b.shadow > 128
                         || !(2..=15).contains(&b.seconds))
                 {

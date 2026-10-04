@@ -34,6 +34,7 @@ pub(super) struct ViewportState {
     pub(super) layout: Rc<Cell<Layout>>,
 }
 pub(super) struct PreviewState {
+    pub(super) inside_padding: u32,
     pub(super) lens: Option<(crate::effects::LensKey, Arc<RenderImage>)>,
     pub(super) lens_wanted: Option<crate::effects::LensKey>,
     pub(super) lens_rendering: bool,

@@ -58,10 +58,17 @@ pub(crate) fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
     )]))
 }
 fn preview_base(doc: &Document) -> image::RgbaImage {
-    image::DynamicImage::ImageRgba8(doc.render(None))
+    let source = doc.render(None);
+    let image = if let Some(b) = doc.backdrop.filter(|b| b.inside_padding > 0) {
+        b.extend_edges(&source).into_owned()
+    } else {
+        source
+    };
+    image::DynamicImage::ImageRgba8(image)
         .thumbnail(1600, 1200)
         .to_rgba8()
 }
+
 impl Editor {
     pub(crate) fn new(cx: &mut Context<Self>) -> Self {
         Self::with_native(cx, true)
@@ -154,6 +161,7 @@ impl Editor {
                 layout: Rc::new(Cell::new(Layout::default())),
             },
             preview: PreviewState {
+                inside_padding: 0,
                 lens: None,
                 lens_wanted: None,
                 lens_rendering: false,
