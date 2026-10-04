@@ -145,6 +145,7 @@ cargo test --release --locked motion_gallery_qa -- --ignored --nocapture
 cargo test --release --locked contours_motion_qa -- --ignored --nocapture
 cargo test --release --locked painterly_prism_motion_qa -- --ignored --nocapture
 cargo test --locked prism_crystal_visual_qa -- --ignored --nocapture
+cargo test --locked lava_fluid_visual_qa -- --ignored --nocapture
 ```
 
 The second command requires the bundled native encoder. It creates a ten-second
@@ -179,6 +180,15 @@ portrait samples to `target/dynamic-motion-qa`, and measures compute/readback.
 contact sheet (Teal, Ocean, Lavender, Sunset, then Rose, Cream, Slate, White) and
 a five-second looping GIF to `target/prism-qa`. Convexity tests check that either
 mesh diagonal stays valid throughout the motion, preventing folded faces or gaps.
+
+Lava uses crossing currents to bend stretching, tilting molten shapes and smaller
+globules that separate and rejoin the streams. Lighting follows the deformed
+surface through analytic derivatives; motion spans both landscape and portrait
+canvases. All temporal frequencies are periodic, including the current warp.
+Lava also participates in the phase-wrap continuity test.
+`lava_fluid_visual_qa` writes landscape/portrait samples, the same eight-palette
+contact sheet order, and a five-second looping GIF to `target/lava-qa`, then
+measures Metal compute/readback at 960×540.
 
 ## Glance remote copy
 

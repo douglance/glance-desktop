@@ -96,24 +96,58 @@ fn paper_noise(x: f32, y: f32) -> f32 {
     (a * (1. - fx) + b * fx) * (1. - fy) + (c * (1. - fx) + d * fx) * fy
 }
 fn lava(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
+    let t = u.orbit_sin.atan2(u.orbit_cos);
+    // Advect the entire fluid through crossing currents rather than moving
+    // rigid circles. The Jacobian carries surface lighting through the warp.
+    let a = py * 5. - t;
+    let b = px * 7. + py * 4. + 2. * t;
+    let c = px * 4. + t;
+    let d = py * 6. - px * 3. - 2. * t;
+    let qx = px + 0.10 * a.sin() + 0.035 * b.sin();
+    let qy = py + 0.08 * c.sin() + 0.035 * d.cos();
+    let jxx = 1. + 0.245 * b.cos();
+    let jxy = 0.50 * a.cos() + 0.14 * b.cos();
+    let jyx = 0.32 * c.cos() + 0.105 * d.sin();
+    let jyy = 1. - 0.21 * d.sin();
     let mut field = 0.;
     let mut gx = 0.;
     let mut gy = 0.;
-    let aspect = u.width as f32 / u.width.min(u.height) as f32;
-    for i in 0..6 {
+    let unit = u.width.min(u.height) as f32;
+    let aspect_x = u.width as f32 / unit;
+    let aspect_y = u.height as f32 / unit;
+    for i in 0..8 {
         let angle = i as f32 * 1.8;
-        let s = u.orbit_sin * angle.cos() + u.orbit_cos * angle.sin();
-        let c = u.orbit_cos * angle.cos() - u.orbit_sin * angle.sin();
-        let cx = (i as f32 / 5. - 0.5) * aspect * 0.8 + 0.09 * s;
-        let cy = 0.36 * c;
-        let dx = px - cx;
-        let dy = (py - cy) * 0.85;
-        let r = 0.16 + 0.030 * (angle * 1.3).sin();
-        let d = dx * dx + dy * dy + 0.006;
+        let s = (t + angle).sin();
+        let c = (t + angle).cos();
+        let surge = (2. * t - angle).sin();
+        let (cx, cy, r) = if i < 6 {
+            (
+                (i as f32 / 5. - 0.5) * aspect_x * 0.9 + 0.18 * s + 0.07 * surge,
+                aspect_y * 0.34 * c + 0.09 * surge,
+                0.145 + 0.025 * (2. * t + angle).sin(),
+            )
+        } else {
+            // Small globules travel between the larger streams and rejoin them.
+            (
+                aspect_x * 0.40 * (2. * t + angle).sin(),
+                aspect_y * 0.42 * c,
+                0.065 + 0.015 * surge,
+            )
+        };
+        let tilt = 0.55 * s;
+        let (sn, cs) = tilt.sin_cos();
+        let stretch = 0.72 + 0.18 * (2. * t + angle).cos();
+        let dx = qx - cx;
+        let dy = qy - cy;
+        let lx = dx * cs + dy * sn;
+        let ly = (-dx * sn + dy * cs) * stretch;
+        let d = lx * lx + ly * ly + 0.004;
         field += r * r / d;
-        gx += -2. * r * r * dx / (d * d);
-        gy += -2. * r * r * dy * 0.85 / (d * d);
+        let slope = -2. * r * r / (d * d);
+        gx += slope * (lx * cs - ly * stretch * sn);
+        gy += slope * (lx * sn + ly * stretch * cs);
     }
+    let (gx, gy) = (gx * jxx + gy * jyx, gx * jxy + gy * jyy);
     let fill = smoothstep(0.85, 1.1, field);
     let core = smoothstep(1., 2.1, field);
     let shine = 0.4
@@ -476,11 +510,22 @@ mod tests {
     #[test]
     #[ignore = "renders local Prism palette samples and a looping GIF for visual review"]
     fn prism_crystal_visual_qa() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/prism-qa");
+        motion_visual_qa(Motion::Prism, "prism");
+    }
+
+    #[test]
+    #[ignore = "renders local Lava palette samples and a looping GIF for visual review"]
+    fn lava_fluid_visual_qa() {
+        motion_visual_qa(Motion::Lava, "lava");
+    }
+
+    fn motion_visual_qa(motion: Motion, name: &str) {
+        let dir =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("target/{name}-qa"));
         std::fs::create_dir_all(&dir).unwrap();
         let mut palettes = RgbaImage::new(960, 540);
         for preset in 0..PRESETS.len() {
-            let image = frame(240, 270, preset, Motion::Prism, 0.22);
+            let image = frame(240, 270, preset, motion, 0.22);
             image::imageops::replace(
                 &mut palettes,
                 &image,
@@ -489,27 +534,39 @@ mod tests {
             );
         }
         palettes.save(dir.join("palettes.png")).unwrap();
-        let preset = Motion::Prism.suggested_preset().unwrap();
-        frame(960, 540, preset, Motion::Prism, 0.22)
+        let preset = motion.suggested_preset().unwrap();
+        frame(960, 540, preset, motion, 0.22)
             .save(dir.join("landscape.png"))
             .unwrap();
-        frame(405, 720, preset, Motion::Prism, 0.22)
+        frame(405, 720, preset, motion, 0.22)
             .save(dir.join("portrait.png"))
             .unwrap();
-        let file = std::fs::File::create(dir.join("prism.gif")).unwrap();
+        let file = std::fs::File::create(dir.join(format!("{name}.gif"))).unwrap();
         let mut encoder = gif::Encoder::new(file, 480, 270, &[]).unwrap();
         encoder.set_repeat(gif::Repeat::Infinite).unwrap();
         for i in 0..100 {
-            let mut pixels = frame(480, 270, preset, Motion::Prism, i as f32 / 100.).into_raw();
+            let mut pixels = frame(480, 270, preset, motion, i as f32 / 100.).into_raw();
             let mut frame = gif::Frame::from_rgba_speed(480, 270, &mut pixels, 10);
             frame.delay = 5;
             encoder.write_frame(&frame).unwrap();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let start = std::time::Instant::now();
+            for i in 0..60 {
+                gpu::frame(&Uniforms::new(960, 540, preset, motion, i as f32 / 60.)).unwrap();
+            }
+            println!(
+                "{}: {:.2} ms/frame (compute + readback)",
+                motion.label(),
+                start.elapsed().as_secs_f64() * 1000. / 60.
+            );
         }
     }
 
     #[test]
     fn evolving_effects_are_continuous_across_phase_wraps() {
-        for motion in [Motion::Contours, Motion::Prism, Motion::Paint] {
+        for motion in [Motion::Contours, Motion::Prism, Motion::Paint, Motion::Lava] {
             for (before, after) in [(0.49999, 0.50001), (0.99999, 0.00001)] {
                 let preset = motion.suggested_preset().unwrap();
                 let a = frame(256, 144, preset, motion, before);

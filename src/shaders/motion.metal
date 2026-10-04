@@ -36,20 +36,45 @@ float paper_noise(float2 p) {
 }
 
 float3 lava(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, float3 cyan, float3 mint) {
+    float t = atan2(u.orbit_sin, u.orbit_cos);
+    // Crossing currents deform the fluid; carry lighting through the Jacobian.
+    float a = p.y * 5.0 - t;
+    float b = p.x * 7.0 + p.y * 4.0 + 2.0 * t;
+    float c = p.x * 4.0 + t;
+    float d = p.y * 6.0 - p.x * 3.0 - 2.0 * t;
+    float2 q = p + float2(0.10 * sin(a) + 0.035 * sin(b), 0.08 * sin(c) + 0.035 * cos(d));
+    float jxx = 1.0 + 0.245 * cos(b), jxy = 0.50 * cos(a) + 0.14 * cos(b);
+    float jyx = 0.32 * cos(c) + 0.105 * sin(d), jyy = 1.0 - 0.21 * sin(d);
     float field = 0.0;
     float2 gradient = 0.0;
-    float aspect = float(u.width) / float(min(u.width, u.height));
-    for (uint i = 0; i < 6; i++) {
+    float2 aspect = float2(u.width, u.height) / float(min(u.width, u.height));
+    for (uint i = 0; i < 8; i++) {
         float angle = float(i) * 1.8;
-        float s = u.orbit_sin * cos(angle) + u.orbit_cos * sin(angle);
-        float c = u.orbit_cos * cos(angle) - u.orbit_sin * sin(angle);
-        float2 center = float2((float(i) / 5.0 - 0.5) * aspect * 0.80 + 0.09 * s, 0.36 * c);
-        float2 delta = (p - center) * float2(1.0, 0.85);
-        float r = 0.16 + 0.030 * sin(angle * 1.3);
-        float d = dot(delta, delta) + 0.006;
+        float s = sin(t + angle), c = cos(t + angle);
+        float surge = sin(2.0 * t - angle);
+        float2 center;
+        float r;
+        if (i < 6u) {
+            center = float2((float(i) / 5.0 - 0.5) * aspect.x * 0.9 + 0.18 * s + 0.07 * surge,
+                            aspect.y * 0.34 * c + 0.09 * surge);
+            r = 0.145 + 0.025 * sin(2.0 * t + angle);
+        } else {
+            // Small globules travel between the larger streams and rejoin them.
+            center = float2(aspect.x * 0.40 * sin(2.0 * t + angle), aspect.y * 0.42 * c);
+            r = 0.065 + 0.015 * surge;
+        }
+        float tilt = 0.55 * s;
+        float sn = sin(tilt), cs = cos(tilt);
+        float stretch = 0.72 + 0.18 * cos(2.0 * t + angle);
+        float2 delta = q - center;
+        float lx = delta.x * cs + delta.y * sn;
+        float ly = (-delta.x * sn + delta.y * cs) * stretch;
+        float d = lx * lx + ly * ly + 0.004;
         field += r * r / d;
-        gradient += -2.0 * r * r * delta * float2(1.0, 0.85) / (d * d);
+        float slope = -2.0 * r * r / (d * d);
+        gradient += slope * float2(lx * cs - ly * stretch * sn, lx * sn + ly * stretch * cs);
     }
+    gradient = float2(gradient.x * jxx + gradient.y * jyx, gradient.x * jxy + gradient.y * jyy);
     float fill = smoothstep(0.85, 1.1, field);
     float core = smoothstep(1.0, 2.1, field);
     float shine = 0.4 + 0.6 * clamp(dot(gradient, float2(-0.5, -0.8)) / max(length(gradient), 0.001) + 0.3, 0.0, 1.0);

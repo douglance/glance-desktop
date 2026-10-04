@@ -76,8 +76,8 @@ Capture, annotate, frame, and share from one native macOS window.
   is one seamless backdrop cycle; duration also controls the preview's cycle speed.
   **Export → Cancel export** or Escape stops it. Transparent pixels use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
-  Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
-  and separate; Aurora has rippling light curtains; Contours has terrain lines
+  Liquid has flowing ribbons and fine grain; Lava has molten streams that stretch,
+  curl, merge and shed small globules; Aurora has rippling light curtains; Contours has terrain lines
   that ripple, swell and curl; Prism has irregular crystal facets with depth,
   sweeping highlights and palette-tinted bands of refracted color;
   Painterly has brush strokes that sweep, bloom and fade. These

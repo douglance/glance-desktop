@@ -18,6 +18,9 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- Lava backdrops flow through crossing currents, with stretching molten shapes
+  and small globules that separate and rejoin the larger streams.
+
 - Prism backdrops have irregular crystal facets, dimensional lighting and
   sweeping bands of refracted color, with subtler illuminated edges.
 
