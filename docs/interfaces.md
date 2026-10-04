@@ -10,7 +10,7 @@ a packaged app's executable accepts the same arguments.
 ## Start the editor
 
 ```sh
-target/debug/glance --automation --demo
+target/debug/glance --automation
 ```
 
 The editor owns the document, undo history, and background export operations.
