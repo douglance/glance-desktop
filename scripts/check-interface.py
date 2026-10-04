@@ -96,6 +96,14 @@ def main():
             tools = direct.request("tools/list", {})["tools"]
             names = {tool["name"] for tool in tools}
             assert EDITOR_TOOLS <= names, EDITOR_TOOLS - names
+            reads = {"get_editor_state", "get_document", "read_image", "read_video_frame"}
+            for tool in tools:
+                if tool["name"] in EDITOR_TOOLS:
+                    read_only = tool["name"] in reads
+                    expected = {"readOnlyHint": read_only, "destructiveHint": not read_only,
+                                "idempotentHint": read_only, "openWorldHint": False}
+                    for key, value in expected.items():
+                        assert tool["annotations"][key] == value, tool
             assert {"code_search", "code_execute", "code_execution", "code_decide", "code_cancel"} <= names
             invalid = direct.call("read_image", {"max_edge": 1})
             assert invalid.get("isError"), invalid

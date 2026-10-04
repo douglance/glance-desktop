@@ -143,8 +143,11 @@ pub(crate) fn editor_cli_with(call: EditorCall) -> Cli {
             name: Some(name.into()),
             input_schema: Some(tool["inputSchema"].clone()),
             annotations: Some(McpAnnotations {
+                title: tool["annotations"]["title"].as_str().map(str::to_owned),
                 read_only_hint: tool["annotations"]["readOnlyHint"].as_bool(),
-                ..Default::default()
+                destructive_hint: tool["annotations"]["destructiveHint"].as_bool(),
+                idempotent_hint: tool["annotations"]["idempotentHint"].as_bool(),
+                open_world_hint: tool["annotations"]["openWorldHint"].as_bool(),
             }),
             result_content: content,
             ..Default::default()

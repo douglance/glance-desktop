@@ -61,7 +61,9 @@ content. The original `--mcp` remains compatible with existing clients.
 
 `dispatch_action` exposes all published application actions, including tool
 settings, framing, animation, playback, selection, capture, and export controls.
-`--cli dispatch-action --schema` describes the accepted action inventory.
+`--cli dispatch-action --schema` describes the CLI flags. The complete nested
+action inventory is published by MCP discovery and
+`--cli code search --query dispatch_action` after starting the Code Mode service.
 See [the editor MCP reference](../mcp/README.md) for parameters and semantics.
 
 Read `get_document` before object edits and pass `expected_revision` for
@@ -125,7 +127,7 @@ running programs are failed on restart and are never silently replayed.
 ## Coverage and limits
 
 The catalog registers every existing editor tool with its exact published
-schema and read-only annotation. Tests use an independent payload inventory,
+schema and behavioral annotations. Tests use an independent payload inventory,
 compare the action inventory against Serde, exercise the native GPUI dispatcher
 with state read-back, undo/redo and stale revisions, and run Code Mode lifecycle
 and artifact-persistence checks. These are API and native virtual-platform

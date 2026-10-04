@@ -16,6 +16,19 @@ fn every_editor_tool_keeps_its_exact_schema_and_annotations() {
             actual.annotations.as_ref().unwrap().read_only_hint,
             tool["annotations"]["readOnlyHint"].as_bool()
         );
+        let annotations = actual.annotations.as_ref().unwrap();
+        assert_eq!(
+            annotations.destructive_hint,
+            tool["annotations"]["destructiveHint"].as_bool()
+        );
+        assert_eq!(
+            annotations.idempotent_hint,
+            tool["annotations"]["idempotentHint"].as_bool()
+        );
+        assert_eq!(
+            annotations.open_world_hint,
+            tool["annotations"]["openWorldHint"].as_bool()
+        );
     }
 }
 
