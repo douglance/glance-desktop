@@ -70,6 +70,54 @@ impl Editor {
             {
                 return Err("Stroke width must be 0.5..64".into());
             }
+            Action::SetAppearance { style } => style.validate()?,
+            Action::SetImageAnimation { animation } => animation.validate()?,
+            Action::SelectEntrance { effect } => {
+                let mut animation = self.document.image_animation;
+                if !animation.enabled() {
+                    animation.seconds = self.document.animation_seconds();
+                }
+                animation.effect = *effect;
+                animation.validate()?;
+            }
+            Action::SetAnimationControl { control, value } => {
+                let mut animation = self.document.image_animation;
+                let (min, max, _) = control.range(animation);
+                if !(min..=max).contains(value) {
+                    return Err("Animation control out of range".into());
+                }
+                control.set(&mut animation, *value);
+                animation.validate()?;
+            }
+            Action::SeekAnimation { seconds }
+                if !seconds.is_finite()
+                    || !(0. ..=self.document.animation_seconds() as f32).contains(seconds) =>
+            {
+                return Err("Preview time must lie within the clip".into());
+            }
+            Action::BeginAnimationAdjustment {
+                track, position, ..
+            } if ![track.0, track.1, track.2, track.3, position.0, position.1]
+                .iter()
+                .all(|n| n.is_finite())
+                || track.2 <= 0.
+                || track.3 <= 0. =>
+            {
+                return Err("Invalid animation slider bounds".into());
+            }
+            Action::SetMagnifierZoom { zoom }
+                if !zoom.is_finite() || !(1.5..=4.).contains(zoom) =>
+            {
+                return Err("Magnification must be 1.5..4".into());
+            }
+            Action::SetCounterNumber { number } if !(1..=999).contains(number) => {
+                return Err("Step number must be 1..999".into());
+            }
+            Action::SetCropRatio { ratio: Some(ratio) }
+                if !ratio.is_finite() || !(0.1..=10.).contains(ratio) =>
+            {
+                return Err("Crop ratio must be 0.1..10".into());
+            }
             Action::Resize { scale, .. } | Action::SetResizeScale { scale }
                 if !scale.is_finite() || !(0.1..=4.).contains(scale) =>
             {
@@ -90,20 +138,29 @@ impl Editor {
             Action::SetBackdropPreset { preset } if *preset >= PRESETS.len() => {
                 return Err("Invalid backdrop preset".into());
             }
-            Action::SetBackdrop { backdrop: Some(b) }
+            Action::SetBackdrop { backdrop: Some(b) } => {
                 if b.preset >= PRESETS.len()
                     || b.padding > 512
                     || b.inner_radius > 256
-                    || b.outer_radius > 256
+                    || b.inside_padding > 512
                     || b.shadow > 128
-                    || !(2..=15).contains(&b.seconds) =>
-            {
-                return Err("Backdrop values out of range".into());
+                    || !(2..=15).contains(&b.seconds)
+                {
+                    return Err("Backdrop values out of range".into());
+                }
+                let mut animation = self.document.image_animation;
+                animation.seconds = b.seconds;
+                animation.validate()?;
             }
-            Action::SetBackdropControl { control, value }
-                if *value < control.min() || *value > control.max() =>
-            {
-                return Err("Backdrop control value out of range".into());
+            Action::SetBackdropControl { control, value } => {
+                if *value < control.min() || *value > control.max() {
+                    return Err("Backdrop control value out of range".into());
+                }
+                if *control == Control::Duration {
+                    let mut animation = self.document.image_animation;
+                    animation.seconds = *value;
+                    animation.validate()?;
+                }
             }
             Action::BeginBackdropAdjustment {
                 track, position, ..
@@ -193,6 +250,12 @@ impl Editor {
                 self.interaction.width = width;
                 self.apply_style(false, cx);
             }
+            Action::SetAppearance { style } => self.set_appearance(style, cx)?,
+            Action::SetMagnifierZoom { zoom } => self.set_magnifier_zoom(zoom, cx)?,
+            Action::SetCounterNumber { number } => self.set_counter_number(number, cx)?,
+            Action::SetCropRatio { ratio } => self.interaction.crop_ratio = ratio,
+            Action::AddLinePoint => self.line_point(false, cx)?,
+            Action::StraightenLine => self.line_point(true, cx)?,
             Action::CycleStrokeWidth => {
                 self.interaction.width = match self.interaction.width as u32 {
                     3 => 5.,
@@ -202,22 +265,12 @@ impl Editor {
                 self.apply_style(false, cx);
             }
             Action::CycleMagnifierZoom => {
-                if let Some(index) = self.interaction.selected.filter(|i| {
-                    self.document
-                        .marks
-                        .get(*i)
-                        .is_some_and(|m| m.tool == Tool::Magnifier)
-                }) {
-                    self.cancel_gesture();
-                    let next = match crate::effects::zoom(&self.document.marks[index]) as u32 {
-                        2 => 3,
-                        3 => 4,
-                        _ => 2,
-                    };
-                    let mut mark = self.document.marks[index].clone();
-                    mark.text = next.to_string();
-                    self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
-                }
+                let next = match self.tool_settings().magnification as u32 {
+                    2 => 3.,
+                    3 => 4.,
+                    _ => 2.,
+                };
+                self.set_magnifier_zoom(next, cx)?;
             }
             Action::NudgeSelection { delta, remember } => {
                 self.cancel_gesture();
@@ -248,11 +301,13 @@ impl Editor {
             }
             Action::ToggleBackdrop => self.toggle_backdrop(cx),
             Action::ToggleEnhance => self.toggle_enhance(cx),
+            Action::ToggleAnimationPanel => self.toggle_animation_panel(cx),
             Action::ClosePanel { panel } => {
                 self.panels.popup = None;
                 match panel {
                     Panel::Backdrop => self.panels.backdrop = false,
                     Panel::Enhance => self.panels.enhance = false,
+                    Panel::Animation => self.panels.animation = false,
                 }
             }
             Action::SetResizeScale { scale } => self.panels.resize_scale = scale,
@@ -283,7 +338,11 @@ impl Editor {
                 let backdrop = if current.is_some() {
                     None
                 } else {
-                    Some(self.panels.backdrop_disabled.unwrap_or_default())
+                    let mut b = self.panels.backdrop_disabled.unwrap_or_default();
+                    if self.document.image_animation.enabled() {
+                        b.seconds = self.document.animation_seconds();
+                    }
+                    Some(b)
                 };
                 self.edit_document(DocumentAction::SetBackdrop { backdrop }, cx)?;
                 self.panels.backdrop_disabled = current;
@@ -319,18 +378,25 @@ impl Editor {
                     self.cancel_gesture();
                     self.document.remember();
                 }
+                let enabling = self.document.backdrop.is_none();
+                let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
                 let b = self.document.backdrop.get_or_insert_with(|| {
                     self.panels.backdrop_disabled.take().unwrap_or_default()
                 });
                 let previous = *b;
                 control.set(b, value);
-                let changed = previous != *b;
+                let changed = enabling || previous != *b;
+                let padding_changed = previous_padding != b.inside_padding;
                 if control == Control::Duration {
+                    self.document.image_animation.seconds = b.seconds;
                     self.playback.position = phase * b.seconds as f32;
                     self.playback.epoch = std::time::Instant::now();
                 }
                 if changed {
                     self.preview.revision += 1;
+                    if padding_changed {
+                        self.schedule_preview();
+                    }
                 }
             }
             Action::BeginBackdropAdjustment {
@@ -341,6 +407,10 @@ impl Editor {
                 self.commit_text(cx);
                 self.cancel_gesture();
                 self.document.remember();
+                if self.document.backdrop.is_none() {
+                    self.preview.revision += 1;
+                }
+                let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document.backdrop.get_or_insert_with(|| {
                     self.panels.backdrop_disabled.take().unwrap_or_default()
                 });
@@ -352,8 +422,84 @@ impl Editor {
                     ),
                 );
                 self.backdrop_slider_move(point(px(position.0), px(position.1)), cx);
+                if previous_padding != self.document.backdrop.map_or(0, |b| b.inside_padding) {
+                    self.schedule_preview();
+                }
             }
             Action::TogglePlayback => self.toggle_animation(cx),
+            Action::ReplayAnimation => self.replay_animation(cx),
+            Action::SeekAnimation { seconds } => {
+                self.playback.position = seconds;
+                self.playback.epoch = std::time::Instant::now();
+                self.playback.paused = true;
+                self.playback.seek = self.playback.seek.wrapping_add(1);
+            }
+            Action::SelectEntrance { effect } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                let mut animation = self.document.image_animation;
+                if !animation.enabled() {
+                    animation.seconds = self.document.animation_seconds();
+                }
+                animation.effect = effect;
+                self.edit_document(DocumentAction::SetImageAnimation { animation }, cx)?;
+                self.panels.animation = true;
+                self.panels.backdrop = false;
+                self.panels.enhance = false;
+                self.interaction.selected = None;
+                self.replay_animation(cx);
+            }
+            Action::SetImageAnimation { animation } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.edit_document(DocumentAction::SetImageAnimation { animation }, cx)?;
+            }
+            Action::SetAnimationControl { control, value } => {
+                if control == crate::animation::AnimationControl::Time {
+                    self.playback.position = value as f32 / 1000.;
+                    self.playback.paused = true;
+                    self.playback.seek = self.playback.seek.wrapping_add(1);
+                } else {
+                    let mut animation = self.document.image_animation;
+                    control.set(&mut animation, value);
+                    if matches!(
+                        self.interaction.gesture,
+                        super::state::Gesture::AdjustingAnimation(..)
+                    ) {
+                        if self.document.image_animation != animation {
+                            self.document.image_animation = animation;
+                            if let Some(b) = &mut self.document.backdrop {
+                                b.seconds = animation.seconds;
+                            }
+                            self.preview.revision += 1;
+                            self.replay_animation(cx);
+                        }
+                    } else {
+                        self.commit_text(cx);
+                        self.cancel_gesture();
+                        self.edit_document(DocumentAction::SetImageAnimation { animation }, cx)?;
+                    }
+                }
+            }
+            Action::BeginAnimationAdjustment {
+                control,
+                track,
+                position,
+            } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                if control != crate::animation::AnimationControl::Time {
+                    self.document.remember();
+                }
+                self.interaction.gesture = super::state::Gesture::AdjustingAnimation(
+                    control,
+                    Bounds::new(
+                        point(px(track.0), px(track.1)),
+                        size(px(track.2), px(track.3)),
+                    ),
+                );
+                self.animation_slider_move(point(px(position.0), px(position.1)), cx);
+            }
             Action::ExportAnimation { format } => match format {
                 AnimationFormat::Mp4 => self.export_video(cx),
                 AnimationFormat::Gif => self.export_gif(cx),

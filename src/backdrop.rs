@@ -1,4 +1,4 @@
-//! Non-destructive framing: GPU preview, full-resolution worker export.
+//! Non-destructive framing and edge padding: GPU preview, full-resolution worker export.
 use image::{Rgba, RgbaImage};
 
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -9,9 +9,11 @@ pub struct Backdrop {
     pub motion: crate::animation::Motion,
     pub seconds: u32,
     pub preset: usize,
+    /// Minimum backdrop margin, outside the expanded screenshot.
     pub padding: u32,
     pub inner_radius: u32,
-    pub outer_radius: u32,
+    /// Nearest-edge pixel extension, inside the screenshot corners and shadow.
+    pub inside_padding: u32,
     pub shadow: u32,
 }
 /// Output shape; platform presets retain their identity even when ratios coincide.
@@ -123,14 +125,15 @@ impl Default for Backdrop {
             preset: 0,
             padding: 64,
             inner_radius: 18,
-            outer_radius: 0,
+            inside_padding: 0,
             shadow: 24,
         }
     }
 }
 impl Backdrop {
     pub fn layout(self, source: (u32, u32)) -> Frame {
-        let padded = (source.0 + self.padding * 2, source.1 + self.padding * 2);
+        let image = self.image_dimensions(source);
+        let padded = (image.0 + self.padding * 2, image.1 + self.padding * 2);
         let dimensions = if let Some((rw, rh)) = self.format.ratio() {
             let unit = padded.0.div_ceil(rw).max(padded.1.div_ceil(rh));
             (unit * rw, unit * rh)
@@ -138,6 +141,27 @@ impl Backdrop {
             padded
         };
         Frame::centered(dimensions, source)
+    }
+    pub fn image_dimensions(self, source: (u32, u32)) -> (u32, u32) {
+        (
+            source.0 + self.inside_padding * 2,
+            source.1 + self.inside_padding * 2,
+        )
+    }
+    /// Repeat the nearest edge pixel, including alpha, without changing the source.
+    pub fn extend_edges(self, source: &RgbaImage) -> std::borrow::Cow<'_, RgbaImage> {
+        if self.inside_padding == 0 || source.width() == 0 || source.height() == 0 {
+            return std::borrow::Cow::Borrowed(source);
+        }
+        let (w, h) = self.image_dimensions(source.dimensions());
+        std::borrow::Cow::Owned(RgbaImage::from_fn(w, h, |x, y| {
+            *source.get_pixel(
+                x.saturating_sub(self.inside_padding)
+                    .min(source.width() - 1),
+                y.saturating_sub(self.inside_padding)
+                    .min(source.height() - 1),
+            )
+        }))
     }
     pub fn dimensions(self, source: (u32, u32)) -> (u32, u32) {
         self.layout(source).dimensions
@@ -158,7 +182,9 @@ impl Backdrop {
         if self.motion != crate::animation::Motion::Still {
             return crate::animation::Renderer::new(source, self, None).frame(0.);
         }
-        let frame = self.layout(source.dimensions());
+        let dimensions = self.dimensions(source.dimensions());
+        let source = self.extend_edges(source);
+        let frame = Frame::centered(dimensions, source.dimensions());
         let (w, h) = frame.dimensions;
         let mut out = RgbaImage::new(w, h);
         let (_, from, to) = PRESETS[self.preset];
@@ -169,7 +195,6 @@ impl Backdrop {
         let (left_f, top_f) = (left as f32, top as f32);
         let sw = source.width() as f32;
         let sh = source.height() as f32;
-        let outer_radius = self.outer_radius as f32;
         let inner_radius = self.inner_radius as f32;
         for y in 0..h {
             let t = if self.gradient {
@@ -182,10 +207,6 @@ impl Backdrop {
             for x in 0..w {
                 let px = x as f32 + 0.5;
                 let py = y as f32 + 0.5;
-                let outer = coverage(distance(px, py, w as f32, h as f32, outer_radius));
-                if outer == 0. {
-                    continue;
-                }
                 let mut color = color;
                 if self.shadow > 0 {
                     let blur = self.shadow as f32;
@@ -212,7 +233,7 @@ impl Backdrop {
                         color[0].round() as u8,
                         color[1].round() as u8,
                         color[2].round() as u8,
-                        (outer * 255.).round() as u8,
+                        255,
                     ]),
                 );
             }
@@ -235,16 +256,16 @@ pub(crate) fn distance(x: f32, y: f32, w: f32, h: f32, radius: f32) -> f32 {
 pub enum Control {
     Padding,
     InnerRadius,
-    OuterRadius,
+    InsidePadding,
     Shadow,
     Duration,
 }
 impl Control {
     pub fn label(self) -> &'static str {
         match self {
-            Self::Padding => "Padding",
+            Self::Padding => "Outside padding",
             Self::InnerRadius => "Image corners",
-            Self::OuterRadius => "Backdrop corners",
+            Self::InsidePadding => "Inside padding",
             Self::Shadow => "Shadow",
             Self::Duration => "Duration",
         }
@@ -254,7 +275,7 @@ impl Control {
     }
     pub fn max(self) -> u32 {
         match self {
-            Self::Padding => 200,
+            Self::Padding | Self::InsidePadding => 200,
             Self::Shadow => 60,
             Self::Duration => 15,
             _ => 80,
@@ -264,7 +285,7 @@ impl Control {
         match self {
             Self::Padding => b.padding,
             Self::InnerRadius => b.inner_radius,
-            Self::OuterRadius => b.outer_radius,
+            Self::InsidePadding => b.inside_padding,
             Self::Shadow => b.shadow,
             Self::Duration => b.seconds,
         }
@@ -273,46 +294,12 @@ impl Control {
         match self {
             Self::Padding => b.padding = value,
             Self::InnerRadius => b.inner_radius = value,
-            Self::OuterRadius => b.outer_radius = value,
+            Self::InsidePadding => b.inside_padding = value,
             Self::Shadow => b.shadow = value,
             Self::Duration => b.seconds = value.clamp(2, 15),
         }
     }
 }
-/// Mask everything outside the rounded output, including shadows and live marks.
-pub fn clip_output_corners(
-    bounds: gpui::Bounds<gpui::Pixels>,
-    radius: f32,
-    window: &mut gpui::Window,
-) {
-    use gpui::{PathBuilder, point, px, rgb};
-    let r = radius
-        .min(f32::from(bounds.size.width) * 0.5)
-        .min(f32::from(bounds.size.height) * 0.5);
-    if r <= 0. {
-        return;
-    }
-    for (origin, sx, sy) in [
-        (bounds.origin, 1., 1.),
-        (point(bounds.right(), bounds.top()), -1., 1.),
-        (point(bounds.left(), bounds.bottom()), 1., -1.),
-        (point(bounds.right(), bounds.bottom()), -1., -1.),
-    ] {
-        let map = |x, y| origin + point(px(x * sx), px(y * sy));
-        let mut path = PathBuilder::fill();
-        path.move_to(origin);
-        path.line_to(map(r, 0.));
-        for i in 1..=24 {
-            let angle = -std::f32::consts::FRAC_PI_2 * (1. + i as f32 / 24.);
-            path.line_to(map(r + r * angle.cos(), r + r * angle.sin()));
-        }
-        path.close();
-        if let Ok(path) = path.build() {
-            window.paint_path(path, rgb(0xeff0f4));
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -323,6 +310,7 @@ mod tests {
             let b = Backdrop {
                 format,
                 padding: 7,
+                inside_padding: 5,
                 inner_radius: 0,
                 shadow: 0,
                 ..Default::default()
@@ -330,7 +318,7 @@ mod tests {
             let frame = b.layout(source.dimensions());
             let (w, h) = frame.dimensions;
             let (left, top) = frame.origin;
-            assert!(left >= 7 && top >= 7);
+            assert!(left >= 12 && top >= 12);
             assert!((w - source.width() - left).abs_diff(left) <= 1);
             assert!((h - source.height() - top).abs_diff(top) <= 1);
             if let Some((rw, rh)) = format.ratio() {
@@ -352,6 +340,7 @@ mod tests {
         }
         let old: Backdrop = serde_json::from_value(serde_json::json!({"padding": 10})).unwrap();
         assert_eq!(old.format, Format::Auto);
+        assert_eq!(old.inside_padding, 0);
     }
     #[test]
     fn capped_exports_keep_exact_formats_and_do_not_clip_the_foreground() {
@@ -360,6 +349,7 @@ mod tests {
             let b = Backdrop {
                 format,
                 padding: 31,
+                inside_padding: 43,
                 inner_radius: 0,
                 shadow: 0,
                 ..Default::default()
@@ -387,6 +377,69 @@ mod tests {
         }
     }
     #[test]
+    fn inside_padding_repeats_each_edge_and_corner_in_static_and_motion_exports() {
+        let source = RgbaImage::from_fn(5, 3, |x, y| Rgba([x as u8 * 40, y as u8 * 60, 90, 255]));
+        let original = source.clone();
+        for padding in [0, 1, 4, 200] {
+            let b = Backdrop {
+                inside_padding: padding,
+                padding: 3,
+                inner_radius: 0,
+                shadow: 0,
+                ..Default::default()
+            };
+            let extended = b.extend_edges(&source);
+            assert_eq!(extended.dimensions(), (5 + padding * 2, 3 + padding * 2));
+            for motion in [
+                crate::animation::Motion::Still,
+                crate::animation::Motion::Flow,
+                crate::animation::Motion::Liquid,
+            ] {
+                let output = Backdrop { motion, ..b }.apply(&source);
+                for (x, y, pixel) in extended.enumerate_pixels() {
+                    let expected = source.get_pixel(
+                        x.saturating_sub(padding).min(4),
+                        y.saturating_sub(padding).min(2),
+                    );
+                    assert_eq!(pixel, expected);
+                    assert_eq!(output.get_pixel(x + 3, y + 3), expected, "{motion:?}");
+                }
+                assert_eq!(output.get_pixel(0, 0)[3], 255);
+            }
+        }
+        assert_eq!(source, original);
+        let transparent = RgbaImage::from_pixel(1, 1, Rgba([80, 120, 200, 100]));
+        let b = Backdrop {
+            inside_padding: 2,
+            ..Default::default()
+        };
+        assert!(
+            b.extend_edges(&transparent)
+                .pixels()
+                .all(|pixel| *pixel == transparent[(0, 0)])
+        );
+        assert!(matches!(
+            Backdrop::default().extend_edges(&source),
+            std::borrow::Cow::Borrowed(_)
+        ));
+    }
+    #[test]
+    #[ignore = "writes synthetic PNG samples for visual QA"]
+    fn inside_padding_visual_qa() {
+        let source = crate::document::demo();
+        let path = std::path::Path::new("target/inside-padding-qa");
+        std::fs::create_dir_all(path).unwrap();
+        for (name, inside_padding) in [("before", 0), ("after", 40)] {
+            Backdrop {
+                inside_padding,
+                ..Default::default()
+            }
+            .apply(&source)
+            .save(path.join(format!("{name}.png")))
+            .unwrap();
+        }
+    }
+    #[test]
     fn solid_padding_preserves_source_and_dimensions() {
         let src = RgbaImage::from_pixel(12, 8, Rgba([255, 0, 0, 255]));
         let b = Backdrop {
@@ -408,18 +461,18 @@ mod tests {
         let b = Backdrop {
             gradient: true,
             padding: 10,
-            outer_radius: 8,
+            inside_padding: 8,
             inner_radius: 8,
             shadow: 8,
             ..Default::default()
         };
         let out = b.apply(&src);
-        assert_eq!(out.get_pixel(0, 0)[3], 0);
+        assert_eq!(out.get_pixel(0, 0)[3], 255);
         assert_ne!(out.get_pixel(20, 0), out.get_pixel(20, 39));
         assert_ne!(out.get_pixel(10, 10), src.get_pixel(0, 0));
         assert_eq!(out.get_pixel(20, 20), src.get_pixel(10, 10));
         let no_shadow = Backdrop { shadow: 0, ..b }.apply(&src);
-        assert!(out.get_pixel(20, 32)[0] < no_shadow.get_pixel(20, 32)[0]);
+        assert!(out.get_pixel(28, 48)[0] < no_shadow.get_pixel(28, 48)[0]);
         let mut png = std::io::Cursor::new(Vec::new());
         out.write_to(&mut png, image::ImageFormat::Png).unwrap();
         let decoded = image::load_from_memory(png.get_ref()).unwrap().to_rgba8();
@@ -431,7 +484,7 @@ mod tests {
         let b = Backdrop {
             padding: 0,
             inner_radius: 0,
-            outer_radius: 0,
+            inside_padding: 0,
             shadow: 0,
             ..Default::default()
         };

@@ -60,10 +60,17 @@ pub(crate) fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
     )]))
 }
 fn preview_base(doc: &Document) -> image::RgbaImage {
-    image::DynamicImage::ImageRgba8(doc.render(None))
+    let source = doc.render(None);
+    let image = if let Some(b) = doc.backdrop.filter(|b| b.inside_padding > 0) {
+        b.extend_edges(&source).into_owned()
+    } else {
+        source
+    };
+    image::DynamicImage::ImageRgba8(image)
         .thumbnail(1600, 1200)
         .to_rgba8()
 }
+
 impl Editor {
     pub(crate) fn new(cx: &mut Context<Self>, image: Option<image::RgbaImage>) -> Self {
         Self::with_document(
@@ -86,6 +93,12 @@ impl Editor {
                 let _ = motion_sender.try_send(Message::MotionPreviewReady);
             },
         )));
+        let composition_sender = sender.clone();
+        let composition_preview = Rc::new(std::cell::RefCell::new(
+            crate::animation::CompositionPreview::new(move || {
+                let _ = composition_sender.try_send(Message::MotionPreviewReady);
+            }),
+        ));
         #[cfg(target_os = "macos")]
         let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
         #[cfg(target_os = "linux")]
@@ -159,6 +172,9 @@ impl Editor {
                 tool: Tool::Select,
                 color: [255, 56, 100, 255],
                 width: 5.,
+                defaults: [Default::default(); 11],
+                crop_ratio: None,
+                next_counter: None,
 
                 text_edit: None,
                 text_session: 0,
@@ -173,6 +189,7 @@ impl Editor {
                 layout: Rc::new(Cell::new(Layout::default())),
             },
             preview: PreviewState {
+                inside_padding: 0,
                 lens: None,
                 lens_wanted: None,
                 lens_rendering: false,
@@ -185,6 +202,8 @@ impl Editor {
             },
             playback: PlaybackState {
                 motion_preview,
+                composition_preview,
+                seek: 0,
                 epoch: std::time::Instant::now(),
                 paused: false,
                 position: 0.,
@@ -200,6 +219,7 @@ impl Editor {
                 popup_index: 0,
                 backdrop: false,
                 enhance: false,
+                animation: false,
                 resize_scale: 2.,
                 resize_smart: true,
             },

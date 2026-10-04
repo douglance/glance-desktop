@@ -2,7 +2,7 @@ use super::actions::Action;
 use super::state::Layout;
 use super::{Editor, text_input};
 use crate::{
-    animation, arrow, backdrop,
+    animation, arrow,
     document::{Mark, Tool},
     drawing, effects,
 };
@@ -15,6 +15,7 @@ impl Editor {
     ) -> impl IntoElement {
         let self_revision = self.preview.revision;
         let image = self.preview.image.clone();
+        let preview_padding = self.preview.inside_padding;
         let text_entity = cx.entity();
         let overlays: Vec<Mark> = self
             .document
@@ -53,14 +54,32 @@ impl Editor {
         let layout = self.viewport.layout.clone();
         let dimensions = self.document.base.dimensions();
         let backdrop = self.document.backdrop;
+        let composition_preview = self.playback.composition_preview.clone();
+        let composition = self.panels.animation && self.document.image_animation.enabled();
+        let composition_source = composition.then(|| {
+            composition_preview
+                .borrow_mut()
+                .source(&self.document, self_revision)
+        });
+        let clip_time = self.clip_time();
+        let seek = self.playback.seek;
+        if !composition {
+            composition_preview.borrow_mut().clear(window);
+        }
         let motion_preview = self.playback.motion_preview.clone();
-        if !backdrop.is_some_and(|b| b.motion.uses_shader()) {
+        if composition || !backdrop.is_some_and(|b| b.motion.uses_shader()) {
             motion_preview.borrow_mut().clear(window);
         }
         let animation_phase = self.animation_phase();
         let animation_playing =
             !self.playback.paused && !self.is_busy() && window.is_window_active();
-        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still) && animation_playing {
+        if animation_playing
+            && (if composition {
+                clip_time < self.document.animation_seconds() as f32
+            } else {
+                backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
+            })
+        {
             window.request_animation_frame();
         }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
@@ -118,6 +137,10 @@ impl Editor {
                             height: dimensions.1 as f32,
                         });
                         let image_bounds = Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
+                        let inside = backdrop.map_or(0., |b| b.inside_padding as f32 * scale);
+                        let padded_bounds = image_bounds.dilate(px(inside));
+                        let preview_bounds =
+                            image_bounds.dilate(px(preview_padding as f32 * scale));
                         let framing = backdrop.map(|b| b.layout(dimensions));
                         let frame_bounds = framing.map_or(image_bounds, |frame| {
                             Bounds::new(
@@ -131,10 +154,25 @@ impl Editor {
                                 ),
                             )
                         });
+                        if let Some(document) = &composition_source {
+                            window.paint_quad(fill(
+                                frame_bounds,
+                                document.animation_backdrop().background(),
+                            ));
+                            composition_preview.borrow_mut().paint(
+                                clip_time,
+                                seek,
+                                frame_bounds,
+                                animation_playing
+                                    && clip_time < document.animation_seconds() as f32,
+                                window,
+                            );
+                            return;
+                        }
                         if let Some(b) = backdrop {
                             window.paint_quad(quad(
                                 frame_bounds,
-                                px(b.outer_radius as f32 * scale),
+                                px(0.),
                                 b.background(),
                                 px(0.),
                                 rgb(0xffffff),
@@ -150,7 +188,7 @@ impl Editor {
                                             b,
                                             animation_phase,
                                             frame_bounds,
-                                            px(b.outer_radius as f32 * scale),
+                                            px(0.),
                                             &mut motion_preview.borrow_mut(),
                                             animation_playing,
                                             window,
@@ -165,7 +203,7 @@ impl Editor {
                                     }),
                                     |window| {
                                         window.paint_shadows(
-                                            image_bounds,
+                                            padded_bounds,
                                             px(b.inner_radius as f32 * scale).into(),
                                             &[BoxShadow {
                                                 color: rgba(0x00000038).into(),
@@ -211,7 +249,7 @@ impl Editor {
                             ));
                         }
                         let _ = window.paint_image(
-                            image_bounds,
+                            preview_bounds,
                             px(backdrop.map_or(0., |b| b.inner_radius as f32 * scale)).into(),
                             image,
                             0,
@@ -286,13 +324,6 @@ impl Editor {
                                 );
                             },
                         );
-                        if let Some(b) = backdrop {
-                            backdrop::clip_output_corners(
-                                frame_bounds,
-                                b.outer_radius as f32 * scale,
-                                window,
-                            );
-                        }
                     },
                 )
                 .h_full()
@@ -302,8 +333,15 @@ impl Editor {
             .when(self.panels.backdrop, |el| {
                 el.child(self.backdrop_controls(cx))
             })
+            .when(
+                !self.panels.backdrop && !self.panels.enhance && !self.panels.animation,
+                |el| el.child(self.tool_controls(cx)),
+            )
             .when(self.panels.enhance, |el| {
                 el.child(self.enhance_controls(cx))
+            })
+            .when(self.panels.animation, |el| {
+                el.child(self.animation_controls(cx))
             })
     }
 }

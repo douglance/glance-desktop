@@ -1,7 +1,7 @@
 use super::Editor;
 use super::actions::Action;
 use super::feedback::CopyFeedback;
-use crate::{document::Tool, effects, menus};
+use crate::{document::Tool, menus};
 use gpui::{prelude::*, *};
 pub(super) struct HoverLabel(pub(super) SharedString);
 impl Render for HoverLabel {
@@ -153,25 +153,13 @@ impl Render for Editor {
         for image in self.preview.retired.drain(..) {
             let _ = window.drop_image(image);
         }
-        let selected_mark = self
-            .interaction
-            .selected
-            .and_then(|i| self.document.marks.get(i))
-            .cloned();
         let dimensions = self.document.base.dimensions();
         let output_dimensions = self
             .document
             .backdrop
             .map_or(dimensions, |b| b.dimensions(dimensions));
         let viewport = window.viewport_size();
-        let fit_zoom = ((f32::from(viewport.width)
-            - if self.panels.backdrop || self.panels.enhance {
-                260.
-            } else {
-                0.
-            }
-            - 80.)
-            / output_dimensions.0 as f32)
+        let fit_zoom = ((f32::from(viewport.width) - 260. - 80.) / output_dimensions.0 as f32)
             .min((f32::from(viewport.height) - 48. - 70.) / output_dimensions.1 as f32)
             .clamp(0.01, 1.);
         let zoom_label = format!("{:.0}%", self.viewport.zoom.unwrap_or(fit_zoom) * 100.);
@@ -187,14 +175,6 @@ impl Render for Editor {
             Tool::Counter,
             Tool::Spotlight,
             Tool::Magnifier,
-        ];
-        let colors = [
-            (0xff3864, [255, 56, 100, 255]),
-            (0xffb82e, [255, 184, 46, 255]),
-            (0x26b690, [38, 182, 144, 255]),
-            (0x4c8dff, [76, 141, 255, 255]),
-            (0xffffff, [255, 255, 255, 255]),
-            (0x20222a, [32, 34, 42, 255]),
         ];
         div()
             .size_full()
@@ -422,63 +402,13 @@ impl Render for Editor {
                         cx,
                         Action::ToggleEnhance,
                     ))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_1()
-                            .children(colors.into_iter().map(|(hex, color)| {
-                                div()
-                                    .id(("color", hex))
-                                    .size(px(16.))
-                                    .rounded_full()
-                                    .border_2()
-                                    .border_color(rgb(if self.interaction.color == color {
-                                        0xf35d45
-                                    } else {
-                                        0xd7d7df
-                                    }))
-                                    .bg(rgb(hex))
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(move |this, _, _, cx| {
-                                        this.dispatch_ui(Action::SetColor { color }, cx);
-                                    }))
-                            }))
-                            .child(
-                                self.button(
-                                    &if self.interaction.tool == Tool::Magnifier
-                                        || selected_mark
-                                            .as_ref()
-                                            .is_some_and(|m| m.tool == Tool::Magnifier)
-                                    {
-                                        format!("Ø{}", (self.interaction.width * 24.) as u32)
-                                    } else {
-                                        format!("{} px", self.interaction.width as u32)
-                                    },
-                                    false,
-                                    cx,
-                                    Action::CycleStrokeWidth,
-                                ),
-                            ),
-                    )
-                    .when(
-                        self.interaction.tool == Tool::Magnifier
-                            || selected_mark
-                                .as_ref()
-                                .is_some_and(|m| m.tool == Tool::Magnifier),
-                        |el| {
-                            let zoom = selected_mark
-                                .as_ref()
-                                .filter(|m| m.tool == Tool::Magnifier)
-                                .map_or(2., effects::zoom);
-                            el.child(self.button(
-                                &format!("{zoom}×"),
-                                false,
-                                cx,
-                                Action::CycleMagnifierZoom,
-                            ))
-                        },
-                    )
+                    .child(self.compact_button(
+                        "Animation",
+                        "play",
+                        self.panels.animation,
+                        cx,
+                        Action::ToggleAnimationPanel,
+                    ))
                     .child(div().flex_1())
                     .child(self.compact_button(
                         "Copy · ⌘C",

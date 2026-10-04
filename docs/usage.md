@@ -25,8 +25,12 @@ Capture, annotate, frame, and share from one native macOS window.
   Click empty canvas to draw another with the same tool. Selected arrows have
   endpoint handles to reorient them and a middle handle to bend them; Shift
   snaps endpoint drags to 45°. Text editing has a transparent background.
-- Click a color or the stroke-width button (3, 5, 9 px) to change the selected
-  annotation, or the next mark when nothing is selected. **⌘D** duplicates the
+- The right sidebar follows the selected annotation or active tool. Each tool
+  remembers its defaults during the session. Change color, thickness, opacity,
+  and tool-specific options there; edits to existing annotations support undo.
+  Lines support dashes, dots, independent ends and draggable added points. Boxes
+  support outline/fill and rounded corners. Pen cleanup offers Raw, Smooth and
+  Adaptive while retaining original samples. See [the full tool map](../TOOL_OPTIONS.md). **⌘D** duplicates the
   selected annotation. **Arrow keys** nudge it 1 pixel; **Shift + arrows** move
   10 pixels. Held key repeats are grouped into one undo step.
 - **Shift-drag:** arrows snap to 45° angles; boxes, highlights, pixelation and
@@ -39,13 +43,29 @@ Capture, annotate, frame, and share from one native macOS window.
 - **Backdrop:** open the toolbar panel to frame the image with a solid color or
   gradient. **Format** offers Auto, 1:1, 4:3, 3:2, 16:9, 4:5, 9:16 and named
   YouTube/Shorts/Pinterest presets. Fixed formats expand the background and center
-  the full screenshot without cropping or stretching it. Padding is the minimum
-  space on each side. Padding, shadow, image corners and backdrop corners are
+  the full screenshot without cropping or stretching it. **Outside padding** is
+  the minimum backdrop space on each side. **Inside padding** adds space within
+  the screenshot by repeating its nearest edge pixels (and corner pixels),
+  preserving their transparency. Image corners and shadow follow the expanded
+  screenshot; the capture and editable annotations keep their original size and
+  coordinates. Outside padding, inside padding, image corners and shadow are
   always visible in a 2×2 grid above **Solid / Gradient / Motion**. **Done** closes
   the panel; **Enable backdrop** toggles framing while keeping the current style.
   Each slider gesture is one undo step. Copy and
-  PNG save include the backdrop at full resolution; rounded outer corners are
-  transparent in the PNG.
+  PNG save include the backdrop and inside padding at full resolution. The output
+  canvas has square corners.
+- **Image entrances:** open **Animation** (play icon) and choose **Diagonal reveal**,
+  **Spring pop**, or **3D settle**. Set entrance duration, delay, and a 2–15 second
+  clip length. **Replay** starts the clip again; **Play/Pause** and the **Preview
+  time** slider let you inspect any frame. Choose **Enter & hold**, or **Enter,
+  hold & exit** for a repeating clip that returns to the empty backdrop. Backdrop
+  motion is independent: choose any of the eight effects here, or keep it still.
+  Entrances also work without a backdrop. The image, annotations, rounded image
+  corners, and shadow animate together. Close the panel or click the canvas to
+  return to annotation editing. Slider drags are undoable as one step; seeking
+  and replay do not change history. MP4/GIF always start at the entrance's
+  beginning; PNG/copy capture the inspected frame while this panel is open,
+  and the fully revealed image during normal editing.
 - **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Starfield,
   Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations stay fixed while the
   background moves. Set a **2–15 second** duration (5 seconds by default),
@@ -53,8 +73,8 @@ Capture, annotate, frame, and share from one native macOS window.
   MP4 or GIF. Effect and duration controls appear only in Motion mode. Export streams 30 fps
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
   1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
-  is one seamless cycle; duration also controls the preview's cycle speed.
-  **Export → Cancel export** or Escape stops it. Rounded outer corners use an ivory matte
+  is one seamless backdrop cycle; duration also controls the preview's cycle speed.
+  **Export → Cancel export** or Escape stops it. Transparent pixels use an ivory matte
   in MP4; PNG retains transparency and captures the current animation phase.
   Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
   and separate; Aurora has rippling light curtains; Contours has terrain lines
@@ -115,9 +135,9 @@ Click the Dock icon to reopen; ⌘Q quits. Save/copy before replacing the curren
 
 
 - **S — Spotlight:** drag a focus rectangle. The surrounding image dims; multiple focus windows share one dimming mask in exports. Drag the object to move it, or drag either corner handle to resize it. Undo/Delete work as with other annotations.
-- **M — Magnifier:** drag from a detail to where its enlarged lens should appear. The source and lens have separate handles. The toolbar's **2× / 3× / 4×** button changes a selected lens's magnification; **Ø** changes its diameter. It samples the original annotated foreground, so the enlarged detail stays bright even with a spotlight.
+- **M — Magnifier:** drag from a detail to where its enlarged lens should appear. The source and lens have separate handles. The sidebar's **2× / 3× / 4×** buttons and **Lens diameter** control change the selected lens or the next lens. It samples the original annotated foreground, so the enlarged detail stays bright even with a spotlight.
 - **Export → GIF…** or **File → Export Looping GIF…** exports an infinitely repeating GIF. MP4 export is available in the same menu. GIF uses 20 fps and a maximum edge of 960 pixels; MP4 uses 30 fps and 1920 pixels. Both render one complete cycle, excluding a duplicate endpoint frame. GIF's fixed palette keeps foreground colors stable across frames; rounded corners use the same ivory matte as MP4.
-- Spotlight and magnifier remain editable objects and appear in PNG, clipboard, GIF, and MP4 output. Animated backdrops loop while the foreground stays fixed. MP4 repeats when the player is configured to loop; GIF includes infinite-repeat metadata.
+- Spotlight and magnifier remain editable objects and appear in PNG, clipboard, GIF, and MP4 output. Animated backdrops loop while the foreground stays fixed unless an image entrance is selected. MP4 repeats when the player is configured to loop; GIF includes infinite-repeat metadata. Use an exit when you want the entrance to repeat without abruptly resetting a visible image.
 
 ## Limits
 

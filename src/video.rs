@@ -42,9 +42,13 @@ pub fn encode(
     cancel: &AtomicBool,
     mut progress: impl FnMut(u32),
 ) -> Result<bool, String> {
-    let b = document
-        .backdrop
-        .ok_or("Add a backdrop before exporting video")?;
+    if document.backdrop.is_none() && !document.image_animation.enabled() {
+        return Err("Add a backdrop or image animation before exporting video".into());
+    }
+    if document.image_animation.enabled() {
+        document.image_animation.validate()?;
+    }
+    let b = document.animation_backdrop();
     if !(2..=15).contains(&b.seconds) {
         return Err("Video duration must be 2–15 seconds".into());
     }
@@ -52,8 +56,12 @@ pub fn encode(
         return Ok(false);
     }
     let native = encoder_path()?;
-    let source = document.render(None);
-    let renderer = Renderer::new(&source, b, Some(1920));
+    let renderer = Renderer::for_document(document, Some(1920));
+    let start_phase = if document.image_animation.enabled() {
+        0.
+    } else {
+        start_phase
+    };
     let temp = Temporary(path.with_file_name(format!(
             ".glance-{}-{}.mp4",
             std::process::id(),
@@ -85,7 +93,7 @@ pub fn encode(
         let mut data = renderer
             .frame(start_phase + frame as f32 / count as f32)
             .into_raw();
-        // MP4 has no alpha. Composite rounded output corners onto a soft ivory matte.
+        // MP4 has no alpha. Composite transparent pixels onto a soft ivory matte.
         for p in data.as_chunks_mut::<4>().0 {
             let a = p[3] as u16;
             for channel in p.iter_mut().take(3) {
@@ -137,6 +145,90 @@ fn read_error(child: &mut Child) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "writes synthetic entrance PNG/GIF/MP4 samples and requires the native encoder"]
+    fn image_entrance_export_qa() {
+        use crate::{
+            animation::{Entrance, ImageAnimation},
+            backdrop::{Backdrop, Format},
+            document::{Mark, Tool},
+        };
+        let directory =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/image-animation-qa");
+        std::fs::create_dir_all(&directory).unwrap();
+        for (name, effect, motion) in [
+            ("diagonal", Entrance::Diagonal, Motion::Liquid),
+            ("spring-pop", Entrance::Pop, Motion::Still),
+            ("3d-settle", Entrance::Tilt, Motion::Aurora),
+        ] {
+            let mut d = Document::new(image::imageops::resize(
+                &crate::document::demo(),
+                480,
+                320,
+                image::imageops::FilterType::Lanczos3,
+            ));
+            d.commit(Mark {
+                style: Default::default(),
+                tool: Tool::Arrow,
+                curve: None,
+                points: vec![(55., 230.), (265., 175.)],
+                color: [255, 56, 100, 255],
+                width: 5.,
+                text: String::new(),
+            });
+            d.backdrop = Some(Backdrop {
+                format: Format::Widescreen,
+                motion,
+                gradient: true,
+                seconds: 3,
+                padding: 48,
+                preset: motion.suggested_preset().unwrap_or(2),
+                ..Default::default()
+            });
+            d.image_animation = ImageAnimation {
+                effect,
+                duration_ms: 900,
+                delay_ms: 200,
+                seconds: 3,
+                exit: true,
+            };
+            let renderer = Renderer::with_animation(
+                &d.render(None),
+                d.animation_backdrop(),
+                Some(960),
+                d.image_animation,
+            );
+            for (i, time) in [0., 0.35, 0.65, 1.1, 1.5, 2.6, 3.].into_iter().enumerate() {
+                renderer
+                    .frame(time / 3.)
+                    .save(directory.join(format!("{name}-{i}.png")))
+                    .unwrap();
+            }
+            let started = std::time::Instant::now();
+            for i in 0..30 {
+                std::hint::black_box(renderer.frame(i as f32 / 30. / 3.));
+            }
+            println!(
+                "{name}: mean {:.2} ms/frame at {}×{}",
+                started.elapsed().as_secs_f64() * 1000. / 30.,
+                renderer.width,
+                renderer.height
+            );
+            let path = directory.join(format!("{name}.mp4"));
+            assert!(encode(&d, &path, 0.6, &AtomicBool::new(false), |_| {}).unwrap());
+            assert!(
+                crate::gif_export::encode(
+                    &d,
+                    &directory.join(format!("{name}.gif")),
+                    0.6,
+                    &AtomicBool::new(false),
+                    |_| {}
+                )
+                .unwrap()
+            );
+            assert!(std::fs::metadata(path).unwrap().len() > 1000);
+        }
+    }
     #[test]
     #[ignore = "requires native encoder; produces Liquid shader demo videos"]
     fn liquid_video_qa() {

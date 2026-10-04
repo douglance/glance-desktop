@@ -16,12 +16,7 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
             px(layout.y + y * layout.scale),
         )
     };
-    // Match the raster compositor's rounded physical stroke diameter.
-    let width = if mark.tool == Tool::Arrow {
-        mark.width.max(1.) * layout.scale
-    } else {
-        (mark.width / 2.).round().max(1.) * 2. * layout.scale
-    };
+    let width = mark.width.max(0.5) * layout.scale;
     let make = || {
         let mut path = PathBuilder::stroke(px(width));
         path.style = PathStyle::Stroke(
@@ -32,13 +27,30 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
         );
         path
     };
-    let a = mark.points[0];
-    let b = *mark.points.last().unwrap();
     let mut result = vec![];
-    match mark.tool {
-        Tool::Pen => {
-            // Stay well below GPUI's u16 vertex limit; overlapping chunks join seamlessly.
-            let points = &mark.points;
+    let points = match mark.tool {
+        Tool::Pen => crate::style::pen_points(mark),
+        Tool::Arrow => crate::style::shaft(mark),
+        Tool::Rectangle => crate::style::box_points(mark),
+        _ => return result,
+    };
+    if mark.tool == Tool::Rectangle && mark.style.fill == crate::style::Fill::Filled {
+        let mut path = PathBuilder::fill();
+        path.move_to(map(points[0]));
+        for &p in &points[1..] {
+            path.line_to(map(p));
+        }
+        path.close();
+        if let Ok(p) = path.build() {
+            result.push(p);
+        }
+    } else {
+        let dash = if mark.tool == Tool::Pen {
+            crate::style::Dash::Solid
+        } else {
+            mark.style.dash
+        };
+        for points in crate::style::strokes(&points, dash, mark.width) {
             let mut start = 0;
             while start < points.len() {
                 let end = (start + 1024).min(points.len());
@@ -59,23 +71,9 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
                 start = end - 1;
             }
         }
-        Tool::Arrow => {
-            let head = crate::arrow::head(mark);
-            let t = crate::arrow::shaft_end(mark);
-            let end = crate::arrow::at(mark, t);
-            let mut path = make();
-            path.move_to(map(a));
-            if let Some(c) = mark.curve {
-                path.curve_to(
-                    map(end),
-                    map((a.0 + (c.0 - a.0) * t, a.1 + (c.1 - a.1) * t)),
-                );
-            } else {
-                path.line_to(map(end));
-            }
-            if let Ok(p) = path.build() {
-                result.push(p);
-            }
+    }
+    if mark.tool == Tool::Arrow {
+        for head in crate::style::heads(mark) {
             let mut path = PathBuilder::fill();
             path.move_to(map(head[0]));
             path.line_to(map(head[1]));
@@ -85,18 +83,23 @@ pub fn paths(mark: &Mark, layout: Layout) -> Vec<Path<Pixels>> {
                 result.push(p);
             }
         }
-        Tool::Rectangle => {
-            let mut path = make();
-            path.move_to(map(a));
-            path.line_to(map((b.0, a.1)));
-            path.line_to(map(b));
-            path.line_to(map((a.0, b.1)));
+        for p in crate::style::dots(mark) {
+            let radius = (mark.width * 2.).max(3.);
+            let mut path = PathBuilder::fill();
+            for i in 0..32 {
+                let angle = i as f32 * std::f32::consts::TAU / 32.;
+                let q = map((p.0 + radius * angle.cos(), p.1 + radius * angle.sin()));
+                if i == 0 {
+                    path.move_to(q);
+                } else {
+                    path.line_to(q);
+                }
+            }
             path.close();
             if let Ok(p) = path.build() {
                 result.push(p);
             }
         }
-        _ => {}
     }
     result
 }
@@ -104,8 +107,7 @@ pub fn paint(mark: &Mark, layout: Layout, window: &mut Window, cx: &mut App) {
     if mark.points.is_empty() {
         return;
     }
-    let color =
-        rgb((mark.color[0] as u32) << 16 | (mark.color[1] as u32) << 8 | mark.color[2] as u32);
+    let color = rgba(u32::from_be_bytes(mark.color));
     let a = mark.points[0];
     let b = *mark.points.last().unwrap();
     let bounds = Bounds::new(
@@ -127,7 +129,13 @@ pub fn paint(mark: &Mark, layout: Layout, window: &mut Window, cx: &mut App) {
             }
         }
         Tool::Highlight => {
-            window.paint_quad(fill(bounds, Rgba { a: 0.35, ..color }));
+            window.paint_quad(fill(
+                bounds,
+                Rgba {
+                    a: 0.35 * color.a,
+                    ..color
+                },
+            ));
         }
         Tool::Pixelate | Tool::Crop => {
             let tint = if mark.tool == Tool::Crop {
@@ -238,6 +246,7 @@ mod tests {
     #[test]
     fn long_strokes_are_chunked_without_vertex_overflow() {
         let mark = Mark {
+            style: Default::default(),
             tool: Tool::Pen,
             curve: None,
             points: (0..10000)

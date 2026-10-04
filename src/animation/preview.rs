@@ -4,7 +4,7 @@ use crate::backdrop::Backdrop;
 use gpui::{Bounds, Pixels, RenderImage, Window};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
-mod quality;
+pub(super) mod quality;
 use quality::AdaptiveQuality;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

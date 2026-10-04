@@ -349,6 +349,7 @@ mod tests {
             image::Rgba([255, 255, 255, 255]),
         ));
         document.commit(crate::document::Mark {
+            style: Default::default(),
             tool: crate::document::Tool::Text,
             curve: None,
             points: vec![(10., 10.)],

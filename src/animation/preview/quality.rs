@@ -6,7 +6,7 @@ const SLOW_MS: f64 = 24.;
 const FAST_MS: f64 = 8.;
 const RECOVERY_FRAMES: u16 = 90;
 
-pub(super) struct AdaptiveQuality {
+pub(in crate::animation) struct AdaptiveQuality {
     tier: usize,
     warmup: u8,
     average_ms: Option<f64>,
@@ -25,10 +25,10 @@ impl Default for AdaptiveQuality {
     }
 }
 impl AdaptiveQuality {
-    pub(super) fn edge(&self, playing: bool) -> u32 {
+    pub(in crate::animation) fn edge(&self, playing: bool) -> u32 {
         if playing { EDGES[self.tier] } else { EDGES[0] }
     }
-    pub(super) fn observe(&mut self, elapsed: Duration) -> bool {
+    pub(in crate::animation) fn observe(&mut self, elapsed: Duration) -> bool {
         // Pipeline compilation and buffer allocation are one-time costs.
         if self.warmup > 0 {
             self.warmup -= 1;

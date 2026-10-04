@@ -55,6 +55,37 @@ latency or frame-time guarantees.
 
 ## Animated backdrops and native video export
 
+### Image entrance checks
+
+The Animation sidebar offers diagonal reveal, spring pop, and 3D settle. Tests
+check each entrance over all eight motions and a static background, exact settled
+pixels, hidden endpoints without a ghost shadow, premultiplied-alpha sampling,
+transparent PNG output without a backdrop, undo/redo and slider grouping,
+minimum-window sidebar clicks, timeline seeking, and stale preview rejection.
+Sidebar scroll events are also checked to leave canvas pan unchanged, while
+scrolling over the canvas still pans normally.
+The GIF test decodes a real export to check that a nonzero preview phase still
+exports from the start, with exact duration and infinite-repeat metadata.
+
+Generate synthetic annotated PNG/GIF/MP4 samples for visual inspection:
+
+```sh
+cargo test --release --locked image_entrance_export_qa -- --ignored --nocapture
+```
+
+Samples are written to `target/image-animation-qa`. On a real desktop, check
+replay/pause/scrubbing, sidebar scrolling, entrance timing with backdrop motion,
+returning to annotation editing, and copying the paused frame versus settled
+image. Native display FPS remains a separate measurement from worker throughput.
+
+The 2026-10-03 entrance verification passed 111 tests (11 opt-in tests ignored).
+Native sidebar replay and scrubbing were inspected with diagonal reveal and 3D
+settle, including Aurora composition and return to annotation editing. The three
+synthetic MP4 samples each contain 90 H.264 frames at 30 fps / exactly 3 seconds;
+their PNG stages and GIFs were inspected. Mean worker frame rendering at 736×414
+was 1.41 ms for diagonal/Liquid, 2.55 ms for pop/static, and 2.93 ms for
+3D/Aurora. These timings exclude UI upload and display latency.
+
 Flow, Lava, Starfield and Painterly are deterministic periodic scenes. Tests
 compare phase 0 and 1, check actual motion at phase 0.37, and verify every opaque
 foreground pixel stays identical. Additional coverage checks duration clamping,
@@ -186,6 +217,13 @@ The benchmark measures CPU preparation, not input-to-display latency.
 
 ## Local MCP companion
 
+- The feature review passes 120 tests (12 opt-in tests ignored), formatting and
+  Clippy. New coverage checks MCP action discovery against the Serde inventory,
+  round-trip payloads, backdrop controls through the live bridge, and annotation
+  editing after up/downscaling. Regression tests also cover zero-length arrow
+  exports, glyph overhangs, rejected entrance/backdrop durations and atomic
+  rejection of invalid resized geometry. This pass uses the virtual platform;
+  it does not repeat native desktop or tunnel verification.
 - Regular suite now includes MCP initialization/tool discovery, schema validation, image-byte import, crop/resize/backdrop, model-visible PNG read-back, editable arrow movement/curve, stale IDs, undo, and existing export-file protection.
 - A Unix socket-pair integration test exercises serialized requests through the same bridge dispatch used by the native listener.
 - GPUI virtual-platform test applies an MCP-generated annotation to the editor, checks automatic selection/native undo, and rejects stale revisions and a busy editor.
@@ -211,18 +249,53 @@ Capture now preflights permission and requests the standard macOS grant before
 hiding the editor. Rejected grants show remove/re-add instructions; unrelated
 capture failures preserve screencapture stderr rather than alleging a missing
 permission. Regression coverage checks cancellation and error classification.
-Bundle builds now use a persistent development certificate in
-`~/Library/Application Support/Glance/Signing`, migrating existing signing files
-without replacing the certificate. New certificate trust is an explicit,
-one-time user-domain code-signing step via `scripts/trust-local-signing.sh`.
-`GLANCE_CODESIGN_IDENTITY` selects an existing certificate; `-` opts into ad-hoc
-signing. Build/signing failures preserve the installed bundle. Nested helpers
-are signed first, then the staged bundle is signed and strictly verified.
+The subsequent Liquid rebuild reproduced this mismatch. The former default
+ad-hoc signing was not a durable fix. Bundle builds now prepare a persistent
+development identity in a private Glance keychain outside the checkout and
+`target/`. Trusting that identity for code signing is an explicit one-time
+user-domain step via `scripts/trust-local-signing.sh`; it does not grant screen
+access or add SSL/TLS trust. The login keychain and its search list are preserved.
+The private key is imported as non-extractable, with codesign access, and its
+keychain is locked after signing. Incomplete/missing signing state fails instead
+of silently creating another identity.
 
-`./scripts/test-local-signing.sh` verifies two different signed bundle hashes
-satisfy the same certificate-based requirement. The renamed bundle passed this
-check locally. Glance uses `sh.glance.desktop` and needs a one-time Screen
-Recording grant after the rename; actual desktop capture remains a manual pass.
+`GLANCE_CODESIGN_IDENTITY` still selects an existing certificate; `-` explicitly
+opts into ad-hoc signing. A failed build/signing step leaves the installed app
+unchanged. The app is staged, signed inside-out and verified before replacement.
+
+```sh
+./scripts/test-local-signing.sh
+```
+
+This integration check changes a copied bundle's version, verifies its code hash
+changes while its designated requirement stays identical, then verifies the new
+copy against the old requirement. The user approved code-signing trust, both
+versions passed the shared-requirement check, the signed bundle passed strict
+verification, and the user's original keychain search list was restored.
+Glance's stale Screen Recording grant was reset for the one-time migration.
+Capture after re-granting and actual TCC retention across a later rebuild still
+need the user's desktop pass; the signing test does not claim to verify those.
+
+## Inside padding
+
+Replaced canvas corner rounding with nearest-edge pixel extension inside the
+screenshot's rounded corners and shadow. Coverage checks all edges and corners,
+zero and large padding, source alpha, fixed output ratios, capped animation
+frames, PNG round trips, decoded GIF padding, grouped slider undo/redo, restoring
+saved padding through another slider, and stale preview geometry. The minimum
+window test checks the revised 2×2 controls in all three backdrop modes.
+
+The full suite passes 113 tests with 12 opt-in tests ignored. Formatting and
+Clippy checks pass. Synthetic before/after PNGs were generated and inspected;
+native live slider responsiveness remains a manual desktop check.
+
+```sh
+cargo test --locked inside_padding_visual_qa -- --ignored
+```
+
+Samples are written to `target/inside-padding-qa`. On the desktop, try a capture
+with different colors on each edge, drag Inside padding, then check annotation
+placement, image corners, shadow, backdrop disable/enable, and undo/redo.
 
 ## Omarchy acceptance
 

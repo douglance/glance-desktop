@@ -55,7 +55,7 @@ pub fn socket() -> Result<PathBuf, String> {
 pub fn state(snapshot: &Snapshot) -> Value {
     let d = &snapshot.document;
     json!({"revision":snapshot.revision,"width":d.base.width(),"height":d.base.height(),
-        "coordinate_space":"source image pixels; backdrop padding excluded", "backdrop":d.backdrop,
+        "coordinate_space":"source image pixels; backdrop padding excluded", "backdrop":d.backdrop,"image_animation":d.image_animation,
         "objects":d.marks.iter().enumerate().map(|(i,m)| json!({"id":format!("{}:{i}",snapshot.revision),"mark":m})).collect::<Vec<_>>()})
 }
 fn wait<T>(

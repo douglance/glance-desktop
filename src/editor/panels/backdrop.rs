@@ -43,15 +43,7 @@ impl Editor {
                     .flex()
                     .flex_col()
                     .text_xs()
-                    .child(
-                        div()
-                            .whitespace_nowrap()
-                            .child(if control == Control::OuterRadius {
-                                "Canvas corners"
-                            } else {
-                                control.label()
-                            }),
-                    )
+                    .child(div().whitespace_nowrap().child(control.label()))
                     .child(div().text_color(rgb(0x8a8d99)).child(format!(
                         "{value} {}",
                         if control == Control::Duration {
@@ -474,8 +466,8 @@ impl Editor {
                     .gap_2()
                     .children(
                         [
-                            [Control::Padding, Control::Shadow],
-                            [Control::InnerRadius, Control::OuterRadius],
+                            [Control::Padding, Control::InsidePadding],
+                            [Control::InnerRadius, Control::Shadow],
                         ]
                         .into_iter()
                         .map(|row| {

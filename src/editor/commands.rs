@@ -83,7 +83,7 @@ impl Editor {
             return;
         };
         let document = self.document.render_snapshot();
-        let phase = self.animation_phase();
+        let phase = self.export_phase();
         self.feedback.status = if save {
             "Choose where to save…"
         } else {
@@ -114,7 +114,7 @@ impl Editor {
         self.feedback.status = "Uploading screenshot to Glance…".into();
         self.set_copy_feedback(Some(CopyFeedback::Uploading), cx);
         let document = self.document.render_snapshot();
-        let phase = self.animation_phase();
+        let phase = self.export_phase();
         self.spawn_operation(id, move || {
             let result = glance::upload(document.export_at(phase));
             OperationResult::RemoteCopied(result)
@@ -142,6 +142,13 @@ impl Editor {
         self.cancel_gesture();
         self.interaction.selected = None;
         self.interaction.tool = tool;
+        let settings = self.interaction.defaults[tool.index()];
+        self.interaction.color = settings.color;
+        self.interaction.width = settings.width;
+        self.panels.backdrop = false;
+        self.panels.enhance = false;
+        self.panels.animation = false;
+        self.panels.popup = None;
         cx.notify();
     }
     pub(super) fn cancel_gesture(&mut self) {
@@ -168,7 +175,15 @@ impl Editor {
         if self.is_busy() {
             return;
         }
+        self.commit_text(cx);
         self.cancel_gesture();
+        let tool = self.options_tool();
+        let defaults = &mut self.interaction.defaults[tool.index()];
+        if color {
+            defaults.color = self.interaction.color;
+        } else {
+            defaults.width = self.interaction.width;
+        }
         if let Some(index) = self.interaction.selected {
             let mut mark = self.document.marks[index].clone();
             if color {
@@ -206,9 +221,13 @@ impl Editor {
         self.panels.backdrop = !self.panels.backdrop;
         if self.panels.backdrop {
             self.panels.enhance = false;
+            self.panels.animation = false;
         }
         if self.panels.backdrop && self.document.backdrop.is_none() {
-            let backdrop = self.panels.backdrop_disabled.take().unwrap_or_default();
+            let mut backdrop = self.panels.backdrop_disabled.take().unwrap_or_default();
+            if self.document.image_animation.enabled() {
+                backdrop.seconds = self.document.animation_seconds();
+            }
             if let Err(error) = self.edit_document(
                 DocumentAction::SetBackdrop {
                     backdrop: Some(backdrop),
@@ -237,6 +256,9 @@ impl Editor {
             .backdrop
             .or(self.panels.backdrop_disabled)
             .unwrap_or_default();
+        if self.document.image_animation.enabled() {
+            backdrop.seconds = self.document.animation_seconds();
+        }
         change(&mut backdrop);
         if let Err(error) = self.edit_document(
             DocumentAction::SetBackdrop {
@@ -253,6 +275,7 @@ impl Editor {
         self.panels.enhance = !self.panels.enhance;
         if self.panels.enhance {
             self.panels.backdrop = false;
+            self.panels.animation = false;
         }
         cx.notify();
     }
@@ -289,7 +312,7 @@ impl Editor {
         cx.notify();
     }
     pub(super) fn animation_phase(&self) -> f32 {
-        let seconds = self.document.backdrop.map_or(5, |b| b.seconds).max(2) as f32;
+        let seconds = self.document.animation_seconds().max(2) as f32;
         let elapsed = if self.playback.paused {
             0.
         } else {
@@ -297,7 +320,54 @@ impl Editor {
         };
         ((self.playback.position + elapsed) / seconds).rem_euclid(1.)
     }
+    pub(super) fn clip_time(&self) -> f32 {
+        let elapsed = if self.playback.paused {
+            0.
+        } else {
+            self.playback.epoch.elapsed().as_secs_f32()
+        };
+        (self.playback.position + elapsed).clamp(0., self.document.animation_seconds() as f32)
+    }
+    pub(super) fn export_phase(&self) -> f32 {
+        if self.document.image_animation.enabled() {
+            if self.panels.animation {
+                self.clip_time() / self.document.animation_seconds() as f32
+            } else {
+                let a = self.document.image_animation;
+                (a.delay_ms + a.duration_ms) as f32 / 1000. / a.seconds as f32
+            }
+        } else {
+            self.animation_phase()
+        }
+    }
+    pub(super) fn replay_animation(&mut self, cx: &mut Context<Self>) {
+        self.playback.position = 0.;
+        self.playback.epoch = std::time::Instant::now();
+        self.playback.paused = false;
+        self.playback.seek = self.playback.seek.wrapping_add(1);
+        cx.notify();
+    }
+    pub(super) fn toggle_animation_panel(&mut self, cx: &mut Context<Self>) {
+        self.commit_text(cx);
+        self.cancel_gesture();
+        self.panels.popup = None;
+        self.panels.animation = !self.panels.animation;
+        if self.panels.animation {
+            self.panels.backdrop = false;
+            self.panels.enhance = false;
+            self.interaction.selected = None;
+            self.replay_animation(cx);
+        }
+        cx.notify();
+    }
     pub(super) fn toggle_animation(&mut self, cx: &mut Context<Self>) {
+        if self.panels.animation
+            && self.document.image_animation.enabled()
+            && self.clip_time() >= self.document.animation_seconds() as f32
+        {
+            self.replay_animation(cx);
+            return;
+        }
         if self.playback.paused {
             self.playback.epoch = std::time::Instant::now();
             self.playback.paused = false;
@@ -326,10 +396,11 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_gesture();
-        if !self
-            .document
-            .backdrop
-            .is_some_and(|b| b.motion != Motion::Still)
+        if !self.document.image_animation.enabled()
+            && !self
+                .document
+                .backdrop
+                .is_some_and(|b| b.motion != Motion::Still)
         {
             self.toggle_backdrop(cx);
             self.backdrop_style(
@@ -351,7 +422,13 @@ impl Editor {
         let Some(id) = self.start_operation(OperationKind::Video) else {
             return;
         };
-        self.panels.backdrop = true;
+        if self.document.image_animation.enabled() {
+            self.panels.animation = true;
+            self.panels.backdrop = false;
+            self.panels.enhance = false;
+        } else {
+            self.panels.backdrop = true;
+        }
         let sender = self.sender.clone();
         cx.notify();
         self.spawn_operation(id, move || {
@@ -426,9 +503,14 @@ impl Editor {
                     | DocumentAction::Undo
                     | DocumentAction::Redo
             );
-            let backdrop = matches!(edit, DocumentAction::SetBackdrop { .. });
+            let metadata = matches!(
+                edit,
+                DocumentAction::SetBackdrop { .. } | DocumentAction::SetImageAnimation { .. }
+            );
+            let previous_animation = self.document.image_animation;
             let previous_motion = self.document.backdrop.map(|b| b.motion);
             let previous_format = self.document.backdrop.map(|b| b.format);
+            let previous_padding = self.document.backdrop.map_or(0, |b| b.inside_padding);
             let outcome = edit.apply(&mut self.document)?;
             match outcome.selection {
                 Selection::Keep => {}
@@ -440,7 +522,10 @@ impl Editor {
                 self.viewport.pan = (0., 0.);
             }
             if outcome.changed {
-                if backdrop {
+                if previous_animation != self.document.image_animation {
+                    self.replay_animation(cx);
+                }
+                if metadata {
                     if previous_format != self.document.backdrop.map(|b| b.format) {
                         self.viewport.zoom = None;
                         self.viewport.pan = (0., 0.);
@@ -450,9 +535,12 @@ impl Editor {
                         self.playback.epoch = std::time::Instant::now();
                         self.playback.paused = false;
                     }
-                    // Framing is painted separately; invalidate in-flight snapshots
-                    // without re-rasterizing the unchanged foreground on each slider tick.
+                    // Background styling is painted separately. Rebuild the foreground
+                    // only when edge padding changes; reject all old snapshots.
                     self.preview.revision += 1;
+                    if previous_padding != self.document.backdrop.map_or(0, |b| b.inside_padding) {
+                        self.schedule_preview();
+                    }
                 } else {
                     if wait_for_preview {
                         self.preview.mark_count = usize::MAX;
@@ -463,6 +551,155 @@ impl Editor {
             }
         }
         cx.notify();
+        Ok(())
+    }
+}
+
+impl Editor {
+    pub(super) fn options_tool(&self) -> Tool {
+        self.interaction
+            .selected
+            .and_then(|i| self.document.marks.get(i))
+            .map_or(self.interaction.tool, |m| m.tool)
+    }
+    pub(super) fn tool_settings(&self) -> super::state::ToolSettings {
+        let tool = self.options_tool();
+        if let Some(mark) = self
+            .interaction
+            .selected
+            .and_then(|i| self.document.marks.get(i))
+        {
+            super::state::ToolSettings {
+                color: mark.color,
+                width: mark.width,
+                style: mark.style,
+                magnification: crate::effects::zoom(mark),
+            }
+        } else {
+            self.interaction.defaults[tool.index()]
+        }
+    }
+    pub(super) fn set_appearance(
+        &mut self,
+        style: crate::style::Style,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.commit_text(cx);
+        self.cancel_gesture();
+        self.interaction.defaults[self.options_tool().index()].style = style;
+        if let Some(index) = self.interaction.selected {
+            let mut mark = self.document.marks[index].clone();
+            mark.style = style;
+            self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
+        }
+        Ok(())
+    }
+    pub(super) fn set_magnifier_zoom(
+        &mut self,
+        zoom: f32,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.options_tool() != Tool::Magnifier {
+            return Err("Choose a magnifier first".into());
+        }
+        self.cancel_gesture();
+        self.interaction.defaults[Tool::Magnifier.index()].magnification = zoom;
+        if let Some(index) = self.interaction.selected {
+            let mut mark = self.document.marks[index].clone();
+            mark.text = zoom.to_string();
+            self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
+        }
+        Ok(())
+    }
+    pub(super) fn counter_number(&self) -> u32 {
+        if let Some(mark) = self
+            .interaction
+            .selected
+            .and_then(|i| self.document.marks.get(i))
+            .filter(|m| m.tool == Tool::Counter)
+        {
+            return mark.text.parse().unwrap_or(1);
+        }
+        self.interaction.next_counter.unwrap_or_else(|| {
+            self.document
+                .marks
+                .iter()
+                .filter(|m| m.tool == Tool::Counter)
+                .filter_map(|m| m.text.parse::<u32>().ok())
+                .max()
+                .unwrap_or(0)
+                .saturating_add(1)
+                .min(999)
+        })
+    }
+    pub(super) fn set_counter_number(
+        &mut self,
+        number: u32,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        if self.options_tool() != Tool::Counter {
+            return Err("Choose a step first".into());
+        }
+        self.cancel_gesture();
+        if let Some(index) = self.interaction.selected {
+            let mut mark = self.document.marks[index].clone();
+            mark.text = number.to_string();
+            self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
+        } else {
+            self.interaction.next_counter = Some(number);
+        }
+        Ok(())
+    }
+    pub(super) fn line_point(
+        &mut self,
+        straighten: bool,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let index = self
+            .interaction
+            .selected
+            .filter(|i| {
+                self.document
+                    .marks
+                    .get(*i)
+                    .is_some_and(|m| m.tool == Tool::Arrow)
+            })
+            .ok_or("Select a line to edit its points")?;
+        self.cancel_gesture();
+        let mut mark = self.document.marks[index].clone();
+        if straighten {
+            mark.points = vec![mark.points[0], *mark.points.last().unwrap()];
+            mark.curve = None;
+        } else {
+            if mark.points.len() >= 32 {
+                return Err("Maximum 32 line points".into());
+            }
+            if mark.curve.is_some() {
+                mark.points = vec![
+                    mark.points[0],
+                    crate::arrow::at(&mark, 0.5),
+                    *mark.points.last().unwrap(),
+                ];
+            } else {
+                let i = mark
+                    .points
+                    .windows(2)
+                    .enumerate()
+                    .max_by(|(_, a), (_, b)| {
+                        (a[1].0 - a[0].0)
+                            .hypot(a[1].1 - a[0].1)
+                            .total_cmp(&(b[1].0 - b[0].0).hypot(b[1].1 - b[0].1))
+                    })
+                    .unwrap()
+                    .0;
+                let a = mark.points[i];
+                let b = mark.points[i + 1];
+                mark.points
+                    .insert(i + 1, ((a.0 + b.0) * 0.5, (a.1 + b.1) * 0.5));
+            }
+            mark.curve = None;
+        }
+        self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
         Ok(())
     }
 }

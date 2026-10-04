@@ -22,6 +22,9 @@ pub(super) struct InteractionState {
     pub(super) tool: Tool,
     pub(super) color: [u8; 4],
     pub(super) width: f32,
+    pub(super) defaults: [ToolSettings; 11],
+    pub(super) crop_ratio: Option<f32>,
+    pub(super) next_counter: Option<u32>,
     pub(super) text_edit: Option<text::Edit>,
     pub(super) text_session: u64,
 }
@@ -34,6 +37,7 @@ pub(super) struct ViewportState {
     pub(super) layout: Rc<Cell<Layout>>,
 }
 pub(super) struct PreviewState {
+    pub(super) inside_padding: u32,
     pub(super) lens: Option<(crate::effects::LensKey, Arc<RenderImage>)>,
     pub(super) lens_wanted: Option<crate::effects::LensKey>,
     pub(super) lens_rendering: bool,
@@ -46,6 +50,8 @@ pub(super) struct PreviewState {
 }
 pub(super) struct PlaybackState {
     pub(super) motion_preview: Rc<std::cell::RefCell<crate::animation::Preview>>,
+    pub(super) composition_preview: Rc<std::cell::RefCell<crate::animation::CompositionPreview>>,
+    pub(super) seek: u64,
     pub(super) epoch: std::time::Instant,
     pub(super) paused: bool,
     pub(super) position: f32,
@@ -61,6 +67,7 @@ pub(super) struct PanelState {
     pub(super) popup_index: usize,
     pub(super) backdrop: bool,
     pub(super) enhance: bool,
+    pub(super) animation: bool,
     pub(super) resize_scale: f32,
     pub(super) resize_smart: bool,
 }
@@ -83,6 +90,7 @@ pub(super) enum Gesture {
     },
     Panning(Point<Pixels>),
     AdjustingBackdrop(Control, Bounds<Pixels>),
+    AdjustingAnimation(crate::animation::AnimationControl, Bounds<Pixels>),
 }
 pub(super) struct AnnotationDrag {
     pub(super) index: usize,
@@ -113,6 +121,24 @@ impl Gesture {
             Some(mark)
         } else {
             None
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct ToolSettings {
+    pub(super) color: [u8; 4],
+    pub(super) width: f32,
+    pub(super) style: crate::style::Style,
+    pub(super) magnification: f32,
+}
+impl Default for ToolSettings {
+    fn default() -> Self {
+        Self {
+            color: [255, 56, 100, 255],
+            width: 5.,
+            style: Default::default(),
+            magnification: 2.,
         }
     }
 }

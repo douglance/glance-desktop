@@ -3,6 +3,185 @@ use crate::document::{Document, Tool};
 use gpui::{AppContext, TestAppContext, VisualTestContext};
 
 #[gpui::test]
+fn incompatible_backdrop_duration_rejects_action_before_mutation(cx: &mut TestAppContext) {
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.dispatch(
+            Action::SetImageAnimation {
+                animation: crate::animation::ImageAnimation {
+                    effect: crate::animation::Entrance::Pop,
+                    duration_ms: 2000,
+                    delay_ms: 1000,
+                    seconds: 5,
+                    exit: true,
+                },
+            },
+            cx,
+        )
+        .unwrap();
+        let revision = e.preview.revision;
+        assert!(
+            e.dispatch(
+                Action::SetBackdrop {
+                    backdrop: Some(crate::backdrop::Backdrop {
+                        seconds: 2,
+                        ..Default::default()
+                    }),
+                },
+                cx
+            )
+            .is_err()
+        );
+        assert_eq!(e.preview.revision, revision);
+        assert!(e.document.backdrop.is_none());
+        assert_eq!(e.document.image_animation.seconds, 5);
+    });
+}
+
+#[gpui::test]
+fn entrance_actions_preserve_pixels_group_slider_undo_and_seek_without_history(
+    cx: &mut TestAppContext,
+) {
+    use crate::animation::{AnimationControl, Entrance, ImageAnimation};
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        let base = e.document.base.clone();
+        e.dispatch(
+            Action::SelectEntrance {
+                effect: Entrance::Tilt,
+            },
+            cx,
+        )
+        .unwrap();
+        assert!(e.panels.animation && !e.panels.backdrop && !e.panels.enhance);
+        assert!(
+            e.document.backdrop.is_none(),
+            "image animation does not force backdrop motion"
+        );
+        assert!(std::sync::Arc::ptr_eq(&base, &e.document.base));
+        e.dispatch(
+            Action::BeginAnimationAdjustment {
+                control: AnimationControl::Duration,
+                track: (0., 0., 180., 24.),
+                position: (40., 12.),
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(
+            Action::SetAnimationControl {
+                control: AnimationControl::Duration,
+                value: 800,
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(
+            Action::SetAnimationControl {
+                control: AnimationControl::Duration,
+                value: 1500,
+            },
+            cx,
+        )
+        .unwrap();
+        e.cancel_gesture();
+        e.dispatch(Action::SeekAnimation { seconds: 1.5 }, cx)
+            .unwrap();
+        assert!(e.playback.paused);
+        assert_eq!(e.clip_time(), 1.5);
+        let revision = e.preview.revision;
+        assert!(
+            e.dispatch(
+                Action::SetImageAnimation {
+                    animation: ImageAnimation {
+                        seconds: 2,
+                        duration_ms: 2000,
+                        delay_ms: 1000,
+                        ..e.document.image_animation
+                    }
+                },
+                cx
+            )
+            .is_err()
+        );
+        assert_eq!(e.preview.revision, revision);
+        assert!(
+            e.dispatch(Action::SeekAnimation { seconds: f32::NAN }, cx)
+                .is_err()
+        );
+        e.document.undo();
+        assert_eq!(
+            e.document.image_animation.duration_ms, 1000,
+            "one undo restores the entire slider drag; seeking adds none"
+        );
+        assert_eq!(e.document.image_animation.effect, Entrance::Tilt);
+        e.document.undo();
+        assert_eq!(e.document.image_animation.effect, Entrance::None);
+        e.document.redo();
+        assert_eq!(e.document.image_animation.effect, Entrance::Tilt);
+        e.dispatch(Action::ReplayAnimation, cx).unwrap();
+        assert!(!e.playback.paused);
+        assert!(e.clip_time() < 0.1);
+        e.dispatch(Action::SelectTool { tool: Tool::Pen }, cx)
+            .unwrap();
+        assert!(!e.panels.animation);
+    });
+}
+
+#[gpui::test]
+fn animation_sidebar_buttons_and_timeline_dispatch_at_minimum_window(cx: &mut TestAppContext) {
+    use crate::animation::Entrance;
+    let view = cx.add_window(|window, cx| {
+        let editor = Editor::with_native(cx, false);
+        editor.focus.focus(window);
+        editor
+    });
+    let root = view.root(cx).unwrap();
+    let mut visual = VisualTestContext::from_window(*view, cx);
+    visual.simulate_window_resize(*view, gpui::size(gpui::px(1050.), gpui::px(600.)));
+    root.update(&mut visual, |e, cx| {
+        e.dispatch(Action::ToggleAnimationPanel, cx).unwrap()
+    });
+    visual.run_until_parked();
+    let panel = visual.debug_bounds("animation-panel").unwrap();
+    for selector in ["entrance-Diagonal", "entrance-Pop", "entrance-Tilt"] {
+        let b = visual.debug_bounds(selector).unwrap();
+        assert!(panel.contains(&b.origin) && panel.contains(&b.bottom_right()));
+    }
+    let b = visual.debug_bounds("entrance-Diagonal").unwrap();
+    visual.simulate_click(b.center(), Default::default());
+    root.read_with(&visual, |e, _| {
+        assert_eq!(e.document.image_animation.effect, Entrance::Diagonal)
+    });
+    let timeline = visual.debug_bounds("animation-Preview time").unwrap();
+    visual.simulate_click(timeline.center(), Default::default());
+    root.read_with(&visual, |e, _| {
+        assert!(e.playback.paused);
+        assert!((e.clip_time() - 2.5).abs() < 0.05);
+        assert!(e.document.marks.is_empty());
+    });
+    visual.simulate_event(gpui::ScrollWheelEvent {
+        position: panel.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-180.))),
+        ..Default::default()
+    });
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.viewport.pan,
+            (0., 0.),
+            "sidebar scrolling must not pan the image"
+        );
+    });
+    let canvas = root.read_with(&visual, |e, _| e.viewport.canvas_bounds.get());
+    visual.simulate_event(gpui::ScrollWheelEvent {
+        position: canvas.center(),
+        delta: gpui::ScrollDelta::Pixels(gpui::point(gpui::px(0.), gpui::px(-20.))),
+        ..Default::default()
+    });
+    root.read_with(&visual, |e, _| assert_eq!(e.viewport.pan, (0., -20.)));
+}
+
+#[gpui::test]
 fn mcp_transport_dispatches_actions_to_the_live_editor(cx: &mut TestAppContext) {
     let entity = cx.new(|cx| Editor::with_native(cx, false));
     let (sender, receiver) = async_channel::unbounded();
@@ -40,8 +219,42 @@ fn mcp_transport_dispatches_actions_to_the_live_editor(cx: &mut TestAppContext) 
             )
             .is_err()
         );
+        let formatted = crate::automation::dispatch(
+            &sender,
+            "dispatch_action",
+            serde_json::json!({
+                "action":{"type":"set_backdrop_format","format":"shorts"},
+                "expected_revision":0
+            }),
+        )
+        .unwrap();
+        assert_eq!(formatted["revision"], 1);
+        let document =
+            crate::automation::dispatch(&sender, "get_document", serde_json::json!({})).unwrap();
+        assert_eq!(document["backdrop"]["format"], "shorts");
+        let toggled = crate::automation::dispatch(
+            &sender,
+            "dispatch_action",
+            serde_json::json!({
+                "action":{"type":"toggle_backdrop_enabled"},"expected_revision":1
+            }),
+        )
+        .unwrap();
+        assert_eq!(toggled["revision"], 2);
+        let document =
+            crate::automation::dispatch(&sender, "get_document", serde_json::json!({})).unwrap();
+        assert!(document["backdrop"].is_null());
+        let undone = crate::automation::dispatch(
+            &sender,
+            "dispatch_action",
+            serde_json::json!({"action":{"type":"undo"},"expected_revision":2}),
+        )
+        .unwrap();
+        assert_eq!(undone["revision"], 3);
+        // Undo starts a preview refresh. Its receipt accepts the work; document
+        // snapshot tools correctly reject requests until that work finishes.
     });
-    for _ in 0..3 {
+    for _ in 0..8 {
         let message = incoming
             .recv_timeout(std::time::Duration::from_secs(5))
             .unwrap();
@@ -49,7 +262,13 @@ fn mcp_transport_dispatches_actions_to_the_live_editor(cx: &mut TestAppContext) 
     }
     worker.join().unwrap();
     proxy.join().unwrap();
-    entity.read_with(cx, |e, _| assert_eq!(e.interaction.tool, Tool::Arrow));
+    entity.read_with(cx, |e, _| {
+        assert_eq!(e.interaction.tool, Tool::Arrow);
+        assert_eq!(
+            e.document.backdrop.unwrap().format,
+            crate::backdrop::Format::Shorts
+        );
+    });
 }
 
 #[gpui::test]
@@ -58,6 +277,7 @@ fn native_and_mcp_edits_produce_the_same_document_and_undo(cx: &mut TestAppConte
     let entity = cx.new(|cx| Editor::with_native(cx, false));
     entity.update(cx, |e, cx| {
         let mark = crate::document::Mark {
+            style: Default::default(),
             tool: Tool::Arrow,
             points: vec![(10., 10.), (70., 50.)],
             curve: Some((30., 5.)),
@@ -279,6 +499,7 @@ fn menu_undo_operates_on_inline_text_without_touching_document(cx: &mut TestAppC
     let mut visual = VisualTestContext::from_window(*view, cx);
     view.update(&mut visual, |e, _, _| {
         e.interaction.text_edit = Some(crate::text::Edit::new(crate::document::Mark {
+            style: Default::default(),
             tool: Tool::Text,
             points: vec![(10., 10.)],
             curve: None,
@@ -302,4 +523,137 @@ fn menu_undo_operates_on_inline_text_without_touching_document(cx: &mut TestAppC
         assert_eq!(e.preview.revision, 0);
     })
     .unwrap();
+}
+
+#[test]
+fn sidebar_actions_are_accepted_by_the_mcp_schema() {
+    for action in [
+        serde_json::json!({"type":"set_appearance","style":{"dash":"dashed","start":"dot","end":"arrow"}}),
+        serde_json::json!({"type":"set_magnifier_zoom","zoom":3}),
+        serde_json::json!({"type":"set_counter_number","number":7}),
+        serde_json::json!({"type":"set_crop_ratio","ratio":null}),
+        serde_json::json!({"type":"add_line_point"}),
+        serde_json::json!({"type":"toggle_animation_panel"}),
+        serde_json::json!({"type":"select_entrance","effect":"diagonal"}),
+        serde_json::json!({"type":"set_image_animation","animation":{"effect":"tilt","exit":true}}),
+        serde_json::json!({"type":"set_animation_control","control":"duration","value":800}),
+        serde_json::json!({"type":"seek_animation","seconds":1.5}),
+        serde_json::json!({"type":"replay_animation"}),
+        serde_json::json!({"type":"straighten_line"}),
+    ] {
+        crate::mcp::validate_tool("dispatch_action", &serde_json::json!({"action":action}))
+            .unwrap();
+        Action::from_json(action).unwrap();
+    }
+}
+
+#[gpui::test]
+fn inside_padding_preserves_capture_and_annotations_and_groups_slider_history(
+    cx: &mut TestAppContext,
+) {
+    use crate::backdrop::{Backdrop, Control};
+    use std::sync::Arc;
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.dispatch(
+            Action::SetBackdrop {
+                backdrop: Some(Backdrop::default()),
+            },
+            cx,
+        )
+        .unwrap();
+        let base = e.document.base.clone();
+        let marks = e.document.marks.clone();
+        let dimensions = base.dimensions();
+        e.dispatch(
+            Action::BeginBackdropAdjustment {
+                control: Control::InsidePadding,
+                track: (0., 0., 200., 24.),
+                position: (20., 12.),
+            },
+            cx,
+        )
+        .unwrap();
+        e.dispatch(
+            Action::SetBackdropControl {
+                control: Control::InsidePadding,
+                value: 48,
+            },
+            cx,
+        )
+        .unwrap();
+        e.cancel_gesture();
+        assert!(Arc::ptr_eq(&base, &e.document.base));
+        assert_eq!(e.document.marks, marks);
+        assert_eq!(
+            e.document.export().dimensions(),
+            (dimensions.0 + 224, dimensions.1 + 224)
+        );
+        let preview = super::preview_base(&e.document);
+        let expected_ratio = (dimensions.0 + 96) as f32 / (dimensions.1 + 96) as f32;
+        assert!((preview.width() as f32 / preview.height() as f32 - expected_ratio).abs() < 0.002);
+        let revision = e.preview.revision;
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 0);
+        assert!(e.preview.revision > revision);
+        e.receive(
+            super::Message::Preview(
+                e.preview.revision,
+                marks.len(),
+                0,
+                super::render_image(super::preview_base(&e.document)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::Redo, cx).unwrap();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 48);
+        e.receive(
+            super::Message::Preview(
+                e.preview.revision,
+                marks.len(),
+                48,
+                super::render_image(super::preview_base(&e.document)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::ToggleBackdropEnabled, cx).unwrap();
+        assert_eq!(e.document.export().dimensions(), dimensions);
+        let revision = e.preview.revision;
+        // A different slider can re-enable a saved style with inside padding.
+        e.dispatch(
+            Action::BeginBackdropAdjustment {
+                control: Control::Shadow,
+                track: (0., 0., 60., 24.),
+                position: (24., 12.),
+            },
+            cx,
+        )
+        .unwrap();
+        e.cancel_gesture();
+        assert_eq!(e.document.backdrop.unwrap().inside_padding, 48);
+        assert!(e.preview.revision > revision);
+        assert!(e.preview.rendering);
+        assert!(
+            e.dispatch(
+                Action::SetBackdropControl {
+                    control: Control::InsidePadding,
+                    value: 201
+                },
+                cx
+            )
+            .is_err()
+        );
+        assert!(
+            e.dispatch(
+                Action::SetBackdrop {
+                    backdrop: Some(Backdrop {
+                        inside_padding: 513,
+                        ..Default::default()
+                    })
+                },
+                cx
+            )
+            .is_err()
+        );
+    });
 }

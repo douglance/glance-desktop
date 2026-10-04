@@ -41,7 +41,7 @@ pub(crate) enum Message {
     Magnify(f32, (f32, f32), bool),
     #[cfg(target_os = "macos")]
     Hotkey(bool),
-    Preview(u64, usize, Arc<RenderImage>),
+    Preview(u64, usize, u32, Arc<RenderImage>),
     MotionPreviewReady,
     Operation(OperationId, OperationResult),
     VideoProgress(OperationId, u32),
@@ -68,10 +68,11 @@ impl Editor {
         }
         let revision = self.preview.revision;
         let count = document.marks.len();
+        let inside_padding = document.backdrop.map_or(0, |b| b.inside_padding);
         let sender = self.sender.clone();
         std::thread::spawn(move || {
             let image = render_image(preview_base(&document));
-            let _ = sender.send_blocking(Message::Preview(revision, count, image));
+            let _ = sender.send_blocking(Message::Preview(revision, count, inside_padding, image));
         });
     }
     pub(super) fn changed(&mut self) {
@@ -148,13 +149,14 @@ impl Editor {
             Message::Hotkey(area) => {
                 self.dispatch_ui(Action::Capture { area }, cx);
             }
-            Message::Preview(revision, count, image) => {
+            Message::Preview(revision, count, inside_padding, image) => {
                 self.preview.rendering = false;
                 if revision == self.preview.revision {
                     self.preview
                         .retired
                         .push(std::mem::replace(&mut self.preview.image, image));
                     self.preview.mark_count = count;
+                    self.preview.inside_padding = inside_padding;
                     if self.preview.waiting {
                         self.preview.waiting = false;
 
@@ -200,6 +202,7 @@ impl Editor {
             OperationResult::Transformed(Ok((document, count, image))) => {
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
+                self.preview.inside_padding = document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document = document;
                 self.preview.revision += 1;
                 self.preview
@@ -216,6 +219,7 @@ impl Editor {
                 let count = document.marks.len();
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
+                self.preview.inside_padding = document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document = document;
                 self.preview.revision += 1;
                 self.preview

@@ -20,6 +20,7 @@ mod platform;
 mod selection;
 #[cfg(test)]
 mod stress_tests;
+mod style;
 mod text;
 mod video;
 actions!(glance, [Quit]);
