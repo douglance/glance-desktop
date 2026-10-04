@@ -144,6 +144,7 @@ cargo test --locked liquid_video_qa -- --ignored --nocapture
 cargo test --release --locked motion_gallery_qa -- --ignored --nocapture
 cargo test --release --locked contours_motion_qa -- --ignored --nocapture
 cargo test --release --locked painterly_prism_motion_qa -- --ignored --nocapture
+cargo test --locked prism_crystal_visual_qa -- --ignored --nocapture
 ```
 
 The second command requires the bundled native encoder. It creates a ten-second
@@ -168,10 +169,16 @@ both the half-cycle phase branch and the loop boundary for abrupt pixel jumps.
 and a portrait sample for reviewing line expansion and local bending.
 
 Painterly grows curved brush strokes from anchored tails on staggered cycles.
-Prism animates shared mesh vertices and face reflections while keeping triangle
-edges straight. Both use periodic motion in their Metal and CPU evaluators.
+Prism animates an irregular mesh with shared vertex heights, facet lighting and
+traveling bands of refracted color. Alternating diagonals break up the grid, and
+thin edges share the same illumination on adjacent faces. Neutral palettes keep
+their restrained color. Both use periodic motion in their Metal and CPU evaluators.
 `painterly_prism_motion_qa` writes six-second landscape frame sequences and
 portrait samples to `target/dynamic-motion-qa`, and measures compute/readback.
+`prism_crystal_visual_qa` writes landscape/portrait samples, an eight-palette
+contact sheet (Teal, Ocean, Lavender, Sunset, then Rose, Cream, Slate, White) and
+a five-second looping GIF to `target/prism-qa`. Convexity tests check that either
+mesh diagonal stays valid throughout the motion, preventing folded faces or gaps.
 
 ## Glance remote copy
 

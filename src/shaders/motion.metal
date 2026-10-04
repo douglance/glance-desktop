@@ -103,9 +103,12 @@ float3 contours(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, 
     return mix(base, mix(cyan, mint, 0.35), line * 0.85);
 }
 
-float2 prism_vertex(float x, float y, float t) {
-    return float2(x + 0.20 * sin(t + x * 1.7 + y * 0.9),
-                  y + 0.20 * cos(2.0 * t + x * 0.8 - y * 1.4));
+float3 prism_vertex(float x, float y, float t) {
+    float jitter = random_value(uint(int(x)), uint(int(y))) - 0.5;
+    return float3(x + 0.28 * jitter + 0.14 * sin(t + x * 1.7 + y * 0.9),
+                  y + 0.24 * jitter + 0.14 * cos(2.0 * t + x * 0.8 - y * 1.4),
+                  0.32 * sin(x * 0.9 + y * 1.1 - t)
+                  + 0.18 * cos(x * 1.6 - y * 0.7 + 2.0 * t) + 0.24 * jitter);
 }
 
 float3 prism(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, float3 cyan, float3 mint) {
@@ -115,31 +118,49 @@ float3 prism(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, flo
     // Each neighbor uses the same moving vertices: straight edges, no gaps.
     for (int y = cell.y - 1; y <= cell.y + 1; y++) {
         for (int x = cell.x - 1; x <= cell.x + 1; x++) {
-            float2 va = prism_vertex(float(x), float(y), t);
-            float2 vb = prism_vertex(float(x) + 1.0, float(y), t);
-            float2 vc = prism_vertex(float(x), float(y) + 1.0, t);
-            float2 vd = prism_vertex(float(x) + 1.0, float(y) + 1.0, t);
+            float3 va = prism_vertex(float(x), float(y), t);
+            float3 vb = prism_vertex(float(x) + 1.0, float(y), t);
+            float3 vc = prism_vertex(float(x), float(y) + 1.0, t);
+            float3 vd = prism_vertex(float(x) + 1.0, float(y) + 1.0, t);
+            uint cell_hash = grain_hash(uint(x), uint(y));
+            // Alternate the diagonal to break up the regular tiled pattern.
+            bool alternate = (cell_hash & 1u) != 0u;
             for (uint side = 0; side < 2; side++) {
-                float2 a = side == 0u ? va : vd;
-                float2 b = side == 0u ? vb : vc;
-                float2 c = side == 0u ? vc : vb;
-                float2 e = b - a, f = c - a, v = grid - a;
+                float3 a = alternate ? va : (side == 0u ? va : vd);
+                float3 b = alternate ? (side == 0u ? vb : vd) : (side == 0u ? vb : vc);
+                float3 c = alternate ? (side == 0u ? vd : vc) : (side == 0u ? vc : vb);
+                float2 e = b.xy - a.xy, f = c.xy - a.xy, v = grid - a.xy;
                 float det = e.x * f.y - e.y * f.x;
                 float s = (v.x * f.y - v.y * f.x) / det;
                 float r = (e.x * v.y - e.y * v.x) / det;
                 float3 weights = float3(1.0 - s - r, s, r);
                 if (any(weights < 0.0)) continue;
-                uint hash = grain_hash(uint(x), uint(y)) ^ (side == 0u ? 0x5bd1e995u : 0u);
+                uint hash = cell_hash ^ (side == 0u ? 0x5bd1e995u : 0u);
                 float phase = float(hash & 65535u) / 65535.0 * 6.28318530718;
-                float3 face = hash % 3u == 0u ? blue : (hash % 3u == 1u ? cyan : mint);
-                float light = 0.55 + 0.30 * sin(t + phase) + 0.15 * s;
-                float glint = pow(0.5 + 0.5 * cos(2.0 * t - phase + s * 1.4 - r), 12.0);
-                float3 color = mix(mix(dark, face, light), mint, glint * 0.45);
+                // Shared heights form a crystalline surface. Each plane bends
+                // the same traveling light band by its own surface normal.
+                float ez = b.z - a.z, fz = c.z - a.z;
+                float nx = (e.y * fz - ez * f.y) / det;
+                float ny = (ez * f.x - e.x * fz) / det;
+                float3 normal = float3(nx, ny, 1.0) / sqrt(nx * nx + ny * ny + 1.0);
+                float light = max(dot(normal, float3(-0.35, -0.45, 0.82)), 0.0);
+                float band = grid.x * 1.65 + grid.y * 0.85 - t;
+                float refraction = band + normal.x * 2.8 + normal.y * 1.8;
+                float3 spectrum = 0.5 + 0.5 * cos(float3(refraction, refraction - 6.28318530718 / 3.0,
+                                                        refraction + 6.28318530718 / 3.0));
+                // Neutral palettes stay neutral; colored palettes split light.
+                float saturation = max(max(cyan.x, cyan.y), cyan.z) - min(min(cyan.x, cyan.y), cyan.z);
+                float3 face = mix(blue, cyan, 0.5 + 0.5 * sin(phase + normal.x - normal.y));
+                face = mix(face, spectrum, min(saturation * 1.4, 1.0) * 0.38);
+                float glint = pow(0.5 + 0.5 * cos(refraction), 10.0);
+                float3 color = mix(mix(dark, face, 0.24 + 0.65 * light), mint, glint * 0.72);
                 float3 distances = weights * abs(det) / float3(length(e - f), length(f), length(e));
                 float edge = min(min(distances.x, distances.y), distances.z);
-                float seam = 1.0 - smoothstep(0.005, 0.005 + 2.0 / float(min(u.width, u.height)), edge);
+                float seam = 1.0 - smoothstep(0.0015, 0.0015 + 2.0 / float(min(u.width, u.height)), edge);
                 // Match adjacent faces exactly at their shared edge.
-                return mix(color, mint, seam);
+                float edge_light = pow(0.5 + 0.5 * cos(band), 8.0);
+                float3 edge_color = mix(mix(dark, blue, 0.48), mint, 0.18 + 0.72 * edge_light);
+                return mix(color, edge_color, seam);
             }
         }
     }

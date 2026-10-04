@@ -18,6 +18,9 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- Prism backdrops have irregular crystal facets, dimensional lighting and
+  sweeping bands of refracted color, with subtler illuminated edges.
+
 - Replaced backdrop canvas corners with inside padding that extends screenshot
   edge pixels, with matching image corners, shadows, preview and PNG/GIF/MP4 output.
 

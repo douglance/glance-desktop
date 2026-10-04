@@ -78,7 +78,8 @@ Capture, annotate, frame, and share from one native macOS window.
   in MP4; PNG retains transparency and captures the current animation phase.
   Liquid has flowing ribbons and fine grain; Lava has molten blobs that merge
   and separate; Aurora has rippling light curtains; Contours has terrain lines
-  that ripple, swell and curl; Prism has flexing facets and traveling reflections;
+  that ripple, swell and curl; Prism has irregular crystal facets with depth,
+  sweeping highlights and palette-tinted bands of refracted color;
   Painterly has brush strokes that sweep, bloom and fade. These
   six effects use distinct procedural Metal shaders. Flow keeps a gentle cloud
   gradient, and Starfield has drifting stars. Each effect starts with a suggested

@@ -181,10 +181,14 @@ fn contours(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     );
     mix3(base, mix3(u.cyan, u.mint, 0.35), line * 0.85)
 }
-fn prism_vertex(x: f32, y: f32, t: f32) -> [f32; 2] {
+fn prism_vertex(x: f32, y: f32, t: f32) -> [f32; 3] {
+    let jitter = random_value(x as i32 as u32, y as i32 as u32) - 0.5;
     [
-        x + 0.20 * (t + x * 1.7 + y * 0.9).sin(),
-        y + 0.20 * (2. * t + x * 0.8 - y * 1.4).cos(),
+        x + 0.28 * jitter + 0.14 * (t + x * 1.7 + y * 0.9).sin(),
+        y + 0.24 * jitter + 0.14 * (2. * t + x * 0.8 - y * 1.4).cos(),
+        0.32 * (x * 0.9 + y * 1.1 - t).sin()
+            + 0.18 * (x * 1.6 - y * 0.7 + 2. * t).cos()
+            + 0.24 * jitter,
     ]
 }
 fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
@@ -199,7 +203,14 @@ fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
             let b = prism_vertex(x as f32 + 1., y as f32, t);
             let c = prism_vertex(x as f32, y as f32 + 1., t);
             let d = prism_vertex(x as f32 + 1., y as f32 + 1., t);
-            for (side, vertices) in [[a, b, c], [d, c, b]].into_iter().enumerate() {
+            let hash = grain_hash(x as u32, y as u32);
+            // Alternate the diagonal to break up the regular tiled pattern.
+            let triangles = if hash & 1 == 0 {
+                [[a, b, c], [d, c, b]]
+            } else {
+                [[a, b, d], [a, d, c]]
+            };
+            for (side, vertices) in triangles.into_iter().enumerate() {
                 let [a, b, c] = vertices;
                 let e = [b[0] - a[0], b[1] - a[1]];
                 let f = [c[0] - a[0], c[1] - a[1]];
@@ -211,12 +222,35 @@ fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
                 if weights.iter().any(|w| *w < 0.) {
                     continue;
                 }
-                let hash = grain_hash(x as u32, y as u32) ^ if side == 0 { 0x5bd1e995 } else { 0 };
+                let hash = hash ^ if side == 0 { 0x5bd1e995 } else { 0 };
                 let phase = (hash & 65535) as f32 / 65535. * TAU;
-                let face = [u.blue, u.cyan, u.mint][(hash % 3) as usize];
-                let light = 0.55 + 0.30 * (t + phase).sin() + 0.15 * s;
-                let glint = (0.5 + 0.5 * (2. * t - phase + s * 1.4 - r).cos()).powi(12);
-                let color = mix3(mix3(u.dark, face, light), u.mint, glint * 0.45);
+                // Shared heights form a crystalline surface. Each plane bends
+                // the same traveling light band by its own surface normal.
+                let ez = b[2] - a[2];
+                let fz = c[2] - a[2];
+                let nx = (e[1] * fz - ez * f[1]) / det;
+                let ny = (ez * f[0] - e[0] * fz) / det;
+                let length = (nx * nx + ny * ny + 1.).sqrt();
+                let (nx, ny, nz) = (nx / length, ny / length, 1. / length);
+                let light = (nx * -0.35 + ny * -0.45 + nz * 0.82).max(0.);
+                let band = p[0] * 1.65 + p[1] * 0.85 - t;
+                let refraction = band + nx * 2.8 + ny * 1.8;
+                let spectrum = [
+                    0.5 + 0.5 * refraction.cos(),
+                    0.5 + 0.5 * (refraction - TAU / 3.).cos(),
+                    0.5 + 0.5 * (refraction + TAU / 3.).cos(),
+                ];
+                // Neutral palettes stay neutral; colored palettes split light.
+                let saturation = u.cyan.iter().copied().fold(f32::NEG_INFINITY, f32::max)
+                    - u.cyan.iter().copied().fold(f32::INFINITY, f32::min);
+                let face = mix3(u.blue, u.cyan, 0.5 + 0.5 * (phase + nx - ny).sin());
+                let face = mix3(face, spectrum, (saturation * 1.4).min(1.) * 0.38);
+                let glint = (0.5 + 0.5 * refraction.cos()).powi(10);
+                let color = mix3(
+                    mix3(u.dark, face, 0.24 + 0.65 * light),
+                    u.mint,
+                    glint * 0.72,
+                );
                 // Barycentric distance divided by gradient gives pixel coverage.
                 let distances = [
                     weights[0] * det.abs() / ((e[0] - f[0]).powi(2) + (e[1] - f[1]).powi(2)).sqrt(),
@@ -224,10 +258,13 @@ fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
                     r * det.abs() / (e[0] * e[0] + e[1] * e[1]).sqrt(),
                 ];
                 let edge = distances.into_iter().fold(f32::INFINITY, f32::min);
-                let seam = 1. - smoothstep(0.005, 0.005 + 2. / u.width.min(u.height) as f32, edge);
+                let seam =
+                    1. - smoothstep(0.0015, 0.0015 + 2. / u.width.min(u.height) as f32, edge);
                 // Both adjacent faces meet at the same edge color, avoiding
                 // a flickering pixel when a moving edge crosses its sample.
-                return mix3(color, u.mint, seam);
+                let edge_light = (0.5 + 0.5 * band.cos()).powi(8);
+                let edge_color = mix3(mix3(u.dark, u.blue, 0.48), u.mint, 0.18 + 0.72 * edge_light);
+                return mix3(color, edge_color, seam);
             }
         }
     }
@@ -408,6 +445,68 @@ pub fn frame(width: u32, height: u32, preset: usize, motion: Motion, phase: f32)
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn prism_cells_remain_convex_throughout_motion() {
+        // Either diagonal must remain valid: an inverted cell would overlap
+        // its neighbor and leave holes as the vertices flex.
+        for step in 0..60 {
+            let t = step as f32 / 60. * TAU;
+            for y in -8..=8 {
+                for x in -8..=8 {
+                    let x = x as f32;
+                    let y = y as f32;
+                    let corners = [
+                        prism_vertex(x, y, t),
+                        prism_vertex(x + 1., y, t),
+                        prism_vertex(x + 1., y + 1., t),
+                        prism_vertex(x, y + 1., t),
+                    ];
+                    for i in 0..4 {
+                        let a = corners[i];
+                        let b = corners[(i + 1) % 4];
+                        let c = corners[(i + 2) % 4];
+                        let cross = (b[0] - a[0]) * (c[1] - b[1]) - (b[1] - a[1]) * (c[0] - b[0]);
+                        assert!(cross > 0.1, "folded cell ({x}, {y}), step {step}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "renders local Prism palette samples and a looping GIF for visual review"]
+    fn prism_crystal_visual_qa() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/prism-qa");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut palettes = RgbaImage::new(960, 540);
+        for preset in 0..PRESETS.len() {
+            let image = frame(240, 270, preset, Motion::Prism, 0.22);
+            image::imageops::replace(
+                &mut palettes,
+                &image,
+                (preset % 4 * 240) as i64,
+                (preset / 4 * 270) as i64,
+            );
+        }
+        palettes.save(dir.join("palettes.png")).unwrap();
+        let preset = Motion::Prism.suggested_preset().unwrap();
+        frame(960, 540, preset, Motion::Prism, 0.22)
+            .save(dir.join("landscape.png"))
+            .unwrap();
+        frame(405, 720, preset, Motion::Prism, 0.22)
+            .save(dir.join("portrait.png"))
+            .unwrap();
+        let file = std::fs::File::create(dir.join("prism.gif")).unwrap();
+        let mut encoder = gif::Encoder::new(file, 480, 270, &[]).unwrap();
+        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+        for i in 0..100 {
+            let mut pixels = frame(480, 270, preset, Motion::Prism, i as f32 / 100.).into_raw();
+            let mut frame = gif::Frame::from_rgba_speed(480, 270, &mut pixels, 10);
+            frame.delay = 5;
+            encoder.write_frame(&frame).unwrap();
+        }
+    }
+
     #[test]
     fn evolving_effects_are_continuous_across_phase_wraps() {
         for motion in [Motion::Contours, Motion::Prism, Motion::Paint] {
