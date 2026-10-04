@@ -58,11 +58,9 @@ impl Editor {
             motion_preview.borrow_mut().clear(window);
         }
         let animation_phase = self.animation_phase();
-        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still)
-            && !self.playback.paused
-            && !self.is_busy()
-            && window.is_window_active()
-        {
+        let animation_playing =
+            !self.playback.paused && !self.is_busy() && window.is_window_active();
+        if backdrop.is_some_and(|b| b.motion != animation::Motion::Still) && animation_playing {
             window.request_animation_frame();
         }
         let output_dimensions = backdrop.map_or(dimensions, |b| b.dimensions(dimensions));
@@ -154,6 +152,7 @@ impl Editor {
                                             frame_bounds,
                                             px(b.outer_radius as f32 * scale),
                                             &mut motion_preview.borrow_mut(),
+                                            animation_playing,
                                             window,
                                         )
                                     },

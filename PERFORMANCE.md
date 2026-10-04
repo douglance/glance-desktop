@@ -110,11 +110,33 @@ GIF encoding renders the fixed foreground once and streams 20 fps frames at ≤9
 Liquid, Lava, Aurora, Contours, Prism and Painterly use a runtime-compiled Metal compute pipeline and a reused shared
 output buffer. GPUI 0.2.2 does not expose custom RGBA shader painting, so this
 prototype reads GPU output into an image and uploads it to GPUI's atlas. Preview
-is capped at a 960 px edge and samples 30 frames per second; unchanged/paused
+starts at a 960 px edge and samples 30 frames per second; unchanged/paused
 frames reuse the existing image. Old atlas entries are removed on replacement
 or when leaving shader effects. Effect selection is included in the preview
 cache key, so switching effects at the same phase/palette refreshes the image.
 Screenshot/annotation textures remain unchanged.
+Each editor uses one persistent preview worker. Shader initialization, Metal
+execution/waiting, readback and BGRA conversion run on that worker; the UI only
+requests a frame, consumes the latest completion and paints the cached image.
+The mailbox holds at most one pending request and one completed frame, and
+replaces pending requests when playback advances. The prior valid frame stays
+visible while rendering. Effect, palette, size, duration and pause changes
+invalidate older generations. Paused, busy and inactive redraws hold their
+requested phase, so completion notifications cannot restart suspended playback.
+Closing an editor signals worker shutdown without waiting on a GPU command.
+GPUI atlas upload and image painting still run through its normal UI render path.
+Playback adapts between 960, 720 and 480 px edges using worker render time
+(shader execution, readback and BGRA conversion). An exponential moving average
+above 24 ms for three completions steps down one tier; a completion over 80 ms
+also steps down. The first two completions after a scene/tier change are excluded
+to avoid reacting to shader compilation and buffer allocation. Recovery takes
+90 consecutive completions with an average below 8 ms and each sample below 12 ms.
+This leaves headroom when pixel count increases and avoids repeated quality
+changes. Paused/busy/inactive previews render once at the 960 px cap. The prior
+image remains visible during a tier change; aspect ratio is preserved and small
+previews are never upscaled for rendering. The measurements exclude GPUI upload
+and display, so this controls worker throughput rather than measured display FPS.
+Export does not use the adaptive controller.
 Export uses the same shader at the requested output size, then composites the
 cached foreground and shadow on the CPU. A matching CPU evaluator is used only
 if Metal initialization or execution fails.

@@ -71,6 +71,12 @@ impl Editor {
         let base = preview_base(&document);
         let preview = render_image(base.clone());
         let (sender, receiver) = async_channel::unbounded();
+        let motion_sender = sender.clone();
+        let motion_preview = Rc::new(std::cell::RefCell::new(crate::animation::Preview::new(
+            move || {
+                let _ = motion_sender.try_send(Message::MotionPreviewReady);
+            },
+        )));
         let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
         let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
         let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
@@ -159,7 +165,7 @@ impl Editor {
                 retired: vec![],
             },
             playback: PlaybackState {
-                motion_preview: Default::default(),
+                motion_preview,
                 epoch: std::time::Instant::now(),
                 paused: false,
                 position: 0.,

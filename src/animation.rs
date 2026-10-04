@@ -214,62 +214,19 @@ fn soft_coverage(x: f32, y: f32) -> f32 {
     let bottom = table[(yi + 1) * N + xi] * (1. - tx) + table[(yi + 1) * N + xi + 1] * tx;
     top * (1. - ty) + bottom * ty
 }
-/// One preview image per editor. Retire atlas entries before replacing them,
-/// and reuse paused frames so preview memory cannot grow with playback time.
-#[derive(Default)]
-pub struct Preview {
-    image: Option<std::sync::Arc<gpui::RenderImage>>,
-    key: Option<(u32, u32, usize, u32, u32, Motion)>,
-}
-impl Preview {
-    pub fn clear(&mut self, window: &mut Window) {
-        if let Some(image) = self.image.take() {
-            let _ = window.drop_image(image);
-        }
-        self.key = None;
-    }
-    fn paint(
-        &mut self,
-        b: Backdrop,
-        phase: f32,
-        bounds: Bounds<Pixels>,
-        radius: Pixels,
-        window: &mut Window,
-    ) {
-        let w = f32::from(bounds.size.width) * window.scale_factor();
-        let h = f32::from(bounds.size.height) * window.scale_factor();
-        let scale = (960. / w.max(h)).min(1.);
-        let w = (w * scale).round().max(1.) as u32;
-        let h = (h * scale).round().max(1.) as u32;
-        let frames = b.seconds.max(2) * 30;
-        let tick = (phase.rem_euclid(1.) * frames as f32).floor() as u32;
-        let key = (w, h, b.preset, frames, tick, b.motion);
-        if self.key != Some(key) {
-            self.clear(window);
-            self.image = Some(crate::editor::render_image(crate::motion_shader::frame(
-                w,
-                h,
-                b.preset,
-                b.motion,
-                tick as f32 / frames as f32,
-            )));
-            self.key = Some(key);
-        }
-        if let Some(image) = &self.image {
-            let _ = window.paint_image(bounds, radius.into(), image.clone(), 0, false);
-        }
-    }
-}
+mod preview;
+pub use preview::Preview;
 pub fn paint(
     b: Backdrop,
     phase: f32,
     bounds: Bounds<Pixels>,
     radius: Pixels,
     preview: &mut Preview,
+    playing: bool,
     window: &mut Window,
 ) {
     if b.motion.uses_shader() {
-        preview.paint(b, phase, bounds, radius, window);
+        preview.paint(b, phase, bounds, radius, playing, window);
         return;
     }
     let s = scene(b, phase);

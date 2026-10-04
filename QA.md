@@ -2,7 +2,7 @@
 
 ## Result
 
-64 automated tests pass (10 opt-in tests ignored). Native desktop testing remains blocked: computer-use
+91 automated tests pass (10 opt-in tests ignored). Native desktop testing remains blocked: computer-use
 access to the former desktop app was denied. These results cover a virtual GPUI window and
 model/rendering logic, not the physical app's visual layout or input latency.
 
@@ -81,6 +81,25 @@ cargo test --release --locked native_motion_export_qa -- --ignored --nocapture
 ```
 
 ## Motion shaders
+
+Shader previews now render on a persistent worker. Blocking-renderer tests
+verify that requests return while rendering is stalled, pending requests
+coalesce to the latest frame, and effect switches (including switching back),
+pausing and cancellation reject old completions. Suspended redraws retain their
+phase; worker shutdown does not wait for the renderer. A real shader-worker
+test verifies completions arrive from another thread and match the expected
+BGRA frames for all six shader effects. UI atlas upload/display still needs
+native latency profiling.
+
+```sh
+cargo test --locked animation::preview
+```
+
+Adaptive-quality tests use deterministic render durations to check warmup,
+sustained overload, emergency downshifts, the 480 px floor, and slow recovery
+without oscillation. Paused previews use the 960 px cap. Adaptation measures
+worker rendering only; native display FPS and slower-Mac performance remain
+unverified. PNG/MP4/GIF exporters do not consult preview quality.
 
 Liquid, Lava, Aurora, Contours, Prism and Painterly are checked against their CPU evaluators in landscape and portrait, across
 all eight palettes and three phases (at most two RGB levels of difference).

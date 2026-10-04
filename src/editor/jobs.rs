@@ -39,6 +39,7 @@ pub(crate) enum Message {
     Magnify(f32, (f32, f32), bool),
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
+    MotionPreviewReady,
     Operation(OperationId, OperationResult),
     VideoProgress(OperationId, u32),
 }
@@ -104,6 +105,7 @@ impl Editor {
     pub(super) fn receive(&mut self, message: Message, cx: &mut Context<Self>) {
         match message {
             Message::Automation(request) => self.automation(request, cx),
+            Message::MotionPreviewReady => cx.notify(),
             Message::Lens(key, image) => {
                 self.preview.lens_rendering = false;
                 if self.preview.lens_wanted == Some(key) {
