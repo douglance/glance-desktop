@@ -135,7 +135,7 @@ impl Editor {
                 self.preview.mark_count = usize::MAX;
                 self.changed();
             }
-            Action::Show => cx.activate(true),
+            Action::Show => crate::platform::show_editor(cx),
             Action::Capture { area } => self.capture(area, cx)?,
             Action::OpenImage => self.open(cx),
             Action::OpenPath { path } => self.open_path(path, cx),
@@ -361,11 +361,7 @@ impl Editor {
             Action::CancelExport => self.cancel_video(cx),
             Action::RevealExport => {
                 if let Some(path) = &self.video_export.last_video {
-                    std::process::Command::new("/usr/bin/open")
-                        .arg("-R")
-                        .arg(path)
-                        .spawn()
-                        .map_err(|e| e.to_string())?;
+                    cx.reveal_path(path);
                 }
             }
             Action::CommitText => self.commit_text(cx),

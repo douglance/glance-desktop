@@ -1,4 +1,4 @@
-//! Bounded, streaming video export using the bundled AVFoundation encoder.
+//! Bounded, streaming video export using the bundled platform encoder.
 #[cfg(test)]
 use crate::animation::Motion;
 use crate::{animation::Renderer, document::Document};
@@ -33,7 +33,7 @@ fn encoder_path() -> Result<PathBuf, String> {
             return Ok(path);
         }
     }
-    Err("Video encoder unavailable. Build the app with scripts/bundle.sh.".into())
+    Err("Video encoder unavailable. Build with scripts/bundle.sh (macOS) or scripts/package-linux.sh.".into())
 }
 pub fn encode(
     document: &Document,

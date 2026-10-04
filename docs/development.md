@@ -5,7 +5,8 @@
 ## Build and run
 
 
-Requires macOS 12+, Xcode Command Line Tools and a current stable Rust toolchain.
+On macOS, requires macOS 12+, Xcode Command Line Tools and a current stable Rust
+toolchain. For Linux dependencies and packaging, see [Omarchy](linux.md).
 
 ```sh
 cargo run --locked
@@ -96,10 +97,27 @@ repository's Git configuration, which is shared by its worktrees.
 
 ## CI
 
-GitHub Actions runs formatting, Clippy, tests, and an app bundle build on macOS.
-CI uses ad-hoc signing (`GLANCE_CODESIGN_IDENTITY=-`), verifies the bundle and
-bundled notices, and does not change certificate trust or require signing secrets.
-This verifies packaging; it does not produce a notarized release.
+Every pull request and main-branch push runs formatting, Clippy, tests, and a
+real MP4 encode/PNG decode round trip on macOS and Arch Linux. These checks do
+not build release packages or upload downloads.
+
+The separate [release workflow](../.github/workflows/release.yml) runs only
+when a GitHub release is published, including a prerelease. It checks out that
+release's tag, runs the checks, and builds an Apple Silicon macOS ZIP and an
+Omarchy x86_64 Arch package/Linux archive. The Arch job installs its generated
+package and checks its CLI and desktop entry. After both jobs succeed, packages,
+the PKGBUILD, and SHA-256 files are attached to the existing GitHub release.
+It does not create releases; publishing one is an explicit maintainer action.
+Intermediate Actions artifacts are retained for 14 days; release assets remain
+available on the [Releases page](https://github.com/modem-dev/glance-desktop/releases).
+
+Release packaging currently uses ad-hoc macOS signing
+(`GLANCE_CODESIGN_IDENTITY=-`) and verifies the bundle and notices. Only the
+asset-upload job has repository write permission; no signing secrets are needed.
+A public macOS release still needs a Developer ID Application identity,
+hardened runtime/timestamp signing for all executables, notarization with
+`notarytool`, and a stapled ticket. Intel/universal builds are not configured.
+CI’s virtual UI tests do not replace a real desktop acceptance pass.
 
 To verify packaging locally without replacing your normal bundle, choose a
 separate output path. Use ad-hoc signing only for this isolated check:
@@ -119,7 +137,9 @@ commands, and [performance notes](../PERFORMANCE.md) for benchmark boundaries.
 
 ## Releases
 
-There are no published app releases yet. Before distributing a release, verify
+The initial release is
+[v0.1.0](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0).
+Before distributing a release, verify
 capture permissions, clipboard, dialogs, native input, and media exports on a
 real Mac. Public distribution also needs an Apple distribution-signing and
 notarization process; the local development certificate is not that process.

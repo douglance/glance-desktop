@@ -14,7 +14,7 @@ impl Render for HoverLabel {
             .text_color(rgb(0xffffff))
             .text_xs()
             .shadow_md()
-            .child(self.0.clone())
+            .child(crate::platform::shortcut_label(&self.0))
     }
 }
 pub(super) fn icon(name: &'static str, color: u32) -> impl IntoElement {
@@ -139,7 +139,7 @@ impl Editor {
             .when_some(icon_name, |el, name| {
                 el.child(icon(name, if active { 0xd94d38 } else { 0x555966 }))
             })
-            .child(label.to_string())
+            .child(crate::platform::shortcut_label(label))
             .on_click(cx.listener(move |this, _, _, cx| this.dispatch_ui(action.clone(), cx)))
     }
 }
@@ -203,7 +203,7 @@ impl Render for Editor {
             .flex_col()
             .bg(rgb(0xfcfcfd))
             .text_color(rgb(0x272831))
-            .font_family(".AppleSystemUIFont")
+            .font_family(crate::platform::UI_FONT)
             .track_focus(&self.focus)
             .key_context(if self.interaction.text_edit.is_some() {
                 "GlanceText"

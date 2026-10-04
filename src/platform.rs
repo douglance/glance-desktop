@@ -1,6 +1,5 @@
 use image::{ImageReader, RgbaImage};
 use std::{
-    borrow::Cow,
     path::PathBuf,
     process::Command,
     sync::atomic::{AtomicU64, Ordering},
@@ -29,6 +28,7 @@ unsafe extern "C" {
     fn CGRequestScreenCaptureAccess() -> bool;
 }
 /// Called only when the user requests capture, before hiding the editor.
+#[cfg(target_os = "macos")]
 pub fn screen_capture_permission() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -58,6 +58,7 @@ fn capture_failure(area: bool, stderr: &[u8], code: Option<i32>) -> Option<Strin
         format!("Screen capture failed: {detail}")
     })
 }
+#[cfg(target_os = "macos")]
 pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     // Unique paths avoid mistaking a canceled selection for a previous capture.
     let path = std::env::temp_dir().join(format!(
@@ -84,6 +85,7 @@ pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     let _ = std::fs::remove_file(path);
     result
 }
+#[cfg(target_os = "macos")]
 fn dialog(script: &str) -> Result<Option<PathBuf>, String> {
     let output = Command::new("/usr/bin/osascript")
         .args(["-e", script])
@@ -100,6 +102,7 @@ fn dialog(script: &str) -> Result<Option<PathBuf>, String> {
     let path = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
     Ok(Some(PathBuf::from(path.trim_end())))
 }
+#[cfg(target_os = "macos")]
 pub fn open() -> Result<Option<RgbaImage>, String> {
     match dialog(
         "POSIX path of (choose file with prompt \"Open an image in Glance\" of type {\"public.png\", \"public.jpeg\"})",
@@ -117,17 +120,19 @@ pub fn save(image: RgbaImage) -> Result<Option<PathBuf>, String> {
         .map_err(|e| e.to_string())?;
     Ok(Some(path))
 }
+#[cfg(target_os = "macos")]
 pub fn copy(image: RgbaImage) -> Result<(), String> {
     arboard::Clipboard::new()
         .map_err(|e| e.to_string())?
         .set_image(arboard::ImageData {
             width: image.width() as usize,
             height: image.height() as usize,
-            bytes: Cow::Owned(image.into_raw()),
+            bytes: std::borrow::Cow::Owned(image.into_raw()),
         })
         .map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "macos")]
 pub fn clipboard_image() -> Result<RgbaImage, String> {
     let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
     let data = clipboard
@@ -153,6 +158,7 @@ enum ExportFormat {
     Mp4,
 }
 
+#[cfg(target_os = "macos")]
 fn export_destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
     let (prompt, name, extension, folder) = match format {
         ExportFormat::Png => ("Save annotated screenshot", "Screenshot", "png", "pictures"),
@@ -192,9 +198,169 @@ pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
         ExportFormat::Mp4
     })
 }
+#[cfg(target_os = "macos")]
+pub const ANNOTATION_FONT: &str = "Arial";
+#[cfg(target_os = "linux")]
+pub const ANNOTATION_FONT: &str = "DejaVu Sans";
+#[cfg(target_os = "macos")]
+pub const UI_FONT: &str = ".AppleSystemUIFont";
+#[cfg(target_os = "linux")]
+pub const UI_FONT: &str = "DejaVu Sans";
+
+pub fn annotation_font() -> Option<&'static ab_glyph::FontArc> {
+    static FONT: std::sync::OnceLock<Option<ab_glyph::FontArc>> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        let paths = ["/System/Library/Fonts/Supplemental/Arial.ttf"];
+        #[cfg(target_os = "linux")]
+        let paths = [
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        ];
+        paths
+            .iter()
+            .find_map(|path| ab_glyph::FontArc::try_from_vec(std::fs::read(path).ok()?).ok())
+    })
+    .as_ref()
+}
+
+pub fn key_binding(key: &str) -> String {
+    if cfg!(target_os = "linux") {
+        key.replace("cmd-", "ctrl-")
+    } else {
+        key.into()
+    }
+}
+pub fn command_pressed(modifiers: gpui::Modifiers) -> bool {
+    modifiers.platform || (cfg!(target_os = "linux") && modifiers.control)
+}
+pub fn shortcut_label(label: &str) -> String {
+    if cfg!(target_os = "linux") {
+        label
+            .replace('⌘', "Ctrl+")
+            .replace('⌥', "Alt+")
+            .replace('⇧', "Shift+")
+    } else {
+        label.into()
+    }
+}
+pub fn show_editor(cx: &mut gpui::App) {
+    #[cfg(target_os = "macos")]
+    cx.activate(true);
+    #[cfg(target_os = "linux")]
+    for handle in cx.windows() {
+        let _ = handle.update(cx, |_, window, _| window.activate_window());
+    }
+}
+pub fn hide_editor(cx: &mut gpui::App) {
+    #[cfg(target_os = "macos")]
+    cx.hide();
+    #[cfg(target_os = "linux")]
+    // A toolbar listener already holds the current window. Defer so the
+    // window is available again before issuing the compositor request.
+    cx.defer(|cx| {
+        for handle in cx.windows() {
+            let _ = handle.update(cx, |_, window, _| window.minimize_window());
+        }
+    });
+}
+
+pub enum Startup {
+    Demo,
+    Image(RgbaImage),
+    Exit,
+}
+pub fn startup_image(args: impl Iterator<Item = String>) -> Result<Startup, String> {
+    let mut args = args;
+    let mut request = None;
+    while let Some(arg) = args.next() {
+        match arg.as_str() {
+            "--automation" => {}
+            "--help" | "-h" => {
+                println!(
+                    "Glance {}\nUsage: glance [--open PATH | --capture-area | --capture-screen] [--automation]\n       glance --mcp",
+                    env!("CARGO_PKG_VERSION")
+                );
+                return Ok(Startup::Exit);
+            }
+            "--open" | "--capture-area" | "--capture-screen" => {
+                if request.is_some() {
+                    return Err("Choose only one startup image or capture action".into());
+                }
+                request = Some((
+                    arg.clone(),
+                    if arg == "--open" {
+                        Some(args.next().ok_or("--open requires a path")?)
+                    } else {
+                        None
+                    },
+                ));
+            }
+            _ if arg.starts_with("-psn_") => {} // Older Finder launch argument.
+            _ => return Err(format!("Unknown argument: {arg}. Use --help.")),
+        }
+    }
+    match request {
+        None => Ok(Startup::Demo),
+        Some((action, Some(path))) if action == "--open" => {
+            load(std::path::Path::new(&path)).map(Startup::Image)
+        }
+        Some((action, _)) => {
+            screen_capture_permission()?;
+            Ok(capture(action == "--capture-area")?.map_or(Startup::Exit, Startup::Image))
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+pub use linux::{capture, clipboard_image, copy, open, permission as screen_capture_permission};
+#[cfg(target_os = "linux")]
+fn export_destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
+    linux::destination(format)
+}
 #[cfg(test)]
 mod tests {
     use super::capture_failure;
+    #[test]
+    fn startup_rejects_missing_or_conflicting_image_arguments() {
+        for args in [
+            vec!["--open"],
+            vec!["--capture-area", "--capture-screen"],
+            vec!["--unknown"],
+        ] {
+            assert!(super::startup_image(args.into_iter().map(str::to_string)).is_err());
+        }
+        assert!(matches!(
+            super::startup_image(vec!["--automation".to_string()].into_iter()).unwrap(),
+            super::Startup::Demo
+        ));
+    }
+    #[test]
+    fn exported_text_uses_an_available_platform_font() {
+        assert!(
+            super::annotation_font().is_some(),
+            "Install the platform annotation font"
+        );
+        let mut document = crate::document::Document::new(image::RgbaImage::from_pixel(
+            200,
+            60,
+            image::Rgba([255, 255, 255, 255]),
+        ));
+        document.commit(crate::document::Mark {
+            tool: crate::document::Tool::Text,
+            curve: None,
+            points: vec![(10., 10.)],
+            color: [0, 0, 0, 255],
+            width: 4.,
+            text: "Glance".into(),
+        });
+        assert!(
+            document.render(None).pixels().any(|pixel| pixel[0] < 128),
+            "Text must survive export"
+        );
+    }
     #[test]
     fn capture_errors_preserve_real_cause_and_cancellation_is_quiet() {
         assert!(capture_failure(true, b"", Some(1)).is_none());

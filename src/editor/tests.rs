@@ -930,3 +930,29 @@ fn backdrop_grid_modes_and_format_menu_work_at_minimum_window_size(cx: &mut Test
             .unwrap()
     );
 }
+
+#[cfg(target_os = "linux")]
+#[gpui::test]
+fn linux_control_shortcuts_edit_text_and_undo_once(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        e.set_tool(Tool::Text, cx);
+        e.begin(&down(10., 10.), w, cx);
+        e.replace_text_in_range(None, "Replace me", w, cx);
+        e.key(&key("ctrl-a"), w, cx);
+        e.replace_text_in_range(None, "Linux label", w, cx);
+        e.key(&key("enter"), w, cx);
+        assert_eq!(e.document.marks[0].text, "Linux label");
+        e.key(&key("ctrl-z"), w, cx);
+        assert!(e.document.marks.is_empty());
+        // Undo waits for its raster preview before accepting the next edit.
+        e.receive(
+            Message::Preview(e.preview.revision, 0, render_image(e.document.render(None))),
+            cx,
+        );
+        e.key(&key("ctrl-shift-z"), w, cx);
+        assert_eq!(e.document.marks.len(), 1);
+    })
+    .unwrap();
+}

@@ -2,8 +2,9 @@
 
 **Make your screenshot make sense.**
 
-Glance is a native macOS screenshot editor for clearer bug reports, design
-feedback, and visual context for coding agents. Capture the detail, mark what
+Glance is a native screenshot editor for clearer bug reports, design feedback,
+and visual context for coding agents. It runs on macOS, with experimental support
+for Omarchy (Linux/Hyprland). Capture the detail, mark what
 matters, then copy an image or share a temporary link through
 [glance.sh](https://glance.sh).
 
@@ -27,14 +28,21 @@ with a Lava backdrop. This PNG captures one frame of the animation.*
 - **Share with a remote agent.** Copy a temporary image URL that an agent can
   fetch, or use the local MCP companion to let a client edit the native canvas.
 
-Written in Rust with [GPUI](https://www.gpui.rs/), Metal rendering, and native
-macOS video helpers. Capture, editing, and file export work locally; remote
+Written in Rust with [GPUI](https://www.gpui.rs/). macOS uses Metal and native
+video helpers; Linux uses GPUI’s Vulkan UI, Wayland capture tools, and FFmpeg. Capture, editing, and file export work locally; remote
 sharing is optional.
 
 ## Build and install
 
-Glance is in early development. **Build from source** to try it; there are no
-published app downloads yet.
+Glance is in early development. Download the initial
+[v0.1.0 release](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0)
+for Apple Silicon macOS or Omarchy x86_64, or build from source below.
+
+### macOS
+
+Download `Glance-0.1.0-macos-arm64.zip`, extract it, and move `Glance.app` to
+Applications. The download is ad-hoc signed and not notarized, so macOS may
+block opening it. For a persistent local signing identity, build from source:
 
 Requires **macOS 12+**, Xcode Command Line Tools, and a current stable Rust
 installation via [rustup](https://rustup.rs/). Full Xcode and FFmpeg are not
@@ -73,6 +81,27 @@ to its signing identity.
 
 See [development and troubleshooting](docs/development.md) for fast builds,
 custom signing identities, and permission fixes.
+
+### Omarchy / Arch Linux (experimental)
+
+The release workflow builds an **x86_64 Arch package** for Omarchy. When a
+[release](https://github.com/modem-dev/glance-desktop/releases) is available,
+download its `.pkg.tar.zst` package and install it:
+
+```sh
+sudo pacman -U ./glance-desktop-*.pkg.tar.zst
+glance --capture-area
+```
+
+The package declares dependencies for Wayland capture, clipboard, dialogs,
+fonts, and FFmpeg. Your GPU needs a working Vulkan driver. Add optional Hyprland
+bindings to capture from anywhere; see the [Omarchy guide](docs/linux.md).
+Use **Ctrl** in place of **⌘** for editor shortcuts.
+
+Published releases also receive an Apple Silicon macOS ZIP, currently ad-hoc
+signed and not notarized. Packages are built only when a release is published;
+PRs and pushes to `main` run checks;
+the [Omarchy guide](docs/linux.md) covers source builds and checksum verification.
 
 ## Your first screenshot
 
@@ -119,8 +148,10 @@ to remove before sharing; pixelation is a visual effect.
 
 OCR, scrolling capture, floating pins, configurable shortcuts, persistent
 settings, automatic updates, and notarized app distribution are not available
-yet. MP4 and GIF animate the backdrop, not a screen recording. Windows and Linux
-are not supported.
+yet. MP4 and GIF animate the backdrop, not a screen recording. Windows is not
+supported. Omarchy support is experimental: CI checks builds, virtual UI tests,
+and video exports; desktop capture/input still need a real Hyprland acceptance
+pass. Animated Linux backdrops currently render on the CPU.
 
 ## Contribute
 
@@ -130,6 +161,7 @@ expectations. Report bugs or propose features in
 [GitHub Issues](https://github.com/modem-dev/glance-desktop/issues).
 
 - [Usage](docs/usage.md) — tools, shortcuts, backdrops, and exports.
+- [Omarchy / Linux](docs/linux.md) — installation, capture bindings, and limits.
 - [Development](docs/development.md) — builds, signing, permissions, and releases.
 - [Architecture](docs/architecture.md) — editor, document actions, and workers.
 - [MCP companion](mcp/README.md) — setup, tools, and editor actions.

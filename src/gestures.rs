@@ -1,3 +1,4 @@
+#![cfg(target_os = "macos")]
 //! AppKit magnify bridge for GPUI 0.2.2, which doesn't expose pinch events.
 #![allow(unexpected_cfgs)]
 use crate::Message;

@@ -1,3 +1,4 @@
+#[cfg(any(target_os = "macos", test))]
 use super::actions::Action;
 use super::{Editor, preview_base, render_image};
 use super::{feedback::CopyFeedback, state::Gesture};
@@ -36,7 +37,9 @@ pub(super) struct OperationState {
 pub(crate) enum Message {
     Automation(crate::automation::Request),
     Lens(crate::effects::LensKey, Arc<RenderImage>),
+    #[cfg(any(target_os = "macos", test))]
     Magnify(f32, (f32, f32), bool),
+    #[cfg(target_os = "macos")]
     Hotkey(bool),
     Preview(u64, usize, Arc<RenderImage>),
     MotionPreviewReady,
@@ -117,6 +120,7 @@ impl Editor {
                 }
                 cx.notify();
             }
+            #[cfg(any(target_os = "macos", test))]
             Message::Magnify(delta, position, smart) => {
                 if self.is_busy() || self.interaction.gesture.is_active() {
                     return;
@@ -140,6 +144,7 @@ impl Editor {
                 };
                 self.dispatch_ui(action, cx);
             }
+            #[cfg(target_os = "macos")]
             Message::Hotkey(area) => {
                 self.dispatch_ui(Action::Capture { area }, cx);
             }
@@ -296,7 +301,7 @@ impl Editor {
                 self.video_export.cancel = None;
             }
         }
-        cx.activate(true);
+        crate::platform::show_editor(cx);
         if failed && let Some(window) = cx.windows().first().copied() {
             let detail = self.feedback.status.clone();
             if let Ok(answer) = window.update(cx, |_, window, cx| {

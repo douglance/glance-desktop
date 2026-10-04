@@ -2,6 +2,8 @@
 set -eu
 cd "$(dirname "$0")/.."
 MODE="${1:-release}"
+export MACOSX_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-12.0}"
+VERSION="$(sed -n '/^\[package\]/,/^\[/s/^version = "\([^"]*\)".*/\1/p' Cargo.toml)"
 if [ "$MODE" = "release" ]; then cargo build --release --locked; else cargo build --locked; fi
 APP_DEST="${GLANCE_BUNDLE_DEST:-$(pwd)/target/Glance.app}"
 mkdir -p "$(pwd)/target" "$(dirname "$APP_DEST")"
@@ -47,6 +49,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>NSScreenCaptureUsageDescription</key><string>Glance captures your selected screen area for annotation.</string>
 </dict></plist>
 PLIST
+/usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $VERSION" "$APP/Contents/Info.plist"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIconFile $ICON_NAME" "$APP/Contents/Info.plist"
 ./scripts/sign-app.sh "$APP"
 # Do not replace the installed bundle until every build/signing step succeeds.

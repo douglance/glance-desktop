@@ -1,0 +1,11 @@
+#!/bin/sh
+# Same BGRA stdin contract as the macOS AVFoundation helper.
+set -eu
+[ "$#" -eq 5 ] || { echo 'Expected width height fps frame_count output' >&2; exit 1; }
+for value in "$1" "$2" "$3" "$4"; do
+    case "$value" in ''|*[!0-9]*) echo 'Expected positive integers' >&2; exit 1;; esac
+    [ "$value" -gt 0 ] || exit 1
+done
+exec ffmpeg -hide_banner -loglevel error -n \
+    -f rawvideo -pixel_format bgra -video_size "${1}x${2}" -framerate "$3" -i pipe:0 \
+    -frames:v "$4" -c:v libx264 -pix_fmt yuv420p -movflags +faststart -f mp4 "$5"

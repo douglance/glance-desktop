@@ -265,13 +265,7 @@ pub(crate) fn paint(out: &mut RgbaImage, mark: &Mark) {
             paint(out, &label);
         }
         Tool::Text => {
-            static FONT: std::sync::OnceLock<Option<ab_glyph::FontArc>> =
-                std::sync::OnceLock::new();
-            let font = FONT.get_or_init(|| {
-                std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf")
-                    .ok()
-                    .and_then(|data| ab_glyph::FontArc::try_from_vec(data).ok())
-            });
+            let font = crate::platform::annotation_font();
             if let Some(font) = font {
                 // GPUI uses em pixels; ab_glyph scales by ascent + descent.
                 let em_size = (mark.width * 7.).max(1.);

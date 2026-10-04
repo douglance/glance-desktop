@@ -1,6 +1,6 @@
 # Working on Glance
 
-Glance is a native macOS screenshot editor in Rust/GPUI. It edits one document,
+Glance is a native macOS and experimental Omarchy screenshot editor in Rust/GPUI. It edits one document,
 exports PNG/GIF/MP4, shares images through glance.sh, and offers opt-in local MCP
 control. Use Cargo and the existing Rust tooling; do not add a JavaScript toolchain.
 
@@ -14,10 +14,11 @@ control. Use Cargo and the existing Rust tooling; do not add a JavaScript toolch
 - `src/editor/jobs.rs`: workers, operation IDs, stale-result rejection.
 - `src/animation/preview.rs`, `preview/quality.rs`, `src/shaders/motion.metal`:
   worker-rendered shader previews, adaptive quality, periodic motion effects.
-- `src/platform.rs`: macOS capture, dialogs, and clipboard.
+- `src/platform.rs`: platform capture, dialogs, fonts, and clipboard; Linux lives in `src/platform/linux.rs`.
 - `src/glance.rs`: encrypted remote-sharing protocol.
 - `src/mcp.rs`, `src/automation.rs`, `src/editor/automation.rs`: stdio MCP and IPC.
-- `native/`: AVFoundation helpers. `scripts/bundle.sh`: app packaging and signing.
+- `native/`: AVFoundation/FFmpeg helpers. `scripts/bundle.sh`: macOS packaging;
+  `scripts/package-linux.sh`: Linux archive and Arch package recipe.
 
 See `docs/architecture.md` for details and `docs/usage.md` for current behavior.
 `PLAN.md` is historical; do not use its early scope as the current feature list.

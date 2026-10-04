@@ -17,10 +17,10 @@ mod tests;
 mod text_input;
 mod view;
 
-use crate::{
-    document::{self, Document, Tool},
-    gestures,
-};
+use crate::document::{self, Document, Tool};
+#[cfg(target_os = "macos")]
+use crate::gestures;
+#[cfg(target_os = "macos")]
 use global_hotkey::{
     GlobalHotKeyEvent, GlobalHotKeyManager, HotKeyState,
     hotkey::{Code, HotKey, Modifiers},
@@ -43,10 +43,12 @@ pub(crate) struct Editor {
     video_export: VideoExportState,
     panels: PanelState,
     feedback: FeedbackState,
+    #[cfg(target_os = "macos")]
     _gestures: Option<gestures::Monitor>,
     pub(crate) focus: FocusHandle,
     operations: OperationState,
     sender: async_channel::Sender<Message>,
+    #[cfg(target_os = "macos")]
     _hotkeys: Option<GlobalHotKeyManager>,
 }
 pub(crate) fn render_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
@@ -63,11 +65,18 @@ fn preview_base(doc: &Document) -> image::RgbaImage {
         .to_rgba8()
 }
 impl Editor {
-    pub(crate) fn new(cx: &mut Context<Self>) -> Self {
-        Self::with_native(cx, true)
+    pub(crate) fn new(cx: &mut Context<Self>, image: Option<image::RgbaImage>) -> Self {
+        Self::with_document(
+            cx,
+            true,
+            Document::new(image.unwrap_or_else(document::demo)),
+        )
     }
+    #[cfg(test)]
     pub(super) fn with_native(cx: &mut Context<Self>, native: bool) -> Self {
-        let document = Document::new(document::demo());
+        Self::with_document(cx, native, Document::new(document::demo()))
+    }
+    fn with_document(cx: &mut Context<Self>, native: bool, document: Document) -> Self {
         let base = preview_base(&document);
         let preview = render_image(base.clone());
         let (sender, receiver) = async_channel::unbounded();
@@ -77,9 +86,16 @@ impl Editor {
                 let _ = motion_sender.try_send(Message::MotionPreviewReady);
             },
         )));
-        let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
-        let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
+        #[cfg(target_os = "macos")]
         let mut status = "Practice on this canvas, or capture your screen with ⌘⌥2".to_string();
+        #[cfg(target_os = "linux")]
+        let status =
+            "Practice here, or launch glance --capture-area from a Hyprland binding".to_string();
+        #[cfg(target_os = "macos")]
+        let area = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit2);
+        #[cfg(target_os = "macos")]
+        let full = HotKey::new(Some(Modifiers::SUPER | Modifiers::ALT), Code::Digit3);
+        #[cfg(target_os = "macos")]
         let hotkeys = if !native {
             None
         } else {
@@ -104,7 +120,9 @@ impl Editor {
         {
             eprintln!("Glance automation: {error}");
         }
+        #[cfg(target_os = "macos")]
         let hotkey_sender = sender.clone();
+        #[cfg(target_os = "macos")]
         if native {
             GlobalHotKeyEvent::set_event_handler(Some(move |event: GlobalHotKeyEvent| {
                 if event.state == HotKeyState::Pressed {
@@ -129,6 +147,7 @@ impl Editor {
         })
         .detach();
         let canvas_bounds = Rc::new(Cell::new(Bounds::default()));
+        #[cfg(target_os = "macos")]
         let gestures =
             native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
@@ -189,10 +208,12 @@ impl Editor {
                 copy: None,
                 timer: None,
             },
+            #[cfg(target_os = "macos")]
             _gestures: gestures,
             focus: cx.focus_handle(),
             operations: OperationState::default(),
             sender,
+            #[cfg(target_os = "macos")]
             _hotkeys: hotkeys,
         }
     }

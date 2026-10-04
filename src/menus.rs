@@ -37,15 +37,19 @@ actions!(
 );
 pub fn install(cx: &mut App) {
     cx.bind_keys([
-        KeyBinding::new("cmd-o", Open, None),
-        KeyBinding::new("cmd-s", Save, None),
-        KeyBinding::new("cmd-c", Copy, None),
-        KeyBinding::new("cmd-shift-c", CopyRemote, None),
-        KeyBinding::new("cmd-v", Paste, None),
-        KeyBinding::new("cmd-z", Undo, None),
-        KeyBinding::new("cmd-shift-z", Redo, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-o"), Open, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-s"), Save, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-c"), Copy, None),
+        KeyBinding::new(
+            &crate::platform::key_binding("cmd-shift-c"),
+            CopyRemote,
+            None,
+        ),
+        KeyBinding::new(&crate::platform::key_binding("cmd-v"), Paste, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-z"), Undo, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-shift-z"), Redo, None),
         KeyBinding::new("backspace", Delete, None),
-        KeyBinding::new("cmd-d", Duplicate, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-d"), Duplicate, None),
         KeyBinding::new("v", Select, Some("GlanceCanvas")),
         KeyBinding::new("p", Pen, Some("GlanceCanvas")),
         KeyBinding::new("a", Arrow, Some("GlanceCanvas")),
@@ -57,12 +61,20 @@ pub fn install(cx: &mut App) {
         KeyBinding::new("n", Counter, Some("GlanceCanvas")),
         KeyBinding::new("s", Spotlight, Some("GlanceCanvas")),
         KeyBinding::new("m", Magnifier, Some("GlanceCanvas")),
-        KeyBinding::new("cmd-alt-2", CaptureArea, None),
-        KeyBinding::new("cmd-alt-3", CaptureScreen, None),
-        KeyBinding::new("cmd-1", Fit, None),
-        KeyBinding::new("cmd-0", ActualSize, None),
-        KeyBinding::new("cmd-=", ZoomIn, None),
-        KeyBinding::new("cmd--", ZoomOut, None),
+        KeyBinding::new(
+            &crate::platform::key_binding("cmd-alt-2"),
+            CaptureArea,
+            None,
+        ),
+        KeyBinding::new(
+            &crate::platform::key_binding("cmd-alt-3"),
+            CaptureScreen,
+            None,
+        ),
+        KeyBinding::new(&crate::platform::key_binding("cmd-1"), Fit, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-0"), ActualSize, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd-="), ZoomIn, None),
+        KeyBinding::new(&crate::platform::key_binding("cmd--"), ZoomOut, None),
     ]);
     cx.set_menus(vec![
         Menu {

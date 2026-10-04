@@ -9,6 +9,10 @@ ChatGPT or another MCP client can edit the **real native GPUI window** using str
 ./target/Glance.app/Contents/MacOS/Glance --automation
 ```
 
+On Omarchy, install the Arch package and run `glance --automation`. Configure
+MCP with `command: "/usr/bin/glance"` and `args: ["--mcp"]`. The socket lives in
+`$XDG_CACHE_HOME/glance/automation` (or `~/.cache/glance/automation`).
+
 Start this build as your editor. If another automation-enabled Glance is already running, stop that instance first. Ordinary launches without `--automation` do not expose the bridge. Keep the editor running while using MCP.
 
 Configure a local stdio MCP client with an **absolute path** to this checkout's `scripts/mcp.sh`:

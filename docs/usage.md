@@ -1,5 +1,10 @@
 # Using Glance
 
+On Omarchy, use Ctrl in place of ⌘ for editor shortcuts. Global capture uses
+Hyprland bindings and Linux full-screen capture includes all displays; see the
+[Omarchy guide](linux.md). The shortcut examples below describe macOS.
+
+
 Capture, annotate, frame, and share from one native macOS window.
 
 [Build and install](../README.md#build-and-install) · [Signing and troubleshooting](development.md)
