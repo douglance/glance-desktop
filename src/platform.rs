@@ -256,9 +256,13 @@ pub fn hide_editor(cx: &mut gpui::App) {
     #[cfg(target_os = "macos")]
     cx.hide();
     #[cfg(target_os = "linux")]
-    for handle in cx.windows() {
-        let _ = handle.update(cx, |_, window, _| window.minimize_window());
-    }
+    // A toolbar listener already holds the current window. Defer so the
+    // window is available again before issuing the compositor request.
+    cx.defer(|cx| {
+        for handle in cx.windows() {
+            let _ = handle.update(cx, |_, window, _| window.minimize_window());
+        }
+    });
 }
 
 pub enum Startup {
