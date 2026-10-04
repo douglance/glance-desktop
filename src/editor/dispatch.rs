@@ -65,6 +65,15 @@ impl Editor {
         }
         // Validate before committing text or canceling a gesture.
         match &action {
+            Action::RandomizeMotion { .. }
+                if self
+                    .document
+                    .backdrop
+                    .or(self.panels.backdrop_disabled)
+                    .is_none_or(|b| b.motion == Motion::Still) =>
+            {
+                return Err("Choose a backdrop motion before randomizing it.".into());
+            }
             Action::SetStrokeWidth { width }
                 if !width.is_finite() || !(0.5..=64.).contains(width) =>
             {
@@ -363,6 +372,19 @@ impl Editor {
                     }
                     b.motion = motion;
                     b.gradient = true;
+                },
+                cx,
+            ),
+            Action::RandomizeMotion { seed } => self.backdrop_style(
+                |b| {
+                    b.seed = seed.unwrap_or_else(|| {
+                        loop {
+                            let candidate = rand::random::<u32>();
+                            if candidate != 0 && candidate != b.seed {
+                                break candidate;
+                            }
+                        }
+                    });
                 },
                 cx,
             ),

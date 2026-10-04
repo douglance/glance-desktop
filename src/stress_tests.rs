@@ -60,6 +60,7 @@ fn randomized_edit_sequences_roundtrip_history_and_png() {
                 5 => {
                     d.remember();
                     d.backdrop = Some(Backdrop {
+                        seed: 0,
                         format: crate::backdrop::Format::Auto,
                         padding: random(&mut seed) % 10,
                         preset: random(&mut seed) as usize % 8,

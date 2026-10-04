@@ -100,6 +100,7 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         json!({"type":"set_backdrop_format","format":"shorts"}),
         json!({"type":"set_backdrop_fill","gradient":true}),
         json!({"type":"select_motion","motion":"aurora"}),
+        json!({"type":"randomize_motion","seed":12345}),
         json!({"type":"set_backdrop_preset","preset":0}),
         json!({"type":"set_backdrop_control","control":"inside_padding","value":20}),
         json!({"type":"select_entrance","effect":"diagonal"}),
@@ -123,6 +124,41 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         let canonical = serde_json::to_value(action).unwrap();
         validate_tool("dispatch_action", &json!({"action":canonical})).unwrap();
         Action::from_json(canonical).unwrap();
+    }
+    for seed in [json!(null), json!(0), json!(12345), json!(u32::MAX)] {
+        let payload = json!({"type":"randomize_motion","seed":seed});
+        validate_tool("dispatch_action", &json!({"action":payload})).unwrap();
+        let action = Action::from_json(payload).unwrap();
+        Action::from_json(serde_json::to_value(action).unwrap()).unwrap();
+    }
+    for seed in [0, 12345, u32::MAX] {
+        let backdrop = crate::backdrop::Backdrop {
+            seed,
+            ..Default::default()
+        };
+        validate_tool("set_backdrop", &json!({"backdrop":backdrop})).unwrap();
+    }
+    for motion in ["nebula", "stars"] {
+        let payload = json!({"type":"select_motion","motion":motion});
+        validate_tool("dispatch_action", &json!({"action":payload})).unwrap();
+        let action = Action::from_json(payload).unwrap();
+        assert_eq!(serde_json::to_value(action).unwrap()["motion"], "nebula");
+        let backdrop = json!({"motion":motion,"seed":42});
+        validate_tool("set_backdrop", &json!({"backdrop":backdrop})).unwrap();
+        let backdrop: crate::backdrop::Backdrop = serde_json::from_value(backdrop).unwrap();
+        let canonical = serde_json::to_value(backdrop).unwrap();
+        assert_eq!(canonical["motion"], "nebula");
+        validate_tool("set_backdrop", &json!({"backdrop":canonical})).unwrap();
+    }
+    for seed in [json!(-1), json!(4294967296_u64), json!(0.5)] {
+        assert!(
+            validate_tool(
+                "dispatch_action",
+                &json!({"action":{"type":"randomize_motion","seed":seed}})
+            )
+            .is_err()
+        );
+        assert!(validate_tool("set_backdrop", &json!({"backdrop":{"seed":seed}})).is_err());
     }
     for format in crate::backdrop::Format::ALL {
         validate_tool(

@@ -536,6 +536,35 @@ impl Editor {
             .when(b.motion != Motion::Still, |el| {
                 el.child(
                     div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(div().text_xs().child("Effect"))
+                        .child(
+                            div()
+                                .id("backdrop-randomize")
+                                .debug_selector(|| "backdrop-randomize".into())
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(0xdfe1e7))
+                                .tooltip(|_, cx| {
+                                    cx.new(|_| {
+                                        HoverLabel(
+                                            "Try another looping variation. Undo restores the previous one.".into(),
+                                        )
+                                    })
+                                    .into()
+                                })
+                                .child(self.button(
+                                    "Randomize",
+                                    false,
+                                    cx,
+                                    Action::RandomizeMotion { seed: None },
+                                )),
+                        ),
+                )
+                .child(
+                    div()
                         .id("backdrop-motion-effects")
                         .debug_selector(|| "backdrop-motion-effects".into())
                         .flex()

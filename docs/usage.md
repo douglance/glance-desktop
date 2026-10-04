@@ -66,10 +66,13 @@ Capture, annotate, frame, and share from one native macOS window.
   and replay do not change history. MP4/GIF always start at the entrance's
   beginning; PNG/copy capture the inspected frame while this panel is open,
   and the fully revealed image during normal editing.
-- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Starfield,
-  Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations stay fixed while the
-  background moves. Set a **2–15 second** duration (5 seconds by default),
-  pause/play the preview, and use the toolbar **Export** menu to save PNG,
+- **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Nebula,
+  Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations
+  stay fixed while the background moves. Click **Randomize** in Motion to try a new looping variation.
+  Each click changes the motion seed and is undoable with **⌘Z**. Colors, framing
+  and duration stay as set; the same variation appears in preview and exports.
+  Set a **2–15 second** duration (5 seconds by default), pause/play the preview,
+  and use the toolbar **Export** menu to save PNG,
   MP4 or GIF. Effect and duration controls appear only in Motion mode. Export streams 30 fps
   H.264 video through macOS AVFoundation, preserving aspect ratio with a maximum
   1920-pixel edge. The bundled encoder needs no FFmpeg installation. Each video
@@ -82,7 +85,9 @@ Capture, annotate, frame, and share from one native macOS window.
   sweeping highlights and palette-tinted bands of refracted color;
   Painterly has brush strokes that sweep, bloom and fade. These
   six effects use distinct procedural Metal shaders. Flow keeps a gentle cloud
-  gradient, and Starfield has drifting stars. Each effect starts with a suggested
+  gradient, and Nebula has prominent drifting stars over a subtle evolving
+  nebula with wispy colored gas, soft filaments and dark dust lanes. Its nebula
+  also uses the shader worker and CPU fallback. Each effect starts with a suggested
   palette, and all eight palettes remain available. Shader preview is capped at
   960 pixels and 30 fps, with the same renderer used for full-resolution PNG and
   MP4 export. A CPU fallback preserves the effect when Metal is unavailable.

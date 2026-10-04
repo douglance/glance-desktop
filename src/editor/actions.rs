@@ -109,6 +109,11 @@ pub(crate) enum Action {
     SelectMotion {
         motion: Motion,
     },
+    /// None picks a fresh seed; Some reproduces a specific looping variation.
+    RandomizeMotion {
+        #[serde(default)]
+        seed: Option<u32>,
+    },
     SetBackdropPreset {
         preset: usize,
     },

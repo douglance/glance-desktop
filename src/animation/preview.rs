@@ -12,6 +12,7 @@ struct Spec {
     width: u32,
     height: u32,
     preset: usize,
+    seed: u32,
     frames: u32,
     motion: Motion,
 }
@@ -161,12 +162,13 @@ impl Preview {
         Self {
             worker: Worker::new(
                 |key| {
-                    crate::editor::render_image(crate::motion_shader::frame(
+                    crate::editor::render_image(crate::motion_shader::frame_seeded(
                         key.spec.width,
                         key.spec.height,
                         key.spec.preset,
                         key.spec.motion,
                         key.tick as f32 / key.spec.frames as f32,
+                        key.spec.seed,
                     ))
                 },
                 notify,
@@ -222,6 +224,7 @@ impl Preview {
             width,
             height,
             preset: b.preset,
+            seed: b.seed,
             frames: b.seconds.max(2) * 30,
             motion: b.motion,
         };
@@ -266,6 +269,7 @@ mod tests {
                 width: 1,
                 height: 1,
                 preset: 1,
+                seed: 0,
                 frames: 150,
                 motion,
             },
@@ -304,7 +308,8 @@ mod tests {
             let spec = Spec {
                 width: 128,
                 height: 72,
-                preset: motion.suggested_preset().unwrap(),
+                preset: motion.suggested_preset().unwrap_or(0),
+                seed: 0,
                 frames: 150,
                 motion,
             };
@@ -327,6 +332,23 @@ mod tests {
             );
         }
     }
+    #[test]
+    fn seed_changes_reject_in_flight_frames_and_preserve_a_paused_tick() {
+        let (worker, starts, release, notifications) = blocked_worker();
+        let first = key(7, Motion::Prism);
+        worker.request(first, false);
+        assert_eq!(starts.recv_timeout(TIMEOUT).unwrap(), first);
+        let mut changed = first;
+        changed.spec.seed = 42;
+        worker.request(changed, false);
+        release.send(()).unwrap();
+        assert_eq!(starts.recv_timeout(TIMEOUT).unwrap(), changed);
+        assert!(worker.take_completed().is_none());
+        release.send(()).unwrap();
+        notifications.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(worker.take_completed().unwrap().request.key, changed);
+    }
+
     #[test]
     fn slow_render_does_not_block_requests_and_only_latest_frame_is_queued() {
         let (worker, starts, release, notifications) = blocked_worker();

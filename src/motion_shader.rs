@@ -14,6 +14,8 @@ struct Uniforms {
     cyan: [f32; 3],
     mint: [f32; 3],
     effect: u32,
+    seed: u32,
+    offset: [f32; 2],
 }
 impl Uniforms {
     fn new(width: u32, height: u32, preset: usize, motion: Motion, phase: f32) -> Self {
@@ -57,9 +59,27 @@ impl Uniforms {
                 Motion::Contours => 3,
                 Motion::Prism => 4,
                 Motion::Paint => 5,
+                Motion::Nebula => 6,
                 _ => panic!("motion does not use a shader"),
             },
+            seed: 0,
+            offset: [0., 0.],
         }
+    }
+    fn seeded(mut self, seed: u32) -> Self {
+        self.seed = seed;
+        if seed != 0 {
+            self.offset = [
+                (random_value(seed, 17) - 0.5) * 0.36,
+                (random_value(seed, 29) - 0.5) * 0.36,
+            ];
+            let (s, c) = (random_value(seed, 41) * TAU).sin_cos();
+            (self.orbit_sin, self.orbit_cos) = (
+                self.orbit_sin * c + self.orbit_cos * s,
+                self.orbit_cos * c - self.orbit_sin * s,
+            );
+        }
+        self
     }
 }
 
@@ -95,6 +115,45 @@ fn paper_noise(x: f32, y: f32) -> f32 {
     let d = random_value((ix + 1) as u32, (iy + 1) as u32);
     (a * (1. - fx) + b * fx) * (1. - fy) + (c * (1. - fx) + d * fx) * fy
 }
+fn nebula_noise(mut x: f32, mut y: f32) -> f32 {
+    let mut value = 0.;
+    let mut weight = 0.55;
+    for _ in 0..4 {
+        value += paper_noise(x, y) * weight;
+        // Rotate each octave so the wisps do not reveal the noise grid.
+        (x, y) = (x * 1.6 - y * 1.2 + 9.1, x * 1.2 + y * 1.6 + 3.7);
+        weight *= 0.5;
+    }
+    value
+}
+fn nebula(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
+    let x = px * 3.2 + random_value(u.seed, 53) * 19.;
+    let y = py * 3.2 + random_value(u.seed, 67) * 19.;
+    // Crossing, periodic currents deform the gas locally. Fine turbulence
+    // and dark dust lanes break up the broad glow into luminous filaments.
+    let wx = nebula_noise(x + 0.38 * u.orbit_cos, y + 0.32 * u.orbit_sin);
+    let wy = nebula_noise(x + 5.2 - 0.30 * u.orbit_sin, y + 1.3 + 0.35 * u.orbit_cos);
+    let qx = x + (wx - 0.5) * 2.2 + 0.18 * (y * 1.6 + u.orbit_sin).sin();
+    let qy = y + (wy - 0.5) * 2.2 + 0.18 * (x * 1.3 + u.orbit_cos).cos();
+    let gas = nebula_noise(qx, qy);
+    let dust = nebula_noise(qx * 1.7 + 4.8, qy * 1.7 - 2.6);
+    let spine = py + px * 0.35 + 0.12 * (px * 3. + u.orbit_sin).sin();
+    let envelope = (-spine * spine * 4.5).exp();
+    let density = smoothstep(0.22, 0.72, gas) * envelope;
+    let lanes = smoothstep(0.30, 0.67, dust);
+    let emission = density * (0.18 + 0.82 * lanes);
+    let filament =
+        (1. - smoothstep(0.018, 0.15, (gas - 0.52).abs())) * density * (0.35 + 0.65 * lanes);
+    let tint = smoothstep(0.25, 0.70, wy);
+    let gas_color = mix3(u.blue, u.cyan, tint);
+    // Keep the cloud emission subdued so the crisp stars lead the scene.
+    std::array::from_fn(|i| {
+        [0.018, 0.026, 0.060][i]
+            + u.blue[i] * 0.025
+            + gas_color[i] * emission * 0.50
+            + u.mint[i] * filament * 0.12
+    })
+}
 fn lava(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     let t = u.orbit_sin.atan2(u.orbit_cos);
     // Advect the entire fluid through crossing currents rather than moving
@@ -116,7 +175,12 @@ fn lava(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     let aspect_x = u.width as f32 / unit;
     let aspect_y = u.height as f32 / unit;
     for i in 0..8 {
-        let angle = i as f32 * 1.8;
+        let angle = i as f32 * 1.8
+            + if u.seed == 0 {
+                0.
+            } else {
+                random_value(i, u.seed) * TAU
+            };
         let s = (t + angle).sin();
         let c = (t + angle).cos();
         let surge = (2. * t - angle).sin();
@@ -215,8 +279,8 @@ fn contours(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     );
     mix3(base, mix3(u.cyan, u.mint, 0.35), line * 0.85)
 }
-fn prism_vertex(x: f32, y: f32, t: f32) -> [f32; 3] {
-    let jitter = random_value(x as i32 as u32, y as i32 as u32) - 0.5;
+fn prism_vertex(x: f32, y: f32, t: f32, seed: u32) -> [f32; 3] {
+    let jitter = random_value(x as i32 as u32 ^ seed, y as i32 as u32) - 0.5;
     [
         x + 0.28 * jitter + 0.14 * (t + x * 1.7 + y * 0.9).sin(),
         y + 0.24 * jitter + 0.14 * (2. * t + x * 0.8 - y * 1.4).cos(),
@@ -233,11 +297,11 @@ fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     // Shared moving vertices preserve straight edges and a watertight mesh.
     for y in iy - 1..=iy + 1 {
         for x in ix - 1..=ix + 1 {
-            let a = prism_vertex(x as f32, y as f32, t);
-            let b = prism_vertex(x as f32 + 1., y as f32, t);
-            let c = prism_vertex(x as f32, y as f32 + 1., t);
-            let d = prism_vertex(x as f32 + 1., y as f32 + 1., t);
-            let hash = grain_hash(x as u32, y as u32);
+            let a = prism_vertex(x as f32, y as f32, t, u.seed);
+            let b = prism_vertex(x as f32 + 1., y as f32, t, u.seed);
+            let c = prism_vertex(x as f32, y as f32 + 1., t, u.seed);
+            let d = prism_vertex(x as f32 + 1., y as f32 + 1., t, u.seed);
+            let hash = grain_hash(x as u32 ^ u.seed, y as u32);
             // Alternate the diagonal to break up the regular tiled pattern.
             let triangles = if hash & 1 == 0 {
                 [[a, b, c], [d, c, b]]
@@ -305,6 +369,7 @@ fn prism(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
     u.dark
 }
 fn painterly(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
+    let random_value = |i, salt| random_value(i ^ u.seed, salt);
     let mut color = mix3(u.mint, [1., 0.97, 0.90], 0.65);
     for i in 0..14 {
         let phase = random_value(i, 29) * TAU;
@@ -337,8 +402,8 @@ fn painterly(u: &Uniforms, px: f32, py: f32) -> [f32; 3] {
 }
 fn sample(u: &Uniforms, x: u32, y: u32) -> image::Rgba<u8> {
     let unit = u.width.min(u.height) as f32;
-    let px = (x as f32 + 0.5 - u.width as f32 * 0.5) / unit;
-    let py = (y as f32 + 0.5 - u.height as f32 * 0.5) / unit;
+    let px = (x as f32 + 0.5 - u.width as f32 * 0.5) / unit + u.offset[0];
+    let py = (y as f32 + 0.5 - u.height as f32 * 0.5) / unit + u.offset[1];
     let qx = px * 3.4 + 0.34 * u.orbit_cos;
     let qy = py * 3.4 + 0.28 * u.orbit_sin;
     let wx = (qy * 1.65 + 0.65 * u.orbit_sin).sin() + 0.45 * (qx * 1.3 - qy).cos();
@@ -365,6 +430,7 @@ fn sample(u: &Uniforms, x: u32, y: u32) -> image::Rgba<u8> {
         3 => contours(u, px, py),
         4 => prism(u, px, py),
         5 => painterly(u, px, py),
+        6 => nebula(u, px, py),
         _ => unreachable!(),
     };
     let amount = if u.effect == 0 {
@@ -463,8 +529,20 @@ mod gpu {
     }
 }
 
+#[cfg(test)]
 pub fn frame(width: u32, height: u32, preset: usize, motion: Motion, phase: f32) -> RgbaImage {
-    let uniforms = Uniforms::new(width, height, preset, motion, phase);
+    frame_seeded(width, height, preset, motion, phase, 0)
+}
+
+pub fn frame_seeded(
+    width: u32,
+    height: u32,
+    preset: usize,
+    motion: Motion,
+    phase: f32,
+    seed: u32,
+) -> RgbaImage {
+    let uniforms = Uniforms::new(width, height, preset, motion, phase).seeded(seed);
     #[cfg(target_os = "macos")]
     match gpu::frame(&uniforms) {
         Ok(image) => return image,
@@ -490,10 +568,10 @@ mod tests {
                     let x = x as f32;
                     let y = y as f32;
                     let corners = [
-                        prism_vertex(x, y, t),
-                        prism_vertex(x + 1., y, t),
-                        prism_vertex(x + 1., y + 1., t),
-                        prism_vertex(x, y + 1., t),
+                        prism_vertex(x, y, t, step),
+                        prism_vertex(x + 1., y, t, step),
+                        prism_vertex(x + 1., y + 1., t, step),
+                        prism_vertex(x, y + 1., t, step),
                     ];
                     for i in 0..4 {
                         let a = corners[i];
@@ -511,6 +589,33 @@ mod tests {
     #[ignore = "renders local Prism palette samples and a looping GIF for visual review"]
     fn prism_crystal_visual_qa() {
         motion_visual_qa(Motion::Prism, "prism");
+    }
+
+    #[test]
+    #[ignore = "renders synthetic seeded Lava/Prism variations for local visual review"]
+    fn seeded_motion_visual_qa() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/seeded-motion-qa");
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut variations = RgbaImage::new(960, 360);
+        for (row, motion) in [Motion::Lava, Motion::Prism].into_iter().enumerate() {
+            for (column, seed) in [0, 42, 314159].into_iter().enumerate() {
+                let image = frame_seeded(
+                    320,
+                    180,
+                    motion.suggested_preset().unwrap_or(0),
+                    motion,
+                    0.22,
+                    seed,
+                );
+                image::imageops::replace(
+                    &mut variations,
+                    &image,
+                    column as i64 * 320,
+                    row as i64 * 180,
+                );
+            }
+        }
+        variations.save(dir.join("variations.png")).unwrap();
     }
 
     #[test]
@@ -534,7 +639,7 @@ mod tests {
             );
         }
         palettes.save(dir.join("palettes.png")).unwrap();
-        let preset = motion.suggested_preset().unwrap();
+        let preset = motion.suggested_preset().unwrap_or(0);
         frame(960, 540, preset, motion, 0.22)
             .save(dir.join("landscape.png"))
             .unwrap();
@@ -568,7 +673,7 @@ mod tests {
     fn evolving_effects_are_continuous_across_phase_wraps() {
         for motion in [Motion::Contours, Motion::Prism, Motion::Paint, Motion::Lava] {
             for (before, after) in [(0.49999, 0.50001), (0.99999, 0.00001)] {
-                let preset = motion.suggested_preset().unwrap();
+                let preset = motion.suggested_preset().unwrap_or(0);
                 let a = frame(256, 144, preset, motion, before);
                 let b = frame(256, 144, preset, motion, after);
                 let differences: Vec<_> = a
@@ -595,7 +700,7 @@ mod tests {
         for motion in [Motion::Paint, Motion::Prism] {
             let dir = root.join(motion.label());
             std::fs::create_dir_all(&dir).unwrap();
-            let preset = motion.suggested_preset().unwrap();
+            let preset = motion.suggested_preset().unwrap_or(0);
             let start = std::time::Instant::now();
             for i in 0..180 {
                 let image = frame(960, 540, preset, motion, i as f32 / 180.);
@@ -637,6 +742,57 @@ mod tests {
             .save(dir.join("portrait.png"))
             .unwrap();
     }
+    #[test]
+    fn seeded_shader_cpu_and_metal_agree_and_phase_wraps_are_continuous() {
+        for motion in Motion::EFFECTS.into_iter().filter(|m| m.uses_shader()) {
+            let preset = motion.suggested_preset().unwrap_or(0);
+            for seed in [17, u32::MAX] {
+                for (w, h) in [(96, 54), (54, 96)] {
+                    for phase in [0., 0.37, 0.99] {
+                        let uniforms = Uniforms::new(w, h, preset, motion, phase).seeded(seed);
+                        let cpu = cpu_frame(&uniforms);
+                        assert_eq!(cpu, cpu_frame(&uniforms));
+                        #[cfg(target_os = "macos")]
+                        {
+                            let gpu = gpu::frame(&uniforms).unwrap();
+                            let peak = cpu
+                                .as_raw()
+                                .iter()
+                                .zip(gpu.as_raw())
+                                .map(|(a, b)| a.abs_diff(*b))
+                                .max()
+                                .unwrap();
+                            assert!(
+                                peak <= 2,
+                                "{motion:?}, seed {seed}, phase {phase}: error {peak}"
+                            );
+                        }
+                    }
+                    let branch = (0.5 - random_value(seed, 41)).rem_euclid(1.);
+                    for phase in [branch, 0.] {
+                        let a = cpu_frame(
+                            &Uniforms::new(w, h, preset, motion, phase - 0.00001).seeded(seed),
+                        );
+                        let b = cpu_frame(
+                            &Uniforms::new(w, h, preset, motion, phase + 0.00001).seeded(seed),
+                        );
+                        let peak = a
+                            .as_raw()
+                            .iter()
+                            .zip(b.as_raw())
+                            .map(|(a, b)| a.abs_diff(*b))
+                            .max()
+                            .unwrap();
+                        assert!(
+                            peak <= 12,
+                            "{motion:?}, seed {seed}, phase {phase}: discontinuity {peak}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn cpu_and_metal_agree_in_portrait_and_landscape() {
         #[cfg(target_os = "macos")]
@@ -692,7 +848,7 @@ mod tests {
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/motion-qa");
         std::fs::create_dir_all(&dir).unwrap();
         for motion in Motion::EFFECTS.into_iter().filter(|m| m.uses_shader()) {
-            let preset = motion.suggested_preset().unwrap();
+            let preset = motion.suggested_preset().unwrap_or(0);
             for (name, w, h) in [("landscape", 960, 540), ("portrait", 405, 720)] {
                 frame(w, h, preset, motion, 0.22)
                     .save(dir.join(format!("{}-{name}.png", motion.label())))

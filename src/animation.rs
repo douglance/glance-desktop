@@ -17,7 +17,8 @@ pub enum Motion {
     Still,
     Flow,
     Lava,
-    Stars,
+    #[serde(alias = "stars")]
+    Nebula,
     Paint,
     Liquid,
     Aurora,
@@ -27,7 +28,7 @@ pub enum Motion {
 impl Motion {
     pub const EFFECTS: [Self; 8] = [
         Self::Flow,
-        Self::Stars,
+        Self::Nebula,
         Self::Aurora,
         Self::Contours,
         Self::Paint,
@@ -40,7 +41,7 @@ impl Motion {
             Self::Still => "Still",
             Self::Flow => "Flow",
             Self::Lava => "Lava",
-            Self::Stars => "Starfield",
+            Self::Nebula => "Nebula",
             Self::Paint => "Painterly",
             Self::Liquid => "Liquid",
             Self::Aurora => "Aurora",
@@ -49,7 +50,7 @@ impl Motion {
         }
     }
     pub fn uses_shader(self) -> bool {
-        !matches!(self, Self::Still | Self::Flow | Self::Stars)
+        !matches!(self, Self::Still | Self::Flow)
     }
     pub fn suggested_preset(self) -> Option<usize> {
         match self {
@@ -91,7 +92,14 @@ fn random(i: usize) -> f32 {
     ((x >> 22) ^ x) as f32 / u32::MAX as f32
 }
 fn scene(b: Backdrop, phase: f32) -> Scene {
-    let p = phase.rem_euclid(1.) * TAU;
+    let phase = phase.rem_euclid(1.);
+    let p = phase * TAU
+        + if b.seed == 0 {
+            0.
+        } else {
+            random(b.seed as usize) * TAU
+        };
+    let random = |i: usize| random(i ^ b.seed as usize);
     let (_, a, z) = PRESETS[b.preset];
     let a = color(a);
     let z = color(z);
@@ -131,19 +139,11 @@ fn scene(b: Backdrop, phase: f32) -> Scene {
                 });
             }
         }
-        Motion::Stars => {
+        Motion::Nebula => {
             s.top = [7, 12, 29];
             s.bottom = [19, 29, 55];
-            for i in 0..5 {
-                s.discs.push(Disc {
-                    x: 0.5 + 0.5 * (p + random(i) * TAU).sin(),
-                    y: random(i + 18),
-                    r: 0.3,
-                    color: if i % 2 == 0 { a } else { z },
-                    alpha: 0.2,
-                    soft: true,
-                });
-            }
+            // The worker-rendered nebula supplies the colored background;
+            // keep the existing crisp drifting/twinkling stars above it.
             for i in 0..110 {
                 let x = random(i * 7 + 200);
                 let y = (random(i * 7 + 201) + phase).rem_euclid(1.);
@@ -230,22 +230,37 @@ pub fn paint(
     window: &mut Window,
 ) {
     if b.motion.uses_shader() {
+        if b.motion == Motion::Nebula {
+            // Keep space dark while the first worker frame is being prepared.
+            window.paint_quad(quad(
+                bounds,
+                px(0.),
+                rgb(0x070c1d),
+                px(0.),
+                rgb(0),
+                Default::default(),
+            ));
+        }
         preview.paint(b, phase, bounds, radius, playing, window);
-        return;
+        if b.motion != Motion::Nebula {
+            return;
+        }
     }
     let s = scene(b, phase);
-    window.paint_quad(quad(
-        bounds,
-        px(0.),
-        linear_gradient(
-            180.,
-            linear_color_stop(rgb(hex(s.top)), 0.),
-            linear_color_stop(rgb(hex(s.bottom)), 1.),
-        ),
-        px(0.),
-        rgb(0),
-        Default::default(),
-    ));
+    if !b.motion.uses_shader() {
+        window.paint_quad(quad(
+            bounds,
+            px(0.),
+            linear_gradient(
+                180.,
+                linear_color_stop(rgb(hex(s.top)), 0.),
+                linear_color_stop(rgb(hex(s.bottom)), 1.),
+            ),
+            px(0.),
+            rgb(0),
+            Default::default(),
+        ));
+    }
     let w = f32::from(bounds.size.width);
     let h = f32::from(bounds.size.height);
     let unit = w.min(h);
@@ -396,12 +411,13 @@ impl Renderer {
         );
         let s = scene(self.b, phase);
         let mut out = if self.b.motion.uses_shader() {
-            crate::motion_shader::frame(
+            crate::motion_shader::frame_seeded(
                 self.width,
                 self.height,
                 self.b.preset,
                 self.b.motion,
                 phase,
+                self.b.seed,
             )
         } else {
             RgbaImage::new(self.width, self.height)
@@ -463,6 +479,62 @@ impl Renderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "renders synthetic Nebula samples and a looping GIF for local review"]
+    fn nebula_visual_qa() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("target/nebula-qa");
+        std::fs::create_dir_all(&dir).unwrap();
+        let backdrop = Backdrop {
+            motion: Motion::Nebula,
+            preset: 2,
+            padding: 0,
+            inner_radius: 0,
+            shadow: 0,
+            ..Default::default()
+        };
+        for (name, w, h) in [("landscape", 960, 540), ("portrait", 405, 720)] {
+            Renderer::new(&RgbaImage::new(w, h), backdrop, None)
+                .frame(0.22)
+                .save(dir.join(format!("{name}.png")))
+                .unwrap();
+        }
+        let mut samples = RgbaImage::new(960, 540);
+        for preset in 0..8 {
+            let image = Renderer::new(
+                &RgbaImage::new(240, 270),
+                Backdrop { preset, ..backdrop },
+                None,
+            )
+            .frame(0.22);
+            image::imageops::replace(
+                &mut samples,
+                &image,
+                (preset % 4 * 240) as i64,
+                (preset / 4 * 270) as i64,
+            );
+        }
+        samples.save(dir.join("palettes.png")).unwrap();
+        let renderer = Renderer::new(&RgbaImage::new(480, 270), backdrop, None);
+        let file = std::fs::File::create(dir.join("nebula.gif")).unwrap();
+        let mut encoder = gif::Encoder::new(file, 480, 270, &[]).unwrap();
+        encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+        for i in 0..100 {
+            let mut pixels = renderer.frame(i as f32 / 100.).into_raw();
+            let mut frame = gif::Frame::from_rgba_speed(480, 270, &mut pixels, 10);
+            frame.delay = 5;
+            encoder.write_frame(&frame).unwrap();
+        }
+        let renderer = Renderer::new(&RgbaImage::new(960, 540), backdrop, None);
+        let start = std::time::Instant::now();
+        for i in 0..60 {
+            renderer.frame(i as f32 / 60.);
+        }
+        println!(
+            "Nebula: {:.2} ms/frame (nebula compute/readback plus star composition)",
+            start.elapsed().as_secs_f64() * 1000. / 60.
+        );
+    }
+
     #[test]
     fn every_image_entrance_composes_with_all_backdrops_and_holds_exactly() {
         let source = RgbaImage::from_pixel(64, 40, image::Rgba([230, 40, 70, 210]));
@@ -561,6 +633,71 @@ mod tests {
             }
         }
     }
+    #[test]
+    fn seeded_effects_are_repeatable_loop_and_preserve_the_foreground() {
+        let source = RgbaImage::from_pixel(40, 30, image::Rgba([20, 40, 60, 255]));
+        for motion in Motion::EFFECTS {
+            for (padding, format) in [
+                (20, crate::backdrop::Format::Widescreen),
+                (20, crate::backdrop::Format::Portrait),
+            ] {
+                let original = Renderer::new(
+                    &source,
+                    Backdrop {
+                        motion,
+                        padding,
+                        format,
+                        inner_radius: 0,
+                        shadow: 0,
+                        ..Default::default()
+                    },
+                    None,
+                )
+                .frame(0.37);
+                for seed in [1, 42, u32::MAX] {
+                    let renderer = Renderer::new(
+                        &source,
+                        Backdrop {
+                            motion,
+                            padding,
+                            format,
+                            seed,
+                            inner_radius: 0,
+                            shadow: 0,
+                            ..Default::default()
+                        },
+                        None,
+                    );
+                    let frame = renderer.frame(0.37);
+                    assert_eq!(frame, renderer.frame(0.37), "{motion:?}, seed {seed}");
+                    assert_eq!(
+                        renderer.frame(0.),
+                        renderer.frame(1.),
+                        "{motion:?}, seed {seed}"
+                    );
+                    assert_ne!(
+                        original, frame,
+                        "{motion:?} seed must change the composition"
+                    );
+                    let origin =
+                        crate::backdrop::Frame::centered(frame.dimensions(), source.dimensions())
+                            .origin;
+                    for y in 0..source.height() {
+                        for x in 0..source.width() {
+                            assert_eq!(
+                                frame.get_pixel(x + origin.0, y + origin.1),
+                                source.get_pixel(x, y)
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        let legacy: Backdrop =
+            serde_json::from_value(serde_json::json!({"motion":"lava"})).unwrap();
+        assert_eq!(legacy.seed, 0);
+    }
+
     #[test]
     fn video_dimensions_are_even_and_bounded() {
         let source = RgbaImage::new(3001, 1733);

@@ -55,6 +55,8 @@ capture, and animations transform the padded foreground as one image.
 `src/animation/preview.rs` renders shader previews off the UI thread and adapts
 quality to measured render cost. `src/shaders/motion.metal` and the CPU
 implementations share the same periodic effects.
+Nebula uses that worker for its nebula background, with crisp star points
+painted above it in GPUI and composited above it by the export renderer.
 
 `src/animation/entrance.rs` evaluates the independent image track: diagonal
 alpha masking, spring scale, or a perspective projection. The annotated image

@@ -6,6 +6,9 @@ Notable user-visible changes are recorded here.
 
 ### Added
 
+- Randomize button for all eight backdrop motions, with undoable, reproducible
+  seeds shared by preview, PNG/GIF/MP4 exports and MCP, while retaining seamless loops.
+
 - Image Animation sidebar with diagonal reveal, spring pop, and 3D settle;
   independent backdrop motion, replay/scrubbing, and optional exits in MP4/GIF.
 
@@ -17,6 +20,9 @@ Notable user-visible changes are recorded here.
   aspect ratios, step numbers, spotlight dimming, and magnifier defaults.
 
 ### Changed
+
+- Starfield is now called Nebula, with subtle evolving gas clouds, soft
+  filaments and dark dust lanes behind the prominent drifting stars.
 
 - Lava backdrops flow through crossing currents, with stretching molten shapes
   and small globules that separate and rejoin the larger streams.

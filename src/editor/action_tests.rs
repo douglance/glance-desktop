@@ -3,6 +3,190 @@ use crate::document::{Document, Tool};
 use gpui::{AppContext, TestAppContext, VisualTestContext};
 
 #[gpui::test]
+fn nebula_and_legacy_stars_use_shared_motion_action_and_canonical_readback(
+    cx: &mut TestAppContext,
+) {
+    use crate::{animation::Motion, automation::Request, backdrop::Backdrop};
+    for name in ["nebula", "stars"] {
+        let entity = cx.new(|cx| Editor::with_native(cx, false));
+        entity.update(cx, |e, cx| {
+            let original = Backdrop {
+                motion: Motion::Lava,
+                seed: 42,
+                ..Default::default()
+            };
+            e.dispatch(
+                Action::SetBackdrop {
+                    backdrop: Some(original),
+                },
+                cx,
+            )
+            .unwrap();
+            let revision = e.preview.revision;
+            let action =
+                Action::from_json(serde_json::json!({"type":"select_motion","motion":name}))
+                    .unwrap();
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(
+                Request::Dispatch {
+                    action,
+                    expected_revision: Some(revision),
+                    reply,
+                },
+                cx,
+            );
+            response.recv().unwrap().unwrap();
+            assert_eq!(e.document.backdrop.unwrap().motion, Motion::Nebula);
+            assert_eq!(e.document.backdrop.unwrap().seed, 42);
+            assert_eq!(e.preview.revision, revision + 1);
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(Request::Snapshot(reply), cx);
+            let snapshot = response.recv().unwrap().unwrap();
+            assert_eq!(
+                crate::automation::state(&snapshot)["backdrop"]["motion"],
+                "nebula"
+            );
+            e.dispatch(Action::Undo, cx).unwrap();
+            assert_eq!(e.document.backdrop, Some(original));
+        });
+    }
+}
+
+#[gpui::test]
+fn randomize_motion_uses_bridge_state_revisions_and_undo(cx: &mut TestAppContext) {
+    use crate::{animation::Motion, automation::Request, backdrop::Backdrop};
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    let original = entity.update(cx, |e, cx| {
+        let revision = e.preview.revision;
+        assert!(
+            e.dispatch(Action::RandomizeMotion { seed: None }, cx)
+                .is_err()
+        );
+        assert_eq!(e.preview.revision, revision);
+        let original = Backdrop {
+            motion: Motion::Lava,
+            ..Default::default()
+        };
+        e.dispatch(
+            Action::SetBackdrop {
+                backdrop: Some(original),
+            },
+            cx,
+        )
+        .unwrap();
+        let base = e.document.base.clone();
+        e.playback.paused = true;
+        e.playback.position = 1.25;
+        let bridge = |e: &mut Editor, cx: &mut gpui::Context<Editor>, seed, revision| {
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(
+                Request::Dispatch {
+                    action: Action::RandomizeMotion { seed },
+                    expected_revision: Some(revision),
+                    reply,
+                },
+                cx,
+            );
+            response.recv().unwrap()
+        };
+        let revision = e.preview.revision;
+        assert!(bridge(e, cx, Some(42), revision - 1).is_err());
+        assert_eq!(e.document.backdrop, Some(original));
+        bridge(e, cx, Some(42), revision).unwrap();
+        assert_eq!(
+            e.document.backdrop,
+            Some(Backdrop {
+                seed: 42,
+                ..original
+            })
+        );
+        assert_eq!(e.preview.revision, revision + 1);
+        assert!(e.playback.paused);
+        assert_eq!(e.playback.position, 1.25);
+        assert!(std::sync::Arc::ptr_eq(&base, &e.document.base));
+        let (reply, response) = std::sync::mpsc::channel();
+        e.automation(Request::Snapshot(reply), cx);
+        let snapshot = response.recv().unwrap().unwrap();
+        assert_eq!(crate::automation::state(&snapshot)["backdrop"]["seed"], 42);
+        bridge(e, cx, None, e.preview.revision).unwrap();
+        let fresh = e.document.backdrop.unwrap().seed;
+        assert_ne!(fresh, 0);
+        assert_ne!(fresh, 42);
+        bridge(e, cx, Some(0), e.preview.revision).unwrap();
+        assert_eq!(e.document.backdrop, Some(original));
+        bridge(e, cx, Some(42), e.preview.revision).unwrap();
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.backdrop, Some(original));
+        original
+    });
+    entity.update(cx, |e, cx| {
+        // Undo queues a foreground refresh; finish it before the next command.
+        e.receive(
+            super::Message::Preview(
+                e.preview.revision,
+                e.document.marks.len(),
+                original.inside_padding,
+                super::render_image(super::preview_base(&e.document)),
+            ),
+            cx,
+        );
+        e.dispatch(Action::Redo, cx).unwrap();
+        assert_eq!(
+            e.document.backdrop,
+            Some(Backdrop {
+                seed: 42,
+                ..original
+            })
+        );
+    });
+}
+
+#[gpui::test]
+fn randomize_button_fits_and_changes_only_motion_seed(cx: &mut TestAppContext) {
+    let view = cx.add_window(|window, cx| {
+        let mut editor = Editor::with_native(cx, false);
+        editor.focus.focus(window);
+        editor.panels.backdrop = true;
+        editor
+            .dispatch(
+                Action::SelectMotion {
+                    motion: crate::animation::Motion::Prism,
+                },
+                cx,
+            )
+            .unwrap();
+        editor
+    });
+    let root = view.root(cx).unwrap();
+    let mut visual = VisualTestContext::from_window(*view, cx);
+    visual.simulate_window_resize(*view, gpui::size(gpui::px(1050.), gpui::px(600.)));
+    visual.run_until_parked();
+    let button = visual.debug_bounds("backdrop-randomize").unwrap();
+    let panel = visual.debug_bounds("backdrop-panel").unwrap();
+    assert!(
+        panel.contains(&button.origin) && panel.contains(&button.bottom_right()),
+        "panel {panel:?}, button {button:?}"
+    );
+    let original = root.read_with(&visual, |e, _| e.document.backdrop.unwrap());
+    visual.simulate_click(button.center(), Default::default());
+    root.read_with(&visual, |e, _| {
+        let randomized = e.document.backdrop.unwrap();
+        assert_ne!(randomized.seed, original.seed);
+        assert_eq!(
+            randomized,
+            crate::backdrop::Backdrop {
+                seed: randomized.seed,
+                ..original
+            }
+        );
+    });
+    root.update(&mut visual, |e, cx| e.dispatch(Action::Undo, cx).unwrap());
+    root.read_with(&visual, |e, _| {
+        assert_eq!(e.document.backdrop, Some(original))
+    });
+}
+
+#[gpui::test]
 fn incompatible_backdrop_duration_rejects_action_before_mutation(cx: &mut TestAppContext) {
     let entity = cx.new(|cx| Editor::with_native(cx, false));
     entity.update(cx, |e, cx| {

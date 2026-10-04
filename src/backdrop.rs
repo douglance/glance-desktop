@@ -9,6 +9,8 @@ pub struct Backdrop {
     pub motion: crate::animation::Motion,
     pub seconds: u32,
     pub preset: usize,
+    /// Deterministic motion variation; zero preserves the original composition.
+    pub seed: u32,
     /// Minimum backdrop margin, outside the expanded screenshot.
     pub padding: u32,
     pub inner_radius: u32,
@@ -123,6 +125,7 @@ impl Default for Backdrop {
             motion: crate::animation::Motion::Still,
             seconds: 5,
             preset: 0,
+            seed: 0,
             padding: 64,
             inner_radius: 18,
             inside_padding: 0,

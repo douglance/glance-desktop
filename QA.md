@@ -86,7 +86,7 @@ their PNG stages and GIFs were inspected. Mean worker frame rendering at 736×41
 was 1.41 ms for diagonal/Liquid, 2.55 ms for pop/static, and 2.93 ms for
 3D/Aurora. These timings exclude UI upload and display latency.
 
-Flow, Lava, Starfield and Painterly are deterministic periodic scenes. Tests
+Flow, Lava, Nebula and Painterly are deterministic periodic scenes. Tests
 compare phase 0 and 1, check actual motion at phase 0.37, and verify every opaque
 foreground pixel stays identical. Additional coverage checks duration clamping,
 phase preservation while changing duration, pause/play, Escape cancellation,
@@ -119,7 +119,8 @@ coalesce to the latest frame, and effect switches (including switching back),
 pausing and cancellation reject old completions. Suspended redraws retain their
 phase; worker shutdown does not wait for the renderer. A real shader-worker
 test verifies completions arrive from another thread and match the expected
-BGRA frames for all six shader effects. UI atlas upload/display still needs
+BGRA frames for all seven shader backgrounds. Nebula paints its crisp stars
+over the worker-rendered nebula. UI atlas upload/display still needs
 native latency profiling.
 
 ```sh
@@ -132,7 +133,7 @@ without oscillation. Paused previews use the 960 px cap. Adaptation measures
 worker rendering only; native display FPS and slower-Mac performance remain
 unverified. PNG/MP4/GIF exporters do not consult preview quality.
 
-Liquid, Lava, Aurora, Contours, Prism and Painterly are checked against their CPU evaluators in landscape and portrait, across
+Liquid, Lava, Aurora, Contours, Prism, Painterly and Nebula's cloud background are checked against their CPU evaluators in landscape and portrait, across
 all eight palettes and three phases (at most two RGB levels of difference).
 The shared animation tests verify seamless looping and unchanged opaque
 foreground pixels. Visual samples are generated in `target/liquid-qa`.
@@ -146,6 +147,7 @@ cargo test --release --locked contours_motion_qa -- --ignored --nocapture
 cargo test --release --locked painterly_prism_motion_qa -- --ignored --nocapture
 cargo test --locked prism_crystal_visual_qa -- --ignored --nocapture
 cargo test --locked lava_fluid_visual_qa -- --ignored --nocapture
+cargo test --locked nebula_visual_qa -- --ignored --nocapture
 ```
 
 The second command requires the bundled native encoder. It creates a ten-second
@@ -154,7 +156,7 @@ cancellation leaves the completed destinations untouched. Native GPUI preview
 upload/display timing and interaction feel still need a desktop pass.
 
 The expanded eight-effect export pass produced real H.264 videos for Liquid,
-Lava, Aurora, Contours, Prism, Painterly, Flow and Starfield. Cancellation
+Lava, Aurora, Contours, Prism, Painterly, Flow and Nebula. Cancellation
 preserved each completed destination. Independent probing of the three new
 styles confirmed 680×470, 30 fps, 150 frames and five-second duration. Samples
 were inspected in portrait and landscape; Contours uses analytic pixel coverage
@@ -189,6 +191,29 @@ Lava also participates in the phase-wrap continuity test.
 `lava_fluid_visual_qa` writes landscape/portrait samples, the same eight-palette
 contact sheet order, and a five-second looping GIF to `target/lava-qa`, then
 measures Metal compute/readback at 960×540.
+
+Nebula combines a worker-rendered nebula with its crisp drifting/twinkling
+stars. Four noise octaves, crossing periodic currents, colored emission and dark
+dust lanes create evolving cloud structure. `nebula_visual_qa` writes
+landscape/portrait samples, all eight palettes and a five-second looping GIF to
+`target/nebula-qa`, and measures complete frame composition at 960×540.
+The shader gallery measures nebula compute/readback separately. Seeded and
+unseeded CPU/Metal parity and loop/foreground tests include Nebula.
+The 2026-10-04 debug pass measured about 0.97 ms/frame for nebula compute/readback
+at 960×540, and 23.33 ms/frame including CPU star/foreground composition in the
+debug exporter. This excludes native GPUI texture upload/display latency.
+
+Motion randomization checks cover all eight effects in landscape and portrait:
+repeatable seeds, exact loop endpoints and unchanged opaque foreground pixels.
+Seeded shader tests compare CPU/Metal frames and check the shifted phase branch
+for discontinuities. Worker tests reject completions from the previous seed.
+Virtual GPUI checks click Randomize at 1050×600 and verify bridge read-back,
+revision conflicts, undo/redo, fresh seeds and preservation of colors/paused time.
+`cargo test --locked seeded_motion_visual_qa -- --ignored --nocapture` writes a
+Lava/Prism variation sheet to `target/seeded-motion-qa/variations.png` with seeds
+0, 42 and 314159 from left to right.
+For a desktop pass, randomize while playing and paused, undo/redo, switch palettes
+and effects, then compare preview with PNG/GIF/MP4 exports.
 
 ## Glance remote copy
 

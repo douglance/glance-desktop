@@ -298,7 +298,7 @@ mod tests {
             d.backdrop = Some(crate::backdrop::Backdrop {
                 motion,
                 padding: 100,
-                seconds: if motion == Motion::Stars { 10 } else { 5 },
+                seconds: if motion == Motion::Nebula { 10 } else { 5 },
                 preset: motion.suggested_preset().unwrap_or(1),
                 ..Default::default()
             });

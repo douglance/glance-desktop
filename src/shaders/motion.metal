@@ -12,6 +12,8 @@ struct LiquidUniforms {
     float cyan[3];
     float mint[3];
     uint effect;
+    uint seed;
+    float offset[2];
 };
 
 uint grain_hash(uint x, uint y) {
@@ -35,6 +37,38 @@ float paper_noise(float2 p) {
                    random_value(uint(cell.x + 1), uint(cell.y + 1)), f.x), f.y);
 }
 
+float nebula_noise(float2 p) {
+    float value = 0.0, weight = 0.55;
+    for (uint i = 0; i < 4; i++) {
+        value += paper_noise(p) * weight;
+        p = float2(p.x * 1.6 - p.y * 1.2 + 9.1, p.x * 1.2 + p.y * 1.6 + 3.7);
+        weight *= 0.5;
+    }
+    return value;
+}
+
+float3 nebula(float2 p, constant LiquidUniforms &u, float3 blue, float3 cyan, float3 mint) {
+    float2 q = p * 3.2 + float2(random_value(u.seed, 53u), random_value(u.seed, 67u)) * 19.0;
+    // Locally deforming periodic currents, turbulent gas and dark dust lanes.
+    float wx = nebula_noise(q + float2(0.38 * u.orbit_cos, 0.32 * u.orbit_sin));
+    float wy = nebula_noise(q + float2(5.2 - 0.30 * u.orbit_sin, 1.3 + 0.35 * u.orbit_cos));
+    q += float2(wx - 0.5, wy - 0.5) * 2.2
+       + float2(0.18 * sin(q.y * 1.6 + u.orbit_sin), 0.18 * cos(q.x * 1.3 + u.orbit_cos));
+    float gas = nebula_noise(q);
+    float dust = nebula_noise(q * 1.7 + float2(4.8, -2.6));
+    float spine = p.y + p.x * 0.35 + 0.12 * sin(p.x * 3.0 + u.orbit_sin);
+    float envelope = exp(-spine * spine * 4.5);
+    float density = smoothstep(0.22, 0.72, gas) * envelope;
+    float lanes = smoothstep(0.30, 0.67, dust);
+    float emission = density * (0.18 + 0.82 * lanes);
+    float filament = (1.0 - smoothstep(0.018, 0.15, abs(gas - 0.52)))
+                   * density * (0.35 + 0.65 * lanes);
+    float tint = smoothstep(0.25, 0.70, wy);
+    // Keep the cloud emission subdued so the crisp stars lead the scene.
+    return float3(0.018, 0.026, 0.060) + blue * 0.025
+         + mix(blue, cyan, tint) * emission * 0.50 + mint * filament * 0.12;
+}
+
 float3 lava(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, float3 cyan, float3 mint) {
     float t = atan2(u.orbit_sin, u.orbit_cos);
     // Crossing currents deform the fluid; carry lighting through the Jacobian.
@@ -49,7 +83,7 @@ float3 lava(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, floa
     float2 gradient = 0.0;
     float2 aspect = float2(u.width, u.height) / float(min(u.width, u.height));
     for (uint i = 0; i < 8; i++) {
-        float angle = float(i) * 1.8;
+        float angle = float(i) * 1.8 + (u.seed == 0u ? 0.0 : random_value(i, u.seed) * 6.28318530718);
         float s = sin(t + angle), c = cos(t + angle);
         float surge = sin(2.0 * t - angle);
         float2 center;
@@ -128,8 +162,8 @@ float3 contours(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, 
     return mix(base, mix(cyan, mint, 0.35), line * 0.85);
 }
 
-float3 prism_vertex(float x, float y, float t) {
-    float jitter = random_value(uint(int(x)), uint(int(y))) - 0.5;
+float3 prism_vertex(float x, float y, float t, uint seed) {
+    float jitter = random_value(uint(int(x)) ^ seed, uint(int(y))) - 0.5;
     return float3(x + 0.28 * jitter + 0.14 * sin(t + x * 1.7 + y * 0.9),
                   y + 0.24 * jitter + 0.14 * cos(2.0 * t + x * 0.8 - y * 1.4),
                   0.32 * sin(x * 0.9 + y * 1.1 - t)
@@ -143,11 +177,11 @@ float3 prism(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, flo
     // Each neighbor uses the same moving vertices: straight edges, no gaps.
     for (int y = cell.y - 1; y <= cell.y + 1; y++) {
         for (int x = cell.x - 1; x <= cell.x + 1; x++) {
-            float3 va = prism_vertex(float(x), float(y), t);
-            float3 vb = prism_vertex(float(x) + 1.0, float(y), t);
-            float3 vc = prism_vertex(float(x), float(y) + 1.0, t);
-            float3 vd = prism_vertex(float(x) + 1.0, float(y) + 1.0, t);
-            uint cell_hash = grain_hash(uint(x), uint(y));
+            float3 va = prism_vertex(float(x), float(y), t, u.seed);
+            float3 vb = prism_vertex(float(x) + 1.0, float(y), t, u.seed);
+            float3 vc = prism_vertex(float(x), float(y) + 1.0, t, u.seed);
+            float3 vd = prism_vertex(float(x) + 1.0, float(y) + 1.0, t, u.seed);
+            uint cell_hash = grain_hash(uint(x) ^ u.seed, uint(y));
             // Alternate the diagonal to break up the regular tiled pattern.
             bool alternate = (cell_hash & 1u) != 0u;
             for (uint side = 0; side < 2; side++) {
@@ -195,21 +229,22 @@ float3 prism(float2 p, constant LiquidUniforms &u, float3 dark, float3 blue, flo
 float3 painterly(float2 p, constant LiquidUniforms &u, float3 blue, float3 cyan, float3 mint) {
     float3 color = mix(mint, float3(1.0, 0.97, 0.90), 0.65);
     for (uint i = 0; i < 14; i++) {
-        float phase = random_value(i, 29) * 6.28318530718;
+        uint index = i ^ u.seed;
+        float phase = random_value(index, 29) * 6.28318530718;
         float s = u.orbit_sin * cos(phase) + u.orbit_cos * sin(phase);
         float c = u.orbit_cos * cos(phase) - u.orbit_sin * sin(phase);
         float progress = 0.5 + 0.5 * s;
-        float a = random_value(i, 17) * 3.14159265 + 0.22 * c;
-        float2 center = float2((random_value(i, 21) - 0.5) * 1.7, (random_value(i, 22) - 0.5) * 1.3)
+        float a = random_value(index, 17) * 3.14159265 + 0.22 * c;
+        float2 center = float2((random_value(index, 21) - 0.5) * 1.7, (random_value(index, 22) - 0.5) * 1.3)
                       + float2(c, s) * 0.06;
         float2 delta = p - center;
         float2 local = float2(delta.x * cos(a) + delta.y * sin(a), -delta.x * sin(a) + delta.y * cos(a));
         float along = local.x;
         local.y -= 0.022 * sin(along * 8.0 + s * 1.8);
-        float full_len = 0.18 + random_value(i, 23) * 0.25;
+        float full_len = 0.18 + random_value(index, 23) * 0.25;
         float len = full_len * (0.18 + 0.82 * progress);
         local.x += full_len - len;
-        float width = (0.045 + random_value(i, 24) * 0.08) * (0.85 + 0.15 * c);
+        float width = (0.045 + random_value(index, 24) * 0.08) * (0.85 + 0.15 * c);
         float rough = paper_noise(float2(along, local.y) * 60.0 + float(i)) * 0.18;
         float coverage = (1.0 - smoothstep(0.7, 1.0, abs(local.x) / len + rough))
                        * (1.0 - smoothstep(0.7, 1.0, abs(local.y) / width + rough));
@@ -227,7 +262,7 @@ kernel void motion_backdrop(
 ) {
     if (id.x >= u.width || id.y >= u.height) return;
     float unit = float(min(u.width, u.height));
-    float2 p = (float2(id) + 0.5 - float2(u.width, u.height) * 0.5) / unit;
+    float2 p = (float2(id) + 0.5 - float2(u.width, u.height) * 0.5) / unit + float2(u.offset[0], u.offset[1]);
 
     // Orbit the domain rather than advancing time linearly: every term loops.
     float2 q = p * 3.4 + float2(0.34 * u.orbit_cos, 0.28 * u.orbit_sin);
@@ -254,6 +289,7 @@ kernel void motion_backdrop(
         case 3: color = contours(p, u, dark, blue, cyan, mint); break;
         case 4: color = prism(p, u, dark, blue, cyan, mint); break;
         case 5: color = painterly(p, u, blue, cyan, mint); break;
+        case 6: color = nebula(p, u, blue, cyan, mint); break;
     }
     // Fine fixed grain avoids flicker or a discontinuity at the loop boundary.
     float grain = float(grain_hash(id.x, id.y) & 65535u) / 65535.0 - 0.5;

@@ -31,6 +31,25 @@ pub fn tools() -> Vec<Value> {
         "dim":{"type":"number","minimum":0,"maximum":0.95}
     },"additionalProperties":false});
     let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]), style (optional dash/fill/radius/cleanup/start/end/dim). Lines allow 2..32 points; a two-point line can have a curve. All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"style":style,"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","exclusiveMinimum":0,"maximum":32768},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
+    let action_properties = json!({
+        "type":{"type":"string","enum":["show","capture","open_image","open_path","save_image","copy_image","copy_remote","paste_image","copy","cut","paste","undo","redo","delete","duplicate_selection","select_tool","set_color","set_stroke_width","set_appearance","set_magnifier_zoom","set_counter_number","set_crop_ratio","add_line_point","straighten_line","cycle_stroke_width","cycle_magnifier_zoom","nudge_selection","fit","actual_size","zoom","zoom_at","pan_by","toggle_backdrop","toggle_enhance","close_panel","set_resize_scale","toggle_smart_resize","apply_resize","resize","rotate","set_backdrop","set_backdrop_format","toggle_backdrop_enabled","set_backdrop_fill","select_motion","randomize_motion","set_backdrop_preset","set_backdrop_control","toggle_animation_panel","select_entrance","set_image_animation","set_animation_control","seek_animation","replay_animation","toggle_playback","export_animation","cancel_export","reveal_export","commit_text","cancel","help","quit"]},
+        "area":{"type":"boolean"}, "path":path, "tool":{"type":"string"},
+        "color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},
+        "style":style,"zoom":number,"number":{"type":"integer","minimum":1,"maximum":999},"ratio":{"type":["number","null"],"minimum":0.1,"maximum":10},
+        "width":number,"factor":number,"scale":number,"smart":{"type":"boolean"},
+        "delta":{"type":"array","items":number,"minItems":2,"maxItems":2},
+        "anchor":{"type":"array","items":number,"minItems":2,"maxItems":2},
+        "remember":{"type":"boolean"}, "panel":{"type":"string","enum":["backdrop","enhance","animation"]},
+        "backdrop":{"type":["object","null"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","nebula","stars","aurora","contours","paint","prism","liquid","lava"],"description":"nebula is the star and gas-cloud effect; stars is its legacy alias. Read-back uses nebula."},
+        "seed":{"type":["integer","null"],"minimum":0,"maximum":4294967295_u64,"description":"randomize_motion: omitted/null picks a fresh seed; an integer reproduces that looping variation (0 restores the original)."},"preset":{"type":"integer","minimum":0},"control":{"type":"string"},"value":{"type":"integer","minimum":0},
+        "format":{"type":"string","enum":["mp4","gif","auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},"animation":{"type":"object","description":"Image entrance settings; omitted fields use defaults. The entrance, delay and optional exit must fit within the clip.","properties":{
+            "effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},
+            "duration_ms":{"type":"integer","minimum":200,"maximum":2000},
+            "delay_ms":{"type":"integer","minimum":0,"maximum":1000},
+            "seconds":{"type":"integer","minimum":2,"maximum":15},
+            "exit":{"type":"boolean"}
+        },"additionalProperties":false},"seconds":number
+    });
     vec![
         tool(
             "get_editor_state",
@@ -41,26 +60,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "dispatch_action",
-            "Dispatch the same typed action as the native toolbar and shortcuts. Example: action={\"type\":\"select_tool\",\"tool\":\"arrow\"}. Other examples: fit, copy_image, copy_remote, resize (scale, smart), set_backdrop (backdrop), export_animation (format: mp4/gif). Copy/paste/undo/redo/delete are contextual to inline text. Image actions commit inline text. Returns revision and operation_id: a non-null ID means background work was accepted, not completed. Capture/open/save/export may show native dialogs. Existing revision-scoped annotation tools are also available.",
-            json!({"action":{"type":"object","properties":{
-                "type":{"type":"string","enum":["show","capture","open_image","open_path","save_image","copy_image","copy_remote","paste_image","copy","cut","paste","undo","redo","delete","duplicate_selection","select_tool","set_color","set_stroke_width","set_appearance","set_magnifier_zoom","set_counter_number","set_crop_ratio","add_line_point","straighten_line","cycle_stroke_width","cycle_magnifier_zoom","nudge_selection","fit","actual_size","zoom","zoom_at","pan_by","toggle_backdrop","toggle_enhance","close_panel","set_resize_scale","toggle_smart_resize","apply_resize","resize","rotate","set_backdrop","set_backdrop_format","toggle_backdrop_enabled","set_backdrop_fill","select_motion","set_backdrop_preset","set_backdrop_control","toggle_animation_panel","select_entrance","set_image_animation","set_animation_control","seek_animation","replay_animation","toggle_playback","export_animation","cancel_export","reveal_export","commit_text","cancel","help","quit"]},
-                "area":{"type":"boolean"}, "path":path, "tool":{"type":"string"},
-                "color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},
-                "style":style,"zoom":number,"number":{"type":"integer","minimum":1,"maximum":999},"ratio":{"type":["number","null"],"minimum":0.1,"maximum":10},
-                "width":number,"factor":number,"scale":number,"smart":{"type":"boolean"},
-                "delta":{"type":"array","items":number,"minItems":2,"maxItems":2},
-                "anchor":{"type":"array","items":number,"minItems":2,"maxItems":2},
-                "remember":{"type":"boolean"}, "panel":{"type":"string","enum":["backdrop","enhance","animation"]},
-                "backdrop":{"type":["object","null"]},"gradient":{"type":"boolean"},"motion":{"type":"string"},
-                "preset":{"type":"integer","minimum":0},"control":{"type":"string"},"value":{"type":"integer","minimum":0},
-                "format":{"type":"string","enum":["mp4","gif","auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},"animation":{"type":"object","description":"Image entrance settings; omitted fields use defaults. The entrance, delay and optional exit must fit within the clip.","properties":{
-                    "effect":{"type":"string","enum":["none","diagonal","pop","tilt"]},
-                    "duration_ms":{"type":"integer","minimum":200,"maximum":2000},
-                    "delay_ms":{"type":"integer","minimum":0,"maximum":1000},
-                    "seconds":{"type":"integer","minimum":2,"maximum":15},
-                    "exit":{"type":"boolean"}
-                },"additionalProperties":false},"seconds":number
-            },"required":["type"],"additionalProperties":false},"expected_revision":revision}),
+            "Dispatch the same typed action as the native toolbar and shortcuts. Example: action={\"type\":\"select_tool\",\"tool\":\"arrow\"}. Other examples: fit, copy_image, copy_remote, resize (scale, smart), set_backdrop (backdrop), export_animation (format: mp4/gif). Copy/paste/undo/redo/delete are contextual to inline text. Image actions commit inline text. Returns revision and operation_id: a non-null ID means background work was accepted, not completed. randomize_motion chooses a fresh looping variation; optional seed reproduces one. Read backdrop.seed from get_document. Capture/open/save/export may show native dialogs. Existing revision-scoped annotation tools are also available.",
+            json!({"action":{"type":"object","properties":action_properties,"required":["type"],"additionalProperties":false},"expected_revision":revision}),
             &["action"],
             false,
         ),
@@ -129,8 +130,8 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "set_backdrop",
-            "Set framing and animation. Preset 0 teal, 1 ocean, 2 lavender, 3 sunset, 4 rose, 5 cream, 6 slate, 7 white. Omitted properties use defaults. enabled=false removes it.",
-            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"inside_padding":{"type":"integer","minimum":0,"maximum":512},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
+            "Set framing and animation. Preset 0 teal, 1 ocean, 2 lavender, 3 sunset, 4 rose, 5 cream, 6 slate, 7 white. seed is a reproducible motion variation (0 is the original); it preserves seamless looping. Nebula uses motion=nebula; stars remains a legacy alias, and read-back uses nebula. Omitted properties use defaults. enabled=false removes it.",
+            json!({"enabled":{"type":"boolean"},"backdrop":{"type":"object","properties":{"format":{"type":"string","enum":["auto","square","classic","photo","widescreen","portrait","vertical","youtube","shorts","pinterest"]},"gradient":{"type":"boolean"},"motion":{"type":"string","enum":["still","flow","nebula","stars","aurora","contours","paint","prism","liquid","lava"]},"seconds":{"type":"integer","minimum":2,"maximum":15},"seed":{"type":"integer","minimum":0,"maximum":4294967295_u64,"description":"Deterministic looping motion variation; zero preserves the original."},"preset":{"type":"integer","minimum":0,"maximum":7},"padding":{"type":"integer","minimum":0,"maximum":512},"inner_radius":{"type":"integer","minimum":0,"maximum":256},"inside_padding":{"type":"integer","minimum":0,"maximum":512},"shadow":{"type":"integer","minimum":0,"maximum":128}},"additionalProperties":false},"expected_revision":revision}),
             &[],
             false,
         ),

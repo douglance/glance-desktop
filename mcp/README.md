@@ -174,3 +174,24 @@ Local image imports also require an absolute path to a regular file. The 16 MiB
 file-size limit is enforced on the actual bytes read, including growing files;
 devices, directories, and FIFOs are rejected. Capture and video frame scratch
 files live in private temporary directories and are removed after use.
+
+## Randomizing backdrop motion
+
+Nebula is the renamed Starfield effect. Use `"motion":"nebula"` with
+`set_backdrop` or `select_motion`. The legacy `"stars"` value remains accepted;
+`get_document` returns `"nebula"` for either value.
+
+`dispatch_action` accepts `{"type":"randomize_motion"}` to pick a fresh seed for
+the current motion. The action requires a moving backdrop and is undoable; it
+preserves the effect, colors, framing, duration and paused preview time.
+`get_document` returns the selected `backdrop.seed`. Pass that same seed to
+reproduce the variation:
+
+```json
+{"action":{"type":"randomize_motion","seed":42},"expected_revision":3}
+```
+
+Seeds range from 0 to 4294967295; 0 restores the original composition. Omitted or
+null seeds choose a new nonzero value. `set_backdrop` also accepts `seed` when
+configuring a complete backdrop. All eight effects loop seamlessly for every
+seed, and preview and PNG/GIF/MP4 exports use the same variation.
