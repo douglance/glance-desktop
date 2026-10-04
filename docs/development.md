@@ -118,6 +118,8 @@ optimized cache on `main` when Cargo/toolchain or build-workflow configuration
 changes. It builds the locked dependencies with a temporary placeholder binary
 and the real release profile. Packaging and download uploads stay release-only.
 The app itself and its final optimization/linking still run for each release.
+Warmers run one at a time; a newer update queues behind the active build so it
+can restore the libraries already compiled instead of cancelling that work.
 
 Warm the cache manually from `main` after a Rust toolchain update or cache
 eviction:
