@@ -69,11 +69,15 @@ jobs:
     name: Test and package (Omarchy x86_64)
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
     timeout-minutes: 60
     steps:
       - name: Install build and runtime dependencies
         run: |
-          pacman -Syu --needed --noconfirm git rust rustfmt clippy clang cmake \
+          pacman -Syu --needed --noconfirm git rust clang cmake \
             fontconfig freetype2 libx11 libxcb libxkbcommon libxkbcommon-x11 \
             wayland vulkan-icd-loader desktop-file-utils xdg-utils ttf-dejavu grim slurp wl-clipboard zenity ffmpeg
       - name: Check out source

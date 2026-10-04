@@ -946,6 +946,11 @@ fn linux_control_shortcuts_edit_text_and_undo_once(cx: &mut TestAppContext) {
         assert_eq!(e.document.marks[0].text, "Linux label");
         e.key(&key("ctrl-z"), w, cx);
         assert!(e.document.marks.is_empty());
+        // Undo waits for its raster preview before accepting the next edit.
+        e.receive(
+            Message::Preview(e.preview.revision, 0, render_image(e.document.render(None))),
+            cx,
+        );
         e.key(&key("ctrl-shift-z"), w, cx);
         assert_eq!(e.document.marks.len(), 1);
     })
