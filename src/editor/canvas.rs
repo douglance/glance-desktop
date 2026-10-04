@@ -105,7 +105,7 @@ impl Editor {
                         let scale = zoom.unwrap_or(fit);
                         let w = dimensions.0 as f32 * scale;
                         let h = dimensions.1 as f32 * scale;
-                        let padding = backdrop.map_or(0., |b| b.padding as f32 * scale);
+
                         let x = f32::from(bounds.origin.x)
                             + (f32::from(bounds.size.width) - w) / 2.
                             + pan.0;
@@ -120,7 +120,19 @@ impl Editor {
                             height: dimensions.1 as f32,
                         });
                         let image_bounds = Bounds::new(point(px(x), px(y)), size(px(w), px(h)));
-                        let frame_bounds = image_bounds.dilate(px(padding));
+                        let framing = backdrop.map(|b| b.layout(dimensions));
+                        let frame_bounds = framing.map_or(image_bounds, |frame| {
+                            Bounds::new(
+                                point(
+                                    px(x - frame.origin.0 as f32 * scale),
+                                    px(y - frame.origin.1 as f32 * scale),
+                                ),
+                                size(
+                                    px(frame.dimensions.0 as f32 * scale),
+                                    px(frame.dimensions.1 as f32 * scale),
+                                ),
+                            )
+                        });
                         if let Some(b) = backdrop {
                             window.paint_quad(quad(
                                 frame_bounds,

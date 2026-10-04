@@ -1,7 +1,7 @@
 //! Application intent, independent of buttons, key events, GPUI, and transports.
 use crate::{
     animation::Motion,
-    backdrop::{Backdrop, Control},
+    backdrop::{Backdrop, Control, Format},
     document::Tool,
 };
 use std::path::PathBuf;
@@ -84,6 +84,10 @@ pub(crate) enum Action {
     SetBackdrop {
         backdrop: Option<Backdrop>,
     },
+    SetBackdropFormat {
+        format: Format,
+    },
+    ToggleBackdropEnabled,
     SetBackdropFill {
         gradient: bool,
     },

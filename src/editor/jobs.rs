@@ -223,6 +223,8 @@ impl Editor {
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
                 self.document = Document::new(image);
+                self.panels.backdrop_disabled = None;
+                self.panels.popup = None;
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);
                 self.preview.mark_count = usize::MAX;

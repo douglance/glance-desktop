@@ -5,7 +5,7 @@ use super::{
 };
 use crate::{
     animation::Motion,
-    backdrop::{Backdrop, Control, PRESETS},
+    backdrop::{Control, PRESETS},
     document::{Tool, actions::DocumentAction},
 };
 use gpui::{Bounds, ClipboardItem, Context, point, px, size};
@@ -248,10 +248,13 @@ impl Editor {
             }
             Action::ToggleBackdrop => self.toggle_backdrop(cx),
             Action::ToggleEnhance => self.toggle_enhance(cx),
-            Action::ClosePanel { panel } => match panel {
-                Panel::Backdrop => self.panels.backdrop = false,
-                Panel::Enhance => self.panels.enhance = false,
-            },
+            Action::ClosePanel { panel } => {
+                self.panels.popup = None;
+                match panel {
+                    Panel::Backdrop => self.panels.backdrop = false,
+                    Panel::Enhance => self.panels.enhance = false,
+                }
+            }
             Action::SetResizeScale { scale } => self.panels.resize_scale = scale,
             Action::ToggleSmartResize => self.panels.resize_smart = !self.panels.resize_smart,
             Action::ApplyResize => self.resize_image(false, cx),
@@ -271,6 +274,19 @@ impl Editor {
                     self.feedback.status = "Backdrop removed • ⌘Z to restore".into();
                     self.panels.backdrop = false;
                 }
+            }
+            Action::SetBackdropFormat { format } => self.backdrop_style(|b| b.format = format, cx),
+            Action::ToggleBackdropEnabled => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                let current = self.document.backdrop;
+                let backdrop = if current.is_some() {
+                    None
+                } else {
+                    Some(self.panels.backdrop_disabled.unwrap_or_default())
+                };
+                self.edit_document(DocumentAction::SetBackdrop { backdrop }, cx)?;
+                self.panels.backdrop_disabled = current;
             }
             Action::SetBackdropFill { gradient } => self.backdrop_style(
                 |b| {
@@ -303,7 +319,9 @@ impl Editor {
                     self.cancel_gesture();
                     self.document.remember();
                 }
-                let b = self.document.backdrop.get_or_insert(Backdrop::default());
+                let b = self.document.backdrop.get_or_insert_with(|| {
+                    self.panels.backdrop_disabled.take().unwrap_or_default()
+                });
                 let previous = *b;
                 control.set(b, value);
                 let changed = previous != *b;
@@ -323,7 +341,9 @@ impl Editor {
                 self.commit_text(cx);
                 self.cancel_gesture();
                 self.document.remember();
-                self.document.backdrop.get_or_insert(Backdrop::default());
+                self.document.backdrop.get_or_insert_with(|| {
+                    self.panels.backdrop_disabled.take().unwrap_or_default()
+                });
                 self.interaction.gesture = super::state::Gesture::AdjustingBackdrop(
                     control,
                     Bounds::new(

@@ -202,14 +202,16 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_gesture();
+        self.panels.popup = None;
         self.panels.backdrop = !self.panels.backdrop;
         if self.panels.backdrop {
             self.panels.enhance = false;
         }
         if self.panels.backdrop && self.document.backdrop.is_none() {
+            let backdrop = self.panels.backdrop_disabled.take().unwrap_or_default();
             if let Err(error) = self.edit_document(
                 DocumentAction::SetBackdrop {
-                    backdrop: Some(Backdrop::default()),
+                    backdrop: Some(backdrop),
                 },
                 cx,
             ) {
@@ -230,7 +232,11 @@ impl Editor {
         }
         self.commit_text(cx);
         self.cancel_gesture();
-        let mut backdrop = self.document.backdrop.unwrap_or_default();
+        let mut backdrop = self
+            .document
+            .backdrop
+            .or(self.panels.backdrop_disabled)
+            .unwrap_or_default();
         change(&mut backdrop);
         if let Err(error) = self.edit_document(
             DocumentAction::SetBackdrop {
@@ -422,6 +428,7 @@ impl Editor {
             );
             let backdrop = matches!(edit, DocumentAction::SetBackdrop { .. });
             let previous_motion = self.document.backdrop.map(|b| b.motion);
+            let previous_format = self.document.backdrop.map(|b| b.format);
             let outcome = edit.apply(&mut self.document)?;
             match outcome.selection {
                 Selection::Keep => {}
@@ -434,6 +441,10 @@ impl Editor {
             }
             if outcome.changed {
                 if backdrop {
+                    if previous_format != self.document.backdrop.map(|b| b.format) {
+                        self.viewport.zoom = None;
+                        self.viewport.pan = (0., 0.);
+                    }
                     if previous_motion != self.document.backdrop.map(|b| b.motion) {
                         self.playback.position = 0.;
                         self.playback.epoch = std::time::Instant::now();

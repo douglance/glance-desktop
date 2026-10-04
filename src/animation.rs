@@ -333,8 +333,11 @@ pub struct Renderer {
 }
 impl Renderer {
     pub fn new(source: &RgbaImage, mut b: Backdrop, max_edge: Option<u32>) -> Self {
-        let (w, h) = b.dimensions(source.dimensions());
-        let scale = max_edge.map_or(1., |cap| (cap as f32 / w.max(h) as f32).min(1.));
+        let dimensions = b.dimensions(source.dimensions());
+        let (w, h) = max_edge.map_or(dimensions, |cap| b.format.video_dimensions(dimensions, cap));
+        let scale = (w as f32 / dimensions.0 as f32)
+            .min(h as f32 / dimensions.1 as f32)
+            .min(1.);
         let source = if scale < 1. {
             std::borrow::Cow::Owned(crate::enhance::resize(
                 source,
@@ -351,14 +354,11 @@ impl Renderer {
         b.inner_radius = (b.inner_radius as f32 * scale).round() as u32;
         b.outer_radius = (b.outer_radius as f32 * scale).round() as u32;
         b.shadow = (b.shadow as f32 * scale).round() as u32;
-        let (mut w, mut h) = b.dimensions(source.dimensions());
-        if let Some(cap) = max_edge {
-            w = (w.min(cap) / 2 * 2).max(2);
-            h = (h.min(cap) / 2 * 2).max(2);
-        }
         let mut foreground = RgbaImage::new(w, h);
         let mut outer = vec![0; w as usize * h as usize];
-        let pad = b.padding as f32;
+        let frame = crate::backdrop::Frame::centered((w, h), source.dimensions());
+        let (left, top) = frame.origin;
+        let (left_f, top_f) = (left as f32, top as f32);
         let sw = source.width() as f32;
         let sh = source.height() as f32;
         for (x, y, p) in foreground.enumerate_pixels_mut() {
@@ -375,8 +375,8 @@ impl Renderer {
             if b.shadow > 0 {
                 let blur = b.shadow as f32;
                 let d = crate::backdrop::distance(
-                    px - pad,
-                    py - pad - blur * 0.25,
+                    px - left_f,
+                    py - top_f - blur * 0.25,
                     sw,
                     sh,
                     b.inner_radius as f32,
@@ -389,16 +389,12 @@ impl Renderer {
                     (0.22 * (-2. * (d / (blur * 0.6)).powi(2)).exp() * 255.).round() as u8,
                 ]);
             }
-            if x >= b.padding
-                && y >= b.padding
-                && x < b.padding + source.width()
-                && y < b.padding + source.height()
-            {
-                let mut src = *source.get_pixel(x - b.padding, y - b.padding);
+            if x >= left && y >= top && x < left + source.width() && y < top + source.height() {
+                let mut src = *source.get_pixel(x - left, y - top);
                 src[3] = (src[3] as f32
                     * crate::backdrop::coverage(crate::backdrop::distance(
-                        px - pad,
-                        py - pad,
+                        px - left_f,
+                        py - top_f,
                         sw,
                         sh,
                         b.inner_radius as f32,

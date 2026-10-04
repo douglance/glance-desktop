@@ -341,6 +341,10 @@ impl Editor {
     }
     pub(super) fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
         let key = e.keystroke.key.as_str();
+        if self.popup_key(key, cx) {
+            cx.stop_propagation();
+            return;
+        }
         if key == "escape" && self.video_export.cancel.is_some() {
             self.dispatch_ui(Action::CancelExport, cx);
             cx.stop_propagation();

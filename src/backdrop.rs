@@ -4,6 +4,7 @@ use image::{Rgba, RgbaImage};
 #[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Backdrop {
+    pub format: Format,
     pub gradient: bool,
     pub motion: crate::animation::Motion,
     pub seconds: u32,
@@ -12,6 +13,95 @@ pub struct Backdrop {
     pub inner_radius: u32,
     pub outer_radius: u32,
     pub shadow: u32,
+}
+/// Output shape; platform presets retain their identity even when ratios coincide.
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Format {
+    #[default]
+    Auto,
+    Square,
+    Classic,
+    Photo,
+    Widescreen,
+    Portrait,
+    Vertical,
+    Youtube,
+    Shorts,
+    Pinterest,
+}
+impl Format {
+    pub const ALL: [Self; 10] = [
+        Self::Auto,
+        Self::Square,
+        Self::Classic,
+        Self::Photo,
+        Self::Widescreen,
+        Self::Portrait,
+        Self::Vertical,
+        Self::Youtube,
+        Self::Shorts,
+        Self::Pinterest,
+    ];
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Auto => "Auto",
+            Self::Square => "Square · 1:1",
+            Self::Classic => "Classic · 4:3",
+            Self::Photo => "Photo · 3:2",
+            Self::Widescreen => "Widescreen · 16:9",
+            Self::Portrait => "Portrait · 4:5",
+            Self::Vertical => "Vertical · 9:16",
+            Self::Youtube => "YouTube thumbnail · 16:9",
+            Self::Shorts => "YouTube Shorts · 9:16",
+            Self::Pinterest => "Pinterest pin · 2:3",
+        }
+    }
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Youtube => "YouTube · 16:9",
+            Self::Shorts => "Shorts · 9:16",
+            Self::Pinterest => "Pinterest · 2:3",
+            _ => self.label(),
+        }
+    }
+    pub fn ratio(self) -> Option<(u32, u32)> {
+        match self {
+            Self::Auto => None,
+            Self::Square => Some((1, 1)),
+            Self::Classic => Some((4, 3)),
+            Self::Photo => Some((3, 2)),
+            Self::Widescreen | Self::Youtube => Some((16, 9)),
+            Self::Portrait => Some((4, 5)),
+            Self::Vertical | Self::Shorts => Some((9, 16)),
+            Self::Pinterest => Some((2, 3)),
+        }
+    }
+    /// Video encoders require even dimensions. Fixed formats keep their exact ratio.
+    pub fn video_dimensions(self, dimensions: (u32, u32), cap: u32) -> (u32, u32) {
+        if let Some((rw, rh)) = self.ratio() {
+            let unit = (dimensions.0 / rw).min(cap / rw).min(cap / rh);
+            let unit = (unit / 2 * 2).max(2);
+            (unit * rw, unit * rh)
+        } else {
+            let scale = (cap as f32 / dimensions.0.max(dimensions.1) as f32).min(1.);
+            let even = |v: u32| ((v as f32 * scale).floor() as u32 / 2 * 2).max(2);
+            (even(dimensions.0), even(dimensions.1))
+        }
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Frame {
+    pub dimensions: (u32, u32),
+    pub origin: (u32, u32),
+}
+impl Frame {
+    pub fn centered(dimensions: (u32, u32), source: (u32, u32)) -> Self {
+        Self {
+            dimensions,
+            origin: ((dimensions.0 - source.0) / 2, (dimensions.1 - source.1) / 2),
+        }
+    }
 }
 pub const PRESETS: [(&str, u32, u32); 8] = [
     ("Teal", 0x32b49b, 0x147d91),
@@ -26,6 +116,7 @@ pub const PRESETS: [(&str, u32, u32); 8] = [
 impl Default for Backdrop {
     fn default() -> Self {
         Self {
+            format: Format::Auto,
             gradient: false,
             motion: crate::animation::Motion::Still,
             seconds: 5,
@@ -38,8 +129,18 @@ impl Default for Backdrop {
     }
 }
 impl Backdrop {
+    pub fn layout(self, source: (u32, u32)) -> Frame {
+        let padded = (source.0 + self.padding * 2, source.1 + self.padding * 2);
+        let dimensions = if let Some((rw, rh)) = self.format.ratio() {
+            let unit = padded.0.div_ceil(rw).max(padded.1.div_ceil(rh));
+            (unit * rw, unit * rh)
+        } else {
+            padded
+        };
+        Frame::centered(dimensions, source)
+    }
     pub fn dimensions(self, source: (u32, u32)) -> (u32, u32) {
-        (source.0 + self.padding * 2, source.1 + self.padding * 2)
+        self.layout(source).dimensions
     }
     pub fn background(self) -> gpui::Background {
         let (_, from, to) = PRESETS[self.preset];
@@ -57,13 +158,15 @@ impl Backdrop {
         if self.motion != crate::animation::Motion::Still {
             return crate::animation::Renderer::new(source, self, None).frame(0.);
         }
-        let (w, h) = self.dimensions(source.dimensions());
+        let frame = self.layout(source.dimensions());
+        let (w, h) = frame.dimensions;
         let mut out = RgbaImage::new(w, h);
         let (_, from, to) = PRESETS[self.preset];
         let rgb = |hex: u32| [(hex >> 16) as u8, (hex >> 8) as u8, hex as u8];
         let from = rgb(from);
         let to = rgb(to);
-        let pad = self.padding as f32;
+        let (left, top) = frame.origin;
+        let (left_f, top_f) = (left as f32, top as f32);
         let sw = source.width() as f32;
         let sh = source.height() as f32;
         let outer_radius = self.outer_radius as f32;
@@ -86,22 +189,18 @@ impl Backdrop {
                 let mut color = color;
                 if self.shadow > 0 {
                     let blur = self.shadow as f32;
-                    let d =
-                        distance(px - pad, py - pad - blur * 0.25, sw, sh, inner_radius).max(0.);
+                    let d = distance(px - left_f, py - top_f - blur * 0.25, sw, sh, inner_radius)
+                        .max(0.);
                     // Soft rounded-rectangle falloff, independent of screenshot alpha.
                     let opacity = 0.22 * (-2. * (d / (blur * 0.6)).powi(2)).exp();
                     for c in &mut color {
                         *c *= 1. - opacity;
                     }
                 }
-                if x >= self.padding
-                    && y >= self.padding
-                    && x < self.padding + source.width()
-                    && y < self.padding + source.height()
-                {
-                    let src = source.get_pixel(x - self.padding, y - self.padding);
+                if x >= left && y >= top && x < left + source.width() && y < top + source.height() {
+                    let src = source.get_pixel(x - left, y - top);
                     let alpha = src[3] as f32 / 255.
-                        * coverage(distance(px - pad, py - pad, sw, sh, inner_radius));
+                        * coverage(distance(px - left_f, py - top_f, sw, sh, inner_radius));
                     for c in 0..3 {
                         color[c] = color[c] * (1. - alpha) + src[c] as f32 * alpha;
                     }
@@ -217,6 +316,76 @@ pub fn clip_output_corners(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn formats_center_and_preserve_the_full_image_in_static_and_motion_exports() {
+        let source = RgbaImage::from_fn(37, 19, |x, y| Rgba([x as u8, y as u8, 211, 255]));
+        for format in Format::ALL {
+            let b = Backdrop {
+                format,
+                padding: 7,
+                inner_radius: 0,
+                shadow: 0,
+                ..Default::default()
+            };
+            let frame = b.layout(source.dimensions());
+            let (w, h) = frame.dimensions;
+            let (left, top) = frame.origin;
+            assert!(left >= 7 && top >= 7);
+            assert!((w - source.width() - left).abs_diff(left) <= 1);
+            assert!((h - source.height() - top).abs_diff(top) <= 1);
+            if let Some((rw, rh)) = format.ratio() {
+                assert_eq!(w * rh, h * rw);
+            }
+            for motion in std::iter::once(crate::animation::Motion::Still)
+                .chain(crate::animation::Motion::EFFECTS)
+            {
+                let image = Backdrop { motion, ..b }.apply(&source);
+                assert_eq!(image.dimensions(), frame.dimensions);
+                for (x, y, pixel) in source.enumerate_pixels() {
+                    assert_eq!(
+                        image.get_pixel(x + left, y + top),
+                        pixel,
+                        "{format:?} {motion:?}"
+                    );
+                }
+            }
+        }
+        let old: Backdrop = serde_json::from_value(serde_json::json!({"padding": 10})).unwrap();
+        assert_eq!(old.format, Format::Auto);
+    }
+    #[test]
+    fn capped_exports_keep_exact_formats_and_do_not_clip_the_foreground() {
+        let source = RgbaImage::from_pixel(401, 257, Rgba([210, 5, 20, 255]));
+        for format in Format::ALL {
+            let b = Backdrop {
+                format,
+                padding: 31,
+                inner_radius: 0,
+                shadow: 0,
+                ..Default::default()
+            };
+            let renderer = crate::animation::Renderer::new(&source, b, Some(160));
+            let image = renderer.frame(0.);
+            let (w, h) = image.dimensions();
+            assert!(w <= 160 && h <= 160);
+            assert_eq!(w % 2, 0);
+            assert_eq!(h % 2, 0);
+            if let Some((rw, rh)) = format.ratio() {
+                assert_eq!(w * rh, h * rw);
+            }
+            let red: Vec<_> = image
+                .enumerate_pixels()
+                .filter(|(_, _, p)| p[0] == 210 && p[1] == 5)
+                .map(|(x, y, _)| (x, y))
+                .collect();
+            let min_x = red.iter().map(|p| p.0).min().unwrap();
+            let max_x = red.iter().map(|p| p.0).max().unwrap();
+            let min_y = red.iter().map(|p| p.1).min().unwrap();
+            let max_y = red.iter().map(|p| p.1).max().unwrap();
+            assert!(min_x.abs_diff(w - 1 - max_x) <= 1);
+            assert!(min_y.abs_diff(h - 1 - max_y) <= 1);
+        }
+    }
     #[test]
     fn solid_padding_preserves_source_and_dimensions() {
         let src = RgbaImage::from_pixel(12, 8, Rgba([255, 0, 0, 255]));

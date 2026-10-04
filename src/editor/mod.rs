@@ -170,6 +170,9 @@ impl Editor {
                 cancel: None,
             },
             panels: PanelState {
+                backdrop_disabled: None,
+                popup: None,
+                popup_index: 0,
                 backdrop: false,
                 enhance: false,
                 resize_scale: 2.,

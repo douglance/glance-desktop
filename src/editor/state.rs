@@ -56,6 +56,9 @@ pub(super) struct VideoExportState {
     pub(super) cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 pub(super) struct PanelState {
+    pub(super) backdrop_disabled: Option<crate::backdrop::Backdrop>,
+    pub(super) popup: Option<super::panels::Popup>,
+    pub(super) popup_index: usize,
     pub(super) backdrop: bool,
     pub(super) enhance: bool,
     pub(super) resize_scale: f32,

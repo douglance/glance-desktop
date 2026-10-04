@@ -508,7 +508,7 @@ impl Render for Editor {
                                 Action::CopyRemote,
                             )),
                     )
-                    .child(self.compact_button("Save · ⌘S", "save", false, cx, Action::SaveImage))
+                    .child(self.export_menu(cx))
                     .child(
                         div()
                             .flex()
