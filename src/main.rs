@@ -55,6 +55,8 @@ fn main() {
             WindowOptions {
                 window_bounds: Some(WindowBounds::Windowed(bounds)),
                 window_min_size: Some(size(px(1050.), px(600.))),
+                #[cfg(target_os = "linux")]
+                app_id: Some("glance".into()),
                 titlebar: Some(TitlebarOptions {
                     title: Some("Glance".into()),
                     ..Default::default()

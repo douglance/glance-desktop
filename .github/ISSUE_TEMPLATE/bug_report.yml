@@ -11,8 +11,8 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: macOS version, Apple Silicon or Intel, and Glance commit/build.
-      placeholder: "macOS 15, Apple Silicon, commit abc1234"
+      description: OS version, architecture, desktop/compositor (Linux), and Glance commit/build.
+      placeholder: "Omarchy, x86_64, Hyprland, commit abc1234"
     validations:
       required: true
   - type: textarea
