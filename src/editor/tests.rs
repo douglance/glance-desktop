@@ -862,6 +862,26 @@ fn backdrop_grid_modes_and_format_menu_work_at_minimum_window_size(cx: &mut Test
             assert_eq!(actual.gradient, mode == "Gradient");
         }
         let mode_bounds = visual.debug_bounds(selector).unwrap();
+        let presets = visual.debug_bounds("backdrop-presets").unwrap();
+        let first_preset = visual.debug_bounds("backdrop-preset-0").unwrap();
+        for selector in [
+            "backdrop-preset-0",
+            "backdrop-preset-1",
+            "backdrop-preset-2",
+            "backdrop-preset-3",
+            "backdrop-preset-4",
+            "backdrop-preset-5",
+            "backdrop-preset-6",
+            "backdrop-preset-7",
+        ] {
+            let swatch = visual.debug_bounds(selector).unwrap();
+            assert_eq!(
+                swatch.top(),
+                first_preset.top(),
+                "All eight presets fit one row"
+            );
+            assert!(swatch.left() >= presets.left() && swatch.right() <= presets.right());
+        }
         let bounds: Vec<_> = [
             "backdrop-Outside padding",
             "backdrop-Inside padding",

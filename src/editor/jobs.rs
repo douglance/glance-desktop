@@ -16,6 +16,7 @@ impl OperationId {
 #[serde(rename_all = "snake_case")]
 pub(super) enum OperationKind {
     Capture,
+    ColorSample,
     Open,
     Paste,
     Copy,
@@ -47,6 +48,11 @@ pub(crate) enum Message {
     VideoProgress(OperationId, u32),
 }
 pub(crate) enum OperationResult {
+    ColorSample {
+        stop: usize,
+        revision: u64,
+        result: Result<Option<[u8; 3]>, String>,
+    },
     Cropped(Document, Arc<RenderImage>),
     Image(Result<Option<image::RgbaImage>, String>),
     VideoSaved(Result<Option<std::path::PathBuf>, String>),
@@ -191,6 +197,7 @@ impl Editor {
         let failed = matches!(
             &result,
             OperationResult::Failed(_)
+                | OperationResult::ColorSample { result: Err(_), .. }
                 | OperationResult::Image(Err(_))
                 | OperationResult::VideoSaved(Err(_))
                 | OperationResult::Saved(Err(_))
@@ -199,6 +206,25 @@ impl Editor {
                 | OperationResult::Transformed(Err(_))
         );
         match result {
+            OperationResult::ColorSample {
+                stop,
+                revision,
+                result,
+            } => {
+                if revision != self.preview.revision {
+                    self.feedback.status =
+                        "Image changed while sampling; pick the color again".into();
+                } else {
+                    match result {
+                        Ok(Some(rgb)) => self.dispatch_ui(
+                            super::actions::Action::SetBackdropColor { stop, rgb },
+                            cx,
+                        ),
+                        Ok(None) => self.feedback.status = "Color sampling canceled".into(),
+                        Err(error) => self.feedback.status = error,
+                    }
+                }
+            }
             OperationResult::Transformed(Ok((document, count, image))) => {
                 self.interaction.selected = None;
                 self.interaction.gesture = Gesture::Idle;
@@ -235,6 +261,7 @@ impl Editor {
                 self.interaction.gesture = Gesture::Idle;
                 self.document = Document::new(image);
                 self.panels.backdrop_disabled = None;
+                self.panels.sampling_color = None;
                 self.panels.popup = None;
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);

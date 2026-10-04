@@ -65,6 +65,7 @@ fn randomize_motion_uses_bridge_state_revisions_and_undo(cx: &mut TestAppContext
         assert_eq!(e.preview.revision, revision);
         let original = Backdrop {
             motion: Motion::Lava,
+            colors: Some([[50, 80, 100], [100, 30, 60]]),
             ..Default::default()
         };
         e.dispatch(
@@ -839,5 +840,328 @@ fn inside_padding_preserves_capture_and_annotations_and_groups_slider_history(
             )
             .is_err()
         );
+    });
+}
+
+#[gpui::test]
+fn custom_backdrop_colors_use_bridge_revision_checks_and_undo(cx: &mut TestAppContext) {
+    use crate::automation::Request;
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.document = Document::new(image::RgbaImage::from_pixel(
+            4,
+            3,
+            image::Rgba([41, 82, 123, 255]),
+        ));
+        let bridge = |e: &mut Editor, cx: &mut gpui::Context<Editor>, payload, revision| {
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(
+                Request::Dispatch {
+                    action: Action::from_json(payload).unwrap(),
+                    expected_revision: Some(revision),
+                    reply,
+                },
+                cx,
+            );
+            response.recv().unwrap()
+        };
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"set_backdrop_color","stop":1,"rgb":[1,2,3]}),
+            0,
+        )
+        .unwrap();
+        let custom = e.document.backdrop.unwrap();
+        assert_eq!(custom.colors, Some([[50, 180, 155], [1, 2, 3]]));
+        assert_eq!(e.preview.revision, 1);
+        assert!(
+            bridge(
+                e,
+                cx,
+                serde_json::json!({"type":"set_backdrop_color","stop":0,"rgb":[9,9,9]}),
+                0
+            )
+            .is_err()
+        );
+        assert!(
+            bridge(
+                e,
+                cx,
+                serde_json::json!({"type":"set_backdrop_color","stop":2,"rgb":[9,9,9]}),
+                1
+            )
+            .is_err()
+        );
+        assert!(
+            bridge(
+                e,
+                cx,
+                serde_json::json!({"type":"sample_backdrop_color","stop":0,"position":[4,0]}),
+                1
+            )
+            .is_err()
+        );
+        assert_eq!(e.document.backdrop, Some(custom));
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"sample_backdrop_color","stop":0,"position":[3,2]}),
+            1,
+        )
+        .unwrap();
+        assert_eq!(
+            e.document.backdrop.unwrap().colors,
+            Some([[41, 82, 123], [1, 2, 3]])
+        );
+        e.document.undo();
+        assert_eq!(e.document.backdrop, Some(custom));
+        e.document.redo();
+        e.dispatch(
+            Action::SelectMotion {
+                motion: crate::animation::Motion::Lava,
+            },
+            cx,
+        )
+        .unwrap();
+        assert_eq!(
+            e.document.backdrop.unwrap().colors,
+            Some([[41, 82, 123], [1, 2, 3]])
+        );
+        e.dispatch(Action::SetBackdropFill { gradient: false }, cx)
+            .unwrap();
+        assert_eq!(
+            e.document.backdrop.unwrap().colors,
+            Some([[41, 82, 123], [1, 2, 3]])
+        );
+        e.dispatch(Action::SetBackdropPreset { preset: 3 }, cx)
+            .unwrap();
+        assert!(e.document.backdrop.unwrap().colors.is_none());
+        e.document.undo();
+        assert_eq!(
+            e.document.backdrop.unwrap().colors,
+            Some([[41, 82, 123], [1, 2, 3]])
+        );
+        let (reply, response) = std::sync::mpsc::channel();
+        e.automation(Request::Snapshot(reply), cx);
+        let snapshot = response.recv().unwrap().unwrap();
+        assert_eq!(
+            crate::automation::state(&snapshot)["backdrop"]["colors"],
+            serde_json::json!([[41, 82, 123], [1, 2, 3]])
+        );
+    });
+}
+
+#[gpui::test]
+fn screen_color_results_require_matching_operation_and_revision(cx: &mut TestAppContext) {
+    use super::jobs::{Message, OperationResult};
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        let id = e.start_operation(OperationKind::ColorSample).unwrap();
+        let revision = e.preview.revision;
+        e.receive(
+            Message::Operation(
+                id,
+                OperationResult::ColorSample {
+                    stop: 0,
+                    revision,
+                    result: Ok(None),
+                },
+            ),
+            cx,
+        );
+        assert!(e.document.backdrop.is_none());
+        assert_eq!(e.preview.revision, revision);
+        let stale = e.start_operation(OperationKind::ColorSample).unwrap();
+        e.preview.revision += 1;
+        e.receive(
+            Message::Operation(
+                stale,
+                OperationResult::ColorSample {
+                    stop: 0,
+                    revision,
+                    result: Ok(Some([10, 20, 30])),
+                },
+            ),
+            cx,
+        );
+        assert!(e.document.backdrop.is_none());
+        let current = e.start_operation(OperationKind::ColorSample).unwrap();
+        e.receive(
+            Message::Operation(
+                stale,
+                OperationResult::ColorSample {
+                    stop: 0,
+                    revision: e.preview.revision,
+                    result: Ok(Some([10, 20, 30])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(e.operations.active.as_ref().unwrap().id, current);
+        e.receive(
+            Message::Operation(
+                current,
+                OperationResult::ColorSample {
+                    stop: 1,
+                    revision: e.preview.revision,
+                    result: Ok(Some([10, 20, 30])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(
+            e.document.backdrop.unwrap().colors.unwrap()[1],
+            [10, 20, 30]
+        );
+        e.document.undo();
+        assert!(e.document.backdrop.is_none());
+    });
+}
+
+#[gpui::test]
+fn color_popup_hex_wheel_and_source_eyedropper_are_isolated_from_tools(cx: &mut TestAppContext) {
+    use gpui::{MouseButton, point, px, size};
+    let view = cx.add_window(|window, cx| {
+        let mut editor = Editor::with_native(cx, false);
+        editor.focus.focus(window);
+        editor.document = Document::new(image::RgbaImage::from_pixel(
+            100,
+            100,
+            image::Rgba([22, 44, 88, 255]),
+        ));
+        editor.dispatch(Action::ToggleBackdrop, cx).unwrap();
+        editor
+    });
+    let root = view.root(cx).unwrap();
+    let mut visual = VisualTestContext::from_window(*view, cx);
+    visual.update(|_, cx| crate::menus::install(cx));
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let click = |visual: &mut VisualTestContext, selector| {
+        let bounds = visual.debug_bounds(selector).unwrap();
+        visual.simulate_click(bounds.center(), Default::default());
+        visual.run_until_parked();
+    };
+    click(&mut visual, "color-picker-color");
+    let popup = visual.debug_bounds("color-picker-popup").unwrap();
+    assert!(popup.top() >= px(0.) && popup.bottom() <= px(600.));
+    click(&mut visual, "color-picker-hex");
+    visual.simulate_input("#12abEF");
+    visual.simulate_keystrokes("enter");
+    visual.run_until_parked();
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.document.backdrop.unwrap().colors.unwrap()[0],
+            [18, 171, 239]
+        );
+        assert_eq!(e.interaction.tool, Tool::Select);
+        assert!(e.document.marks.is_empty());
+    });
+    let revision = root.read_with(&visual, |e, _| e.preview.revision);
+    click(&mut visual, "color-picker-hex");
+    visual.update(|_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string("#abcdef".into())));
+    visual.simulate_keystrokes(&crate::platform::key_binding("cmd-v cmd-z enter"));
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.preview.revision, revision,
+            "hex undo stays in the input field"
+        )
+    });
+    click(&mut visual, "color-picker-hex");
+    visual.simulate_input("oops");
+    visual.simulate_keystrokes("enter");
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.document.backdrop.unwrap().colors.unwrap()[0],
+            [18, 171, 239]
+        )
+    });
+    visual.simulate_keystrokes("escape");
+    visual.run_until_parked();
+    root.read_with(&visual, |e, cx| {
+        assert!(!e.color_pickers[0].read(cx).is_open())
+    });
+    click(&mut visual, "color-picker-color");
+    let wheel = visual.debug_bounds("color-picker-wheel").unwrap();
+    let start = wheel.center();
+    let end = point(wheel.right() - px(6.), wheel.center().y);
+    let original = root.read_with(&visual, |e, _| e.document.backdrop);
+    visual.simulate_mouse_down(start, MouseButton::Left, Default::default());
+    visual.simulate_mouse_move(end, MouseButton::Left, Default::default());
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.document.backdrop, original,
+            "drag is committed on release"
+        )
+    });
+    visual.simulate_mouse_up(end, MouseButton::Left, Default::default());
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        assert_ne!(e.document.backdrop, original);
+        e.document.undo();
+        assert_eq!(e.document.backdrop, original);
+        cx.notify();
+    });
+    visual.run_until_parked();
+    let brightness = visual.debug_bounds("color-picker-brightness").unwrap();
+    let end = point(brightness.left() - px(80.), brightness.center().y);
+    visual.simulate_mouse_down(brightness.center(), MouseButton::Left, Default::default());
+    visual.simulate_mouse_move(end, MouseButton::Left, Default::default());
+    visual.simulate_mouse_up(end, MouseButton::Left, Default::default());
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        assert_eq!(
+            e.document.backdrop.unwrap().colors.unwrap()[0],
+            [0, 0, 0],
+            "brightness drag clamps outside popup"
+        );
+        e.document.undo();
+        assert_eq!(
+            e.document.backdrop, original,
+            "one undo restores an entire brightness drag"
+        );
+        cx.notify();
+    });
+    click(&mut visual, "Pick from image");
+    root.update(&mut visual, |e, cx| {
+        e.dispatch(Action::Zoom { factor: 2. }, cx).unwrap();
+    });
+    visual.run_until_parked();
+    let layout = root.read_with(&visual, |e, _| e.viewport.layout.get());
+    visual.simulate_click(
+        point(
+            px(layout.x + 25. * layout.scale),
+            px(layout.y + 40. * layout.scale),
+        ),
+        Default::default(),
+    );
+    visual.run_until_parked();
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.document.backdrop.unwrap().colors.unwrap()[0],
+            [22, 44, 88]
+        );
+        assert!(e.panels.sampling_color.is_none());
+        assert!(e.document.marks.is_empty());
+    });
+    click(&mut visual, "backdrop-mode-Gradient");
+    click(&mut visual, "color-picker-color-2");
+    click(&mut visual, "color-picker-hex");
+    visual.simulate_input("#f80");
+    visual.simulate_keystrokes("enter escape");
+    root.read_with(&visual, |e, _| {
+        assert_eq!(
+            e.document.backdrop.unwrap().colors,
+            Some([[22, 44, 88], [255, 136, 0]])
+        )
+    });
+    click(&mut visual, "color-picker-color-2");
+    click(&mut visual, "Pick from image");
+    let revision = root.read_with(&visual, |e, _| e.preview.revision);
+    visual.simulate_keystrokes("escape");
+    root.read_with(&visual, |e, _| {
+        assert!(e.panels.sampling_color.is_none());
+        assert_eq!(e.preview.revision, revision);
     });
 }

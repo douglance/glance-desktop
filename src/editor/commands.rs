@@ -18,6 +18,39 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 impl Editor {
+    pub(super) fn pick_backdrop_screen_color(
+        &mut self,
+        stop: usize,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        self.commit_text(cx);
+        self.panels.sampling_color = None;
+        let receiver = platform::sample_screen_color()?;
+        let id = self
+            .start_operation(OperationKind::ColorSample)
+            .ok_or("Editor is busy")?;
+        let revision = self.preview.revision;
+        self.feedback.status = "Pick a screen color • Escape to cancel".into();
+        let sender = self.sender.clone();
+        cx.spawn(async move |_, _| {
+            let result = receiver
+                .recv()
+                .await
+                .unwrap_or_else(|_| Err("Screen sampler closed".into()));
+            let _ = sender
+                .send(Message::Operation(
+                    id,
+                    OperationResult::ColorSample {
+                        stop,
+                        revision,
+                        result,
+                    },
+                ))
+                .await;
+        })
+        .detach();
+        Ok(())
+    }
     pub(super) fn commit_text(&mut self, cx: &mut Context<Self>) {
         if let Some(edit) = self.interaction.text_edit.take() {
             if !edit.buffer.text().trim().is_empty() {

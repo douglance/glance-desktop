@@ -531,18 +531,27 @@ mod gpu {
 
 #[cfg(test)]
 pub fn frame(width: u32, height: u32, preset: usize, motion: Motion, phase: f32) -> RgbaImage {
-    frame_seeded(width, height, preset, motion, phase, 0)
+    frame_with_colors(width, height, preset, motion, phase, None, 0)
 }
 
-pub fn frame_seeded(
+pub fn frame_with_colors(
     width: u32,
     height: u32,
     preset: usize,
     motion: Motion,
     phase: f32,
+    colors: Option<[[u8; 3]; 2]>,
     seed: u32,
 ) -> RgbaImage {
-    let uniforms = Uniforms::new(width, height, preset, motion, phase).seeded(seed);
+    let mut uniforms = Uniforms::new(width, height, preset, motion, phase).seeded(seed);
+    if let Some([from, to]) = colors {
+        let a = from.map(|v| v as f32 / 255.);
+        let z = to.map(|v| v as f32 / 255.);
+        uniforms.dark = z.map(|v| v * 0.10);
+        uniforms.blue = z;
+        uniforms.cyan = a;
+        uniforms.mint = a.map(|v| v * 0.45 + 0.55);
+    }
     #[cfg(target_os = "macos")]
     match gpu::frame(&uniforms) {
         Ok(image) => return image,
@@ -599,12 +608,13 @@ mod tests {
         let mut variations = RgbaImage::new(960, 360);
         for (row, motion) in [Motion::Lava, Motion::Prism].into_iter().enumerate() {
             for (column, seed) in [0, 42, 314159].into_iter().enumerate() {
-                let image = frame_seeded(
+                let image = frame_with_colors(
                     320,
                     180,
                     motion.suggested_preset().unwrap_or(0),
                     motion,
                     0.22,
+                    None,
                     seed,
                 );
                 image::imageops::replace(

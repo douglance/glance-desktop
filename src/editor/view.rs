@@ -145,6 +145,11 @@ impl Editor {
 }
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if !self.panels.backdrop {
+            for picker in &self.color_pickers {
+                picker.update(cx, |picker, cx| picker.close_if_open(window, cx));
+            }
+        }
         if !window.is_window_active() {
             self.viewport.space_down = false;
             self.viewport.zoom_down = false;

@@ -17,6 +17,47 @@ pub(in crate::editor) enum Popup {
 }
 
 impl Editor {
+    fn motion_button(&self, motion: Motion, active: bool, cx: &Context<Self>) -> impl IntoElement {
+        let name = match motion {
+            Motion::Still => "square",
+            Motion::Flow => "motion-flow",
+            Motion::Nebula => "motion-starfield",
+            Motion::Aurora => "motion-aurora",
+            Motion::Contours => "motion-contours",
+            Motion::Paint => "motion-painterly",
+            Motion::Prism => "motion-prism",
+            Motion::Liquid => "motion-liquid",
+            Motion::Lava => "motion-lava",
+        };
+        div()
+            .id(motion.label())
+            .debug_selector(move || format!("backdrop-motion-{}", motion.label()))
+            .w(px(101.))
+            .h(px(32.))
+            .px_2()
+            .flex()
+            .items_center()
+            .gap(px(6.))
+            .rounded_md()
+            .cursor_pointer()
+            .text_sm()
+            .bg(rgb(if active { 0xffe9e4 } else { 0xffffff }))
+            .text_color(rgb(if active { 0xd94d38 } else { 0x44454f }))
+            .hover(|s| s.bg(rgb(0xf0f1f5)))
+            .active(|s| s.bg(rgb(0xe5e7ed)))
+            .child(
+                svg()
+                    .path(format!("icons/{name}.svg"))
+                    .size(px(16.))
+                    .flex_shrink_0()
+                    .text_color(rgb(if active { 0xd94d38 } else { 0x555966 })),
+            )
+            .child(motion.label())
+            .on_click(cx.listener(move |this, _, _, cx| {
+                this.dispatch_ui(Action::SelectMotion { motion }, cx)
+            }))
+    }
+
     fn popup_count(&self, popup: Popup) -> usize {
         match popup {
             Popup::Format => Format::ALL.len(),
@@ -374,12 +415,19 @@ impl Editor {
                 ),
             )
     }
-    pub(in crate::editor) fn backdrop_controls(&self, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn backdrop_controls(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let b = self
             .document
             .backdrop
             .or(self.panels.backdrop_disabled)
             .unwrap_or_default();
+        for (picker, color) in self.color_pickers.iter().zip(b.colors()) {
+            let color = [(color >> 16) as u8, (color >> 8) as u8, color as u8];
+            picker.update(cx, |picker, cx| picker.set_value(color, cx));
+        }
         div()
             .id("backdrop-panel")
             .debug_selector(|| "backdrop-panel".into())
@@ -570,29 +618,39 @@ impl Editor {
                         .flex()
                         .flex_wrap()
                         .gap_2()
-                        .children(Motion::EFFECTS.into_iter().map(|motion| {
-                            div().w(px(101.)).child(self.button(
-                                motion.label(),
-                                b.motion == motion,
-                                cx,
-                                Action::SelectMotion { motion },
-                            ))
-                        })),
+                        .children(
+                            Motion::EFFECTS
+                                .into_iter()
+                                .map(|motion| self.motion_button(motion, b.motion == motion, cx)),
+                        ),
                 )
             })
             .child(
                 div()
+                    .id("backdrop-presets")
+                    .debug_selector(|| "backdrop-presets".into())
                     .flex()
-                    .flex_wrap()
-                    .gap_2()
+                    .w_full()
+                    .gap_1()
                     .children(PRESETS.iter().enumerate().map(|(i, &(name, _, _))| {
-                        let style = Backdrop { preset: i, ..b };
+                        let style = Backdrop {
+                            preset: i,
+                            colors: None,
+                            ..b
+                        };
                         div()
                             .id(("backdrop-preset", i))
-                            .size(px(45.))
+                            .debug_selector(move || format!("backdrop-preset-{i}"))
+                            .flex_1()
+                            .min_w(px(0.))
+                            .h(px(24.))
                             .rounded_md()
                             .border_2()
-                            .border_color(rgb(if i == b.preset { 0x147d6d } else { 0xe5e6eb }))
+                            .border_color(rgb(if i == b.preset && b.colors.is_none() {
+                                0x147d6d
+                            } else {
+                                0xe5e6eb
+                            }))
                             .bg(style.background())
                             .cursor_pointer()
                             .tooltip(move |_, cx| cx.new(|_| HoverLabel(name.into())).into())
@@ -601,34 +659,64 @@ impl Editor {
                             }))
                     })),
             )
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .text_xs()
+                    .child(if b.gradient || b.motion != Motion::Still {
+                        "Colors"
+                    } else {
+                        "Color"
+                    })
+                    .child(
+                        div()
+                            .flex()
+                            .gap_2()
+                            .child(self.color_pickers[0].clone())
+                            .when(b.gradient || b.motion != Motion::Still, |el| {
+                                el.child(self.color_pickers[1].clone())
+                            }),
+                    ),
+            )
             .when(b.motion != Motion::Still, |el| {
                 el.child(
                     div()
                         .id("backdrop-duration")
                         .debug_selector(|| "backdrop-duration".into())
                         .flex()
-                        .items_center()
+                        .items_end()
                         .gap_2()
+                        .child(div().flex_1().pb_1().child(self.backdrop_slider(
+                            Control::Duration,
+                            b,
+                            cx,
+                        )))
                         .child(
                             div()
-                                .flex_1()
-                                .child(self.backdrop_slider(Control::Duration, b, cx)),
-                        )
-                        .child(self.compact_button(
-                            if self.playback.paused {
-                                "Play"
-                            } else {
-                                "Pause"
-                            },
-                            if self.playback.paused {
-                                "play"
-                            } else {
-                                "pause"
-                            },
-                            false,
-                            cx,
-                            Action::TogglePlayback,
-                        )),
+                                .id("backdrop-playback")
+                                .debug_selector(|| "backdrop-playback".into())
+                                .flex_shrink_0()
+                                .rounded_md()
+                                .border_1()
+                                .border_color(rgb(0xd3d6df))
+                                .child(self.compact_button(
+                                    if self.playback.paused {
+                                        "Play"
+                                    } else {
+                                        "Pause"
+                                    },
+                                    if self.playback.paused {
+                                        "play"
+                                    } else {
+                                        "pause"
+                                    },
+                                    false,
+                                    cx,
+                                    Action::TogglePlayback,
+                                )),
+                        ),
                 )
             })
             .when_some(self.video_export.progress, |el, progress| {

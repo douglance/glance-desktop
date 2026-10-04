@@ -9,6 +9,10 @@ Notable user-visible changes are recorded here.
 - Randomize button for all eight backdrop motions, with undoable, reproducible
   seeds shared by preview, PNG/GIF/MP4 exports and MCP, while retaining seamless loops.
 
+- Reusable backdrop color popup with a color wheel, brightness, hex entry and
+  image/screen eyedroppers; one solid color or two gradient/motion colors, with
+  undo and matching PNG/GIF/MP4 output and MCP controls.
+
 - Image Animation sidebar with diagonal reveal, spring pop, and 3D settle;
   independent backdrop motion, replay/scrubbing, and optional exits in MP4/GIF.
 
@@ -23,6 +27,11 @@ Notable user-visible changes are recorded here.
 
 - Starfield is now called Nebula, with subtle evolving gas clouds, soft
   filaments and dark dust lanes behind the prominent drifting stars.
+
+- Motion backdrop buttons have distinct small icons beside each effect name.
+
+- Backdrop color controls use compact swatches, keep all eight presets on one
+  row, and give Play/Pause an outline aligned with the duration slider.
 
 - Lava backdrops flow through crossing currents, with stretching molten shapes
   and small globules that separate and rejoin the larger streams.

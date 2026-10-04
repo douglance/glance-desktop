@@ -175,6 +175,29 @@ file-size limit is enforced on the actual bytes read, including growing files;
 devices, directories, and FIFOs are rejected. Capture and video frame scratch
 files live in private temporary directories and are removed after use.
 
+## Custom backdrop colors
+
+`set_backdrop` accepts `colors: [[r,g,b],[r,g,b]]` (opaque sRGB channels 0–255),
+or `colors: null` to use the selected `preset`. Older payloads keep preset colors.
+`get_document` returns these custom endpoints. Solid fills use the first endpoint;
+gradient and motion use both, including PNG/GIF/MP4 output.
+
+The shared dispatcher exposes:
+
+- `set_backdrop_color`: `stop` (0 or 1) and `rgb` (three channels). The other endpoint
+  is preserved, initially from the current preset. Changes are undoable.
+- `sample_backdrop_color`: `stop` and `position: [x,y]` in source image pixels.
+  Samples the original imported/pasted image, excluding annotations and backdrop.
+  Out-of-bounds positions are rejected without modifying the document.
+- `pick_backdrop_screen_color`: `stop`. Opens an interactive native macOS color
+  sampler, or `hyprpicker` on Omarchy. Returns an operation ID; use
+  `get_editor_state` until completion. Cancellation keeps the document unchanged,
+  and delayed results require the same operation and document revision.
+
+Use `expected_revision` for each dispatch. `set_backdrop_preset` clears custom
+colors; changing fill or motion preserves them. The canvas eyedropper gesture is
+UI-only; automation uses `sample_backdrop_color` instead.
+
 ## Randomizing backdrop motion
 
 Nebula is the renamed Starfield effect. Use `"motion":"nebula"` with

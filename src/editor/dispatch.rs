@@ -147,6 +147,19 @@ impl Editor {
             Action::SetBackdropPreset { preset } if *preset >= PRESETS.len() => {
                 return Err("Invalid backdrop preset".into());
             }
+            Action::SetBackdropColor { stop, .. }
+            | Action::SampleBackdropColor { stop, .. }
+            | Action::PickBackdropScreenColor { stop }
+            | Action::BeginBackdropColorSampling { stop }
+                if *stop > 1 =>
+            {
+                return Err("Backdrop color stop must be 0 or 1".into());
+            }
+            Action::SampleBackdropColor {
+                position: (x, y), ..
+            } if *x >= self.document.base.width() || *y >= self.document.base.height() => {
+                return Err("Sample position must be inside the source image".into());
+            }
             Action::SetBackdrop { backdrop: Some(b) } => {
                 if b.preset >= PRESETS.len()
                     || b.padding > 512
@@ -182,6 +195,20 @@ impl Editor {
                 return Err("Invalid slider bounds".into());
             }
             _ => {}
+        }
+        if !matches!(
+            action,
+            Action::BeginBackdropColorSampling { .. }
+                | Action::SampleBackdropColor { .. }
+                | Action::Fit
+                | Action::ActualSize
+                | Action::Zoom { .. }
+                | Action::ZoomAt { .. }
+                | Action::PanBy { .. }
+                | Action::Show
+                | Action::CommitText
+        ) {
+            self.panels.sampling_color = None;
         }
         let previous_operation = self.operations.active.as_ref().map(|op| op.id);
         match action {
@@ -313,6 +340,7 @@ impl Editor {
             Action::ToggleAnimationPanel => self.toggle_animation_panel(cx),
             Action::ClosePanel { panel } => {
                 self.panels.popup = None;
+                self.panels.sampling_color = None;
                 match panel {
                     Panel::Backdrop => self.panels.backdrop = false,
                     Panel::Enhance => self.panels.enhance = false,
@@ -366,6 +394,7 @@ impl Editor {
             Action::SelectMotion { motion } => self.backdrop_style(
                 |b| {
                     if b.motion != motion
+                        && b.colors.is_none()
                         && let Some(preset) = motion.suggested_preset()
                     {
                         b.preset = preset;
@@ -388,7 +417,34 @@ impl Editor {
                 },
                 cx,
             ),
-            Action::SetBackdropPreset { preset } => self.backdrop_style(|b| b.preset = preset, cx),
+            Action::SetBackdropPreset { preset } => self.backdrop_style(
+                |b| {
+                    b.preset = preset;
+                    b.colors = None;
+                },
+                cx,
+            ),
+            Action::SetBackdropColor { stop, rgb } => {
+                self.backdrop_style(|b| b.set_color(stop, rgb), cx)
+            }
+            Action::SampleBackdropColor {
+                stop,
+                position: (x, y),
+            } => {
+                let pixel = self.document.base.get_pixel(x, y).0;
+                self.backdrop_style(|b| b.set_color(stop, [pixel[0], pixel[1], pixel[2]]), cx);
+                self.panels.sampling_color = None;
+            }
+            Action::BeginBackdropColorSampling { stop } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.panels.sampling_color = Some(stop);
+                self.feedback.status =
+                    "Click a pixel in the image to pick its color • Escape to cancel".into();
+            }
+            Action::PickBackdropScreenColor { stop } => {
+                self.pick_backdrop_screen_color(stop, cx)?
+            }
             Action::SetBackdropControl { control, value } => {
                 let phase = self.animation_phase();
                 let adjusting = matches!(
@@ -534,6 +590,7 @@ impl Editor {
             }
             Action::CommitText => self.commit_text(cx),
             Action::Cancel => {
+                self.panels.sampling_color = None;
                 if self.video_export.cancel.is_some() {
                     self.cancel_video(cx);
                 } else if self.interaction.text_edit.take().is_some() {

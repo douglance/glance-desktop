@@ -13,6 +13,7 @@ struct Spec {
     height: u32,
     preset: usize,
     seed: u32,
+    colors: Option<[[u8; 3]; 2]>,
     frames: u32,
     motion: Motion,
 }
@@ -162,12 +163,13 @@ impl Preview {
         Self {
             worker: Worker::new(
                 |key| {
-                    crate::editor::render_image(crate::motion_shader::frame_seeded(
+                    crate::editor::render_image(crate::motion_shader::frame_with_colors(
                         key.spec.width,
                         key.spec.height,
                         key.spec.preset,
                         key.spec.motion,
                         key.tick as f32 / key.spec.frames as f32,
+                        key.spec.colors,
                         key.spec.seed,
                     ))
                 },
@@ -225,6 +227,7 @@ impl Preview {
             height,
             preset: b.preset,
             seed: b.seed,
+            colors: b.colors,
             frames: b.seconds.max(2) * 30,
             motion: b.motion,
         };
@@ -270,6 +273,7 @@ mod tests {
                 height: 1,
                 preset: 1,
                 seed: 0,
+                colors: None,
                 frames: 150,
                 motion,
             },
@@ -310,6 +314,7 @@ mod tests {
                 height: 72,
                 preset: motion.suggested_preset().unwrap_or(0),
                 seed: 0,
+                colors: None,
                 frames: 150,
                 motion,
             };
@@ -372,6 +377,23 @@ mod tests {
         assert_eq!(worker.take_completed().unwrap().request.key, latest);
         worker.request(latest, true);
         assert!(worker.shared.mailbox.lock().unwrap().pending.is_none());
+    }
+    #[test]
+    fn changing_custom_colors_rejects_in_flight_palette_frame() {
+        let (worker, starts, release, notifications) = blocked_worker();
+        let old = key(0, Motion::Liquid);
+        worker.request(old, false);
+        assert_eq!(starts.recv_timeout(TIMEOUT).unwrap(), old);
+        let mut colored = old;
+        colored.spec.colors = Some([[255, 0, 0], [0, 0, 255]]);
+        worker.request(colored, false);
+        release.send(()).unwrap();
+        assert_eq!(starts.recv_timeout(TIMEOUT).unwrap(), colored);
+        assert!(worker.take_completed().is_none());
+        assert!(notifications.try_recv().is_err());
+        release.send(()).unwrap();
+        notifications.recv_timeout(TIMEOUT).unwrap();
+        assert_eq!(worker.take_completed().unwrap().request.key, colored);
     }
     #[test]
     fn switching_away_and_back_rejects_the_old_generation() {

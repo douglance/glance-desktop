@@ -1,5 +1,7 @@
 use image::{ImageReader, RgbaImage};
 use std::{path::PathBuf, process::Command};
+mod color_sampler;
+pub use color_sampler::sample_screen_color;
 pub fn load(path: &std::path::Path) -> Result<RgbaImage, String> {
     let reader = ImageReader::open(path)
         .map_err(|e| e.to_string())?

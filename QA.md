@@ -348,3 +348,25 @@ package. Before treating it as stable, complete the real Hyprland checks in
 including capture/cancellation with display scaling, clipboard persistence,
 file dialogs/overwrite behavior, Ctrl shortcuts/IME, Vulkan startup, and window
 close. Linux animated backdrops currently use CPU rendering.
+
+## Backdrop color picker
+
+2026-10-04: formatting and Clippy pass; 132 tests pass (14 opt-in tests ignored).
+The ad-hoc debug bundle builds successfully; the installed app was not replaced.
+
+Automated checks cover hex validation, HSV round trips, custom solid/gradient and
+all motion exports, unchanged foreground pixels, undo/redo, preset restoration,
+source-pixel sampling, invalid endpoints, revision conflicts through the shared
+bridge, stale native sampler results and virtual GPUI popup/input gestures.
+
+Desktop checks: open each swatch in Solid/Gradient/Motion, drag the wheel and
+brightness (including releasing outside the popup), enter and paste hex, apply
+with Enter, dismiss with Escape/outside click, and verify ordinary tool shortcuts
+do not activate while entering hex. Select each endpoint independently. Pick a
+source pixel at Fit and 200% after clipboard paste; verify zoom/pan does not offset
+the sample and Escape leaves annotations/history unchanged. Use the native
+macOS screen sampler across displays, select/cancel, and compare a sample against
+its sRGB hex value. On Omarchy check hyprpicker selection, cancellation and the
+missing-command error. Reopen/close the panel, switch effects, choose a preset,
+undo/redo and compare custom-color PNG/GIF/MP4 output. Native sampler and physical
+display behavior require a manual pass.

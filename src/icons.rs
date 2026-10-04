@@ -1,8 +1,40 @@
-//! Lucide SVGs embedded in the binary, loaded through GPUI's cached SVG renderer.
+//! Lucide and original Glance SVGs, embedded for GPUI's cached SVG renderer.
 use gpui::{AssetSource, Result, SharedString};
 use std::borrow::Cow;
 pub struct Icons;
 const ASSETS: &[(&str, &[u8])] = &[
+    (
+        "icons/motion-flow.svg",
+        include_bytes!("../assets/motion/flow.svg"),
+    ),
+    (
+        "icons/motion-starfield.svg",
+        include_bytes!("../assets/motion/starfield.svg"),
+    ),
+    (
+        "icons/motion-aurora.svg",
+        include_bytes!("../assets/motion/aurora.svg"),
+    ),
+    (
+        "icons/motion-contours.svg",
+        include_bytes!("../assets/motion/contours.svg"),
+    ),
+    (
+        "icons/motion-painterly.svg",
+        include_bytes!("../assets/motion/painterly.svg"),
+    ),
+    (
+        "icons/motion-prism.svg",
+        include_bytes!("../assets/motion/prism.svg"),
+    ),
+    (
+        "icons/motion-liquid.svg",
+        include_bytes!("../assets/motion/liquid.svg"),
+    ),
+    (
+        "icons/motion-lava.svg",
+        include_bytes!("../assets/motion/lava.svg"),
+    ),
     (
         "icons/scan.svg",
         include_bytes!("../assets/lucide/scan.svg"),

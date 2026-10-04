@@ -50,6 +50,10 @@ fn every_serializable_action_is_exposed_or_explicitly_excluded() {
     // and must never appear in either the wire inventory or published schema.
     let excluded = [
         (
+            "begin_backdrop_color_sampling",
+            "sample_backdrop_color with source pixel coordinates instead of pointer gestures",
+        ),
+        (
             "edit",
             "revision-scoped document tools instead of raw indices",
         ),
@@ -102,6 +106,9 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         json!({"type":"select_motion","motion":"aurora"}),
         json!({"type":"randomize_motion","seed":12345}),
         json!({"type":"set_backdrop_preset","preset":0}),
+        json!({"type":"set_backdrop_color","stop":1,"rgb":[17,34,255]}),
+        json!({"type":"sample_backdrop_color","stop":0,"position":[10,20]}),
+        json!({"type":"pick_backdrop_screen_color","stop":0}),
         json!({"type":"set_backdrop_control","control":"inside_padding","value":20}),
         json!({"type":"select_entrance","effect":"diagonal"}),
         json!({"type":"set_image_animation","animation":crate::animation::ImageAnimation::default()}),
@@ -124,6 +131,14 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         let canonical = serde_json::to_value(action).unwrap();
         validate_tool("dispatch_action", &json!({"action":canonical})).unwrap();
         Action::from_json(canonical).unwrap();
+    }
+    for stop in 0..=1 {
+        for rgb in [[0, 0, 0], [255, 255, 255], [0, 128, 255]] {
+            let payload = json!({"type":"set_backdrop_color","stop":stop,"rgb":rgb});
+            validate_tool("dispatch_action", &json!({"action":payload})).unwrap();
+            let action = Action::from_json(payload).unwrap();
+            Action::from_json(serde_json::to_value(action).unwrap()).unwrap();
+        }
     }
     for seed in [json!(null), json!(0), json!(12345), json!(u32::MAX)] {
         let payload = json!({"type":"randomize_motion","seed":seed});
@@ -159,6 +174,28 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
             .is_err()
         );
         assert!(validate_tool("set_backdrop", &json!({"backdrop":{"seed":seed}})).is_err());
+    }
+    for colors in [json!(null), json!([[1, 2, 3], [254, 128, 0]])] {
+        let payload = json!({"backdrop":{"colors":colors}});
+        validate_tool("set_backdrop", &payload).unwrap();
+        let backdrop: crate::backdrop::Backdrop =
+            serde_json::from_value(payload["backdrop"].clone()).unwrap();
+        validate_tool("set_backdrop", &json!({"backdrop":backdrop})).unwrap();
+    }
+    for payload in [
+        json!({"action":{"type":"set_backdrop_color","stop":2,"rgb":[1,2,3]}}),
+        json!({"action":{"type":"set_backdrop_color","stop":0,"rgb":[256,2,3]}}),
+        json!({"action":{"type":"set_backdrop_color","stop":0,"rgb":[1,2]}}),
+        json!({"action":{"type":"sample_backdrop_color","stop":1,"position":[-1,0]}}),
+    ] {
+        assert!(validate_tool("dispatch_action", &payload).is_err());
+    }
+    for colors in [
+        json!([[1, 2, 3]]),
+        json!([[256, 2, 3], [1, 2, 3]]),
+        json!([[1, 2, 3, 4], [1, 2, 3]]),
+    ] {
+        assert!(validate_tool("set_backdrop", &json!({"backdrop":{"colors":colors}})).is_err());
     }
     for format in crate::backdrop::Format::ALL {
         validate_tool(

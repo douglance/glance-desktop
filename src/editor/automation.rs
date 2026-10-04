@@ -20,6 +20,7 @@ impl Editor {
                     "zoom":self.viewport.zoom, "pan":self.viewport.pan,
                     "panels":{"tools":!self.panels.backdrop && !self.panels.enhance && !self.panels.animation,"backdrop":self.panels.backdrop,"enhance":self.panels.enhance,"animation":self.panels.animation},
                     "image_animation":self.document.image_animation,
+                    "sampling_backdrop_color":self.panels.sampling_color,
                     "playback":{"paused":self.playback.paused,"time":self.clip_time(),"seconds":self.document.animation_seconds()},
                     "status":self.feedback.status,
                 })));

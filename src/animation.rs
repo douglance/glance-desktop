@@ -1,5 +1,5 @@
 //! Looping backdrops. Shader effects share a Metal renderer; foreground stays cached.
-use crate::backdrop::{Backdrop, PRESETS};
+use crate::backdrop::Backdrop;
 use gpui::{
     Bounds, Pixels, Rgba, Window, linear_color_stop, linear_gradient, point, px, quad, rgb, size,
 };
@@ -100,7 +100,7 @@ fn scene(b: Backdrop, phase: f32) -> Scene {
             random(b.seed as usize) * TAU
         };
     let random = |i: usize| random(i ^ b.seed as usize);
-    let (_, a, z) = PRESETS[b.preset];
+    let [a, z] = b.colors();
     let a = color(a);
     let z = color(z);
     let cream = [255, 234, 211];
@@ -411,12 +411,13 @@ impl Renderer {
         );
         let s = scene(self.b, phase);
         let mut out = if self.b.motion.uses_shader() {
-            crate::motion_shader::frame_seeded(
+            crate::motion_shader::frame_with_colors(
                 self.width,
                 self.height,
                 self.b.preset,
                 self.b.motion,
                 phase,
+                self.b.colors,
                 self.b.seed,
             )
         } else {

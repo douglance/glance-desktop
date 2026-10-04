@@ -51,6 +51,16 @@ Capture, annotate, frame, and share from one native macOS window.
   coordinates. Outside padding, inside padding, image corners and shadow are
   always visible in a 2×2 grid above **Solid / Gradient / Motion**. **Done** closes
   the panel; **Enable backdrop** toggles framing while keeping the current style.
+  The eight palette presets stay on one row. Custom colors appear as compact
+  swatches; hex values are shown inside the picker. Play/Pause is outlined beside
+  the duration slider. Click a color swatch to open a picker with a color wheel, brightness
+  slider and a hex field (**#RGB** or **#RRGGBB**, then **Apply** or Enter). Solid
+  uses one color; Gradient and Motion use two. **Pick from image** samples an
+  original screenshot pixel, including pasted images, at any zoom; Escape cancels.
+  **Pick from screen** opens the native macOS eyedropper (Omarchy requires
+  `hyprpicker`). Colors are opaque sRGB. Custom colors survive mode/effect changes;
+  choosing a palette preset resets them. Each wheel/brightness gesture commits on
+  release as one undo step; uncommitted hex input is discarded when closed.
   Each slider gesture is one undo step. Copy and
   PNG save include the backdrop and inside padding at full resolution. The output
   canvas has square corners.
@@ -67,8 +77,9 @@ Capture, annotate, frame, and share from one native macOS window.
   beginning; PNG/copy capture the inspected frame while this panel is open,
   and the fully revealed image during normal editing.
 - **Animated backdrops:** choose **Backdrop → Motion**, then Flow, Nebula,
-  Aurora, Contours, Painterly, Prism, Liquid or Lava. Screenshot and annotations
-  stay fixed while the background moves. Click **Randomize** in Motion to try a new looping variation.
+  Aurora, Contours, Painterly, Prism, Liquid or Lava. Each effect has a small line
+  icon beside its name. Screenshot and annotations stay fixed while the
+  background moves. Click **Randomize** in Motion to try a new looping variation.
   Each click changes the motion seed and is undoable with **⌘Z**. Colors, framing
   and duration stay as set; the same variation appears in preview and exports.
   Set a **2–15 second** duration (5 seconds by default), pause/play the preview,

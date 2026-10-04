@@ -11,6 +11,23 @@ implements edits and external work; `input.rs` interprets pointer/keyboard input
 build and paint the interface. `text_input.rs` implements native text input;
 `text.rs` owns the Unicode buffer and text history independently of the editor.
 
+`src/color_picker.rs` is a reusable GPUI entity: it owns its swatch trigger,
+anchored popup, HSV wheel/brightness state and native hex input in
+`color_picker/input.rs`. Construct it with a label and the focus handle to
+restore on dismissal, synchronize committed model colors through `set_value`,
+and retain subscriptions to `ColorPickerEvent::{Changed, PickImage, PickScreen}`.
+Consumers dispatch their own typed actions; the component has no document or
+backdrop dependency. Wheel and brightness gestures preview locally and emit one
+committed RGB change on release. Its `ColorPicker` key context suppresses canvas
+shortcuts, and clipboard/text undo stays within the hex field.
+
+Backdrop endpoints are optional opaque sRGB colors; absent endpoints preserve
+legacy preset palettes. Both CPU and Metal renderers use them, and preview keys
+include colors to reject frames from the old palette. The editor samples source
+image pixels through the shared dispatcher. Explicit screen sampling uses
+`platform/color_sampler.rs` (AppKit `NSColorSampler` or Omarchy `hyprpicker`) and
+returns through the existing operation/revision checks.
+
 One `Gesture` enum represents the active pointer interaction. `jobs.rs` owns
 worker dispatch and completion: each external operation has an ID, and stale
 results or video progress cannot affect a newer operation. Preview rendering

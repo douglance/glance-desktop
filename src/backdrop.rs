@@ -11,6 +11,8 @@ pub struct Backdrop {
     pub preset: usize,
     /// Deterministic motion variation; zero preserves the original composition.
     pub seed: u32,
+    /// Optional opaque RGB endpoints; None uses the selected preset.
+    pub colors: Option<[[u8; 3]; 2]>,
     /// Minimum backdrop margin, outside the expanded screenshot.
     pub padding: u32,
     pub inner_radius: u32,
@@ -126,6 +128,7 @@ impl Default for Backdrop {
             seconds: 5,
             preset: 0,
             seed: 0,
+            colors: None,
             padding: 64,
             inner_radius: 18,
             inside_padding: 0,
@@ -134,6 +137,22 @@ impl Default for Backdrop {
     }
 }
 impl Backdrop {
+    pub fn colors(self) -> [u32; 2] {
+        self.colors.map_or_else(
+            || {
+                let (_, from, to) = PRESETS[self.preset];
+                [from, to]
+            },
+            |colors| colors.map(|[r, g, b]| (r as u32) << 16 | (g as u32) << 8 | b as u32),
+        )
+    }
+    pub fn set_color(&mut self, stop: usize, color: [u8; 3]) {
+        let mut colors = self
+            .colors()
+            .map(|hex| [(hex >> 16) as u8, (hex >> 8) as u8, hex as u8]);
+        colors[stop] = color;
+        self.colors = Some(colors);
+    }
     pub fn layout(self, source: (u32, u32)) -> Frame {
         let image = self.image_dimensions(source);
         let padded = (image.0 + self.padding * 2, image.1 + self.padding * 2);
@@ -170,7 +189,7 @@ impl Backdrop {
         self.layout(source).dimensions
     }
     pub fn background(self) -> gpui::Background {
-        let (_, from, to) = PRESETS[self.preset];
+        let [from, to] = self.colors();
         if self.gradient {
             gpui::linear_gradient(
                 180.,
@@ -190,7 +209,7 @@ impl Backdrop {
         let frame = Frame::centered(dimensions, source.dimensions());
         let (w, h) = frame.dimensions;
         let mut out = RgbaImage::new(w, h);
-        let (_, from, to) = PRESETS[self.preset];
+        let [from, to] = self.colors();
         let rgb = |hex: u32| [(hex >> 16) as u8, (hex >> 8) as u8, hex as u8];
         let from = rgb(from);
         let to = rgb(to);
@@ -306,6 +325,62 @@ impl Control {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn custom_colors_render_solid_gradient_and_all_motion_without_changing_source() {
+        let source = RgbaImage::from_pixel(10, 6, Rgba([31, 57, 91, 255]));
+        let b = Backdrop {
+            colors: Some([[220, 30, 10], [20, 40, 240]]),
+            padding: 8,
+            shadow: 0,
+            inner_radius: 0,
+            ..Default::default()
+        };
+        assert_eq!(b.colors(), [0xdc1e0a, 0x1428f0]);
+        assert_eq!(*b.apply(&source).get_pixel(0, 0), Rgba([220, 30, 10, 255]));
+        let gradient = Backdrop {
+            gradient: true,
+            ..b
+        }
+        .apply(&source);
+        assert!(gradient.get_pixel(0, 0)[0] > gradient.get_pixel(0, 21)[0]);
+        assert!(gradient.get_pixel(0, 0)[2] < gradient.get_pixel(0, 21)[2]);
+        for motion in crate::animation::Motion::EFFECTS {
+            let custom = crate::animation::Renderer::new(
+                &source,
+                Backdrop {
+                    motion,
+                    gradient: true,
+                    ..b
+                },
+                None,
+            );
+            let preset = crate::animation::Renderer::new(
+                &source,
+                Backdrop {
+                    colors: None,
+                    motion,
+                    gradient: true,
+                    ..b
+                },
+                None,
+            );
+            let image = custom.frame(0.37);
+            assert_ne!(image, preset.frame(0.37), "{motion:?} uses custom colors");
+            assert_eq!(
+                custom.frame(0.),
+                custom.frame(1.),
+                "{motion:?} stays periodic"
+            );
+            for (x, y, pixel) in source.enumerate_pixels() {
+                assert_eq!(image.get_pixel(x + 8, y + 8), pixel, "{motion:?}");
+            }
+        }
+        let old: Backdrop = serde_json::from_str(r#"{"preset":2}"#).unwrap();
+        assert_eq!(old.colors, None);
+        assert_eq!(old.colors(), [PRESETS[2].1, PRESETS[2].2]);
+        let encoded = serde_json::to_value(b).unwrap();
+        assert_eq!(serde_json::from_value::<Backdrop>(encoded).unwrap(), b);
+    }
     #[test]
     fn formats_center_and_preserve_the_full_image_in_static_and_motion_exports() {
         let source = RgbaImage::from_fn(37, 19, |x, y| Rgba([x as u8, y as u8, 211, 255]));

@@ -2,6 +2,7 @@ mod animation;
 mod arrow;
 mod automation;
 mod backdrop;
+mod color_picker;
 mod document;
 mod drawing;
 mod effects;

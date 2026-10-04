@@ -46,6 +46,18 @@ impl Editor {
         if self.is_busy() {
             return;
         }
+        if let Some(stop) = self.panels.sampling_color {
+            if let Some((x, y)) = self.coordinate(e.position, false) {
+                self.dispatch_ui(
+                    Action::SampleBackdropColor {
+                        stop,
+                        position: (x.floor() as u32, y.floor() as u32),
+                    },
+                    cx,
+                );
+            }
+            return;
+        }
         // Return to the editing pose before hit-testing annotations.
         if self.panels.animation {
             self.panels.animation = false;
@@ -358,6 +370,13 @@ impl Editor {
         }
     }
     pub(super) fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
+        if self
+            .color_pickers
+            .iter()
+            .any(|picker| picker.read(cx).has_focus(window))
+        {
+            return;
+        }
         let key = e.keystroke.key.as_str();
         if self.popup_key(key, cx) {
             cx.stop_propagation();

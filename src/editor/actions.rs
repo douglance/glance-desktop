@@ -117,6 +117,21 @@ pub(crate) enum Action {
     SetBackdropPreset {
         preset: usize,
     },
+    SetBackdropColor {
+        stop: usize,
+        rgb: [u8; 3],
+    },
+    SampleBackdropColor {
+        stop: usize,
+        position: (u32, u32),
+    },
+    PickBackdropScreenColor {
+        stop: usize,
+    },
+    /// Canvas gesture; MCP uses SampleBackdropColor with source pixel coordinates.
+    BeginBackdropColorSampling {
+        stop: usize,
+    },
     SetBackdropControl {
         control: Control,
         value: u32,

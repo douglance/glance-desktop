@@ -97,7 +97,9 @@ impl Editor {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .cursor(if self.viewport.space_down {
+            .cursor(if self.panels.sampling_color.is_some() {
+                CursorStyle::Crosshair
+            } else if self.viewport.space_down {
                 CursorStyle::OpenHand
             } else if self.interaction.tool == Tool::Select {
                 CursorStyle::Arrow

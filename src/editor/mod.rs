@@ -35,6 +35,8 @@ use state::{
 };
 use std::{cell::Cell, rc::Rc, sync::Arc};
 pub(crate) struct Editor {
+    color_pickers: [Entity<crate::color_picker::ColorPicker>; 2],
+    _color_subscriptions: Vec<Subscription>,
     document: Document,
     interaction: InteractionState,
     viewport: ViewportState,
@@ -160,10 +162,43 @@ impl Editor {
         })
         .detach();
         let canvas_bounds = Rc::new(Cell::new(Bounds::default()));
+        let focus = cx.focus_handle();
+        let color_pickers = std::array::from_fn(|stop| {
+            cx.new(|cx| {
+                crate::color_picker::ColorPicker::new(
+                    if stop == 0 { "Color" } else { "Color 2" },
+                    focus.clone(),
+                    cx,
+                )
+            })
+        });
+        let color_subscriptions: Vec<_> = color_pickers
+            .iter()
+            .enumerate()
+            .map(|(stop, picker)| {
+                cx.subscribe(picker, move |this, _, event, cx| {
+                    use crate::color_picker::ColorPickerEvent;
+                    let action = match event {
+                        ColorPickerEvent::Changed(rgb) => {
+                            actions::Action::SetBackdropColor { stop, rgb: *rgb }
+                        }
+                        ColorPickerEvent::PickImage => {
+                            actions::Action::BeginBackdropColorSampling { stop }
+                        }
+                        ColorPickerEvent::PickScreen => {
+                            actions::Action::PickBackdropScreenColor { stop }
+                        }
+                    };
+                    this.dispatch_ui(action, cx);
+                })
+            })
+            .collect();
         #[cfg(target_os = "macos")]
         let gestures =
             native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
+            color_pickers,
+            _color_subscriptions: color_subscriptions,
             document,
             interaction: InteractionState {
                 gesture: Gesture::Idle,
@@ -214,6 +249,7 @@ impl Editor {
                 cancel: None,
             },
             panels: PanelState {
+                sampling_color: None,
                 backdrop_disabled: None,
                 popup: None,
                 popup_index: 0,
@@ -230,7 +266,7 @@ impl Editor {
             },
             #[cfg(target_os = "macos")]
             _gestures: gestures,
-            focus: cx.focus_handle(),
+            focus,
             operations: OperationState::default(),
             sender,
             #[cfg(target_os = "macos")]
