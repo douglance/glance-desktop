@@ -2,6 +2,15 @@
 name = "glance"
 version = "0.1.0"
 edition = "2024"
+description = "A native macOS screenshot editor for annotation, animated backdrops, and sharing visual context with coding agents."
+license = "MIT"
+repository = "https://github.com/modem-dev/glance-desktop"
+homepage = "https://glance.sh"
+readme = "README.md"
+keywords = ["screenshot", "annotation", "macos", "gpui", "mcp"]
+categories = ["multimedia::images", "gui"]
+# Glance is distributed as a desktop app, not a crates.io package.
+publish = false
 
 [dependencies]
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }

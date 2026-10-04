@@ -379,7 +379,9 @@ impl Editor {
                     self.interaction.selected = None;
                 }
             }
-            Action::Help => cx.open_url("https://github.com/benvinegar/pachiri#workflow"),
+            Action::Help => {
+                cx.open_url("https://github.com/modem-dev/glance-desktop/blob/main/docs/usage.md")
+            }
             Action::Quit => cx.quit(),
         }
         cx.notify();

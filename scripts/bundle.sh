@@ -3,8 +3,8 @@ set -eu
 cd "$(dirname "$0")/.."
 MODE="${1:-release}"
 if [ "$MODE" = "release" ]; then cargo build --release --locked; else cargo build --locked; fi
-APP_DEST="$(pwd)/target/Glance.app"
-mkdir -p "$(pwd)/target"
+APP_DEST="${GLANCE_BUNDLE_DEST:-$(pwd)/target/Glance.app}"
+mkdir -p "$(pwd)/target" "$(dirname "$APP_DEST")"
 BUILD_DIR="$(mktemp -d "$(pwd)/target/.glance-bundle.XXXXXX")"
 APP="$BUILD_DIR/Glance.app"
 cleanup() {
@@ -27,6 +27,8 @@ cp target/glance-video-frame "$APP/Contents/MacOS/glance-video-frame"
 cp target/glance-video-encoder "$APP/Contents/MacOS/glance-video-encoder"
 cp assets/gpui/LICENSE-APACHE "$APP/Contents/Resources/GPUI-LICENSE"
 cp assets/lucide/LICENSE "$APP/Contents/Resources/Lucide-LICENSE"
+cp LICENSE "$APP/Contents/Resources/LICENSE"
+cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/THIRD_PARTY_NOTICES.md"
 cp "${CARGO_TARGET_DIR:-target}/$MODE/glance" "$APP/Contents/MacOS/Glance"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
