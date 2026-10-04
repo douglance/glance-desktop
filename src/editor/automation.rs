@@ -15,6 +15,8 @@ impl Editor {
                 let _ = reply.send(Ok(json!({
                     "revision":self.preview.revision, "busy":self.is_busy(), "operation":operation,
                     "tool":self.interaction.tool, "selected":self.interaction.selected,
+                    "selected_indices":self.selected_indices(),
+                    "selected_ids":self.selected_indices().iter().map(|i| format!("{}:{i}", self.preview.revision)).collect::<Vec<_>>(),
                     "text_editing":self.interaction.text_edit.is_some(), "gesture_active":self.interaction.gesture.is_active(),
                     "tool_options": {"tool":self.options_tool(), "color":self.tool_settings().color, "width":self.tool_settings().width, "style":self.tool_settings().style, "magnification":self.tool_settings().magnification, "crop_ratio":self.interaction.crop_ratio, "counter_number":self.counter_number()},
                     "zoom":self.viewport.zoom, "pan":self.viewport.pan,

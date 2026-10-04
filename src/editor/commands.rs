@@ -192,7 +192,7 @@ impl Editor {
     pub(super) fn set_tool(&mut self, tool: Tool, cx: &mut Context<Self>) {
         self.commit_text(cx);
         self.cancel_gesture();
-        self.interaction.selected = None;
+        self.set_selection(Vec::new());
         self.interaction.tool = tool;
         let settings = self.interaction.defaults[tool.index()];
         self.interaction.color = settings.color;
@@ -205,7 +205,10 @@ impl Editor {
     }
     pub(super) fn cancel_gesture(&mut self) {
         let gesture = std::mem::take(&mut self.interaction.gesture);
-        if gesture.drag().is_some() {
+        if let super::state::Gesture::Selecting { previous, .. } = &gesture {
+            self.set_selection(previous.clone());
+        }
+        if gesture.first_drag_index().is_some() {
             self.changed();
         }
     }
@@ -214,15 +217,29 @@ impl Editor {
             return;
         }
         self.cancel_gesture();
-        if let Some(index) = self.interaction.selected {
-            let mut mark = self.document.marks[index].clone();
-            mark.translate(10., 10.);
-            if let Err(error) = self.edit_document(DocumentAction::AddAnnotation { mark }, cx) {
-                self.feedback.status = error;
-            }
-            cx.notify();
+        let additions = self
+            .selected_indices()
+            .into_iter()
+            .map(|index| {
+                let mut mark = self.document.marks[index].clone();
+                mark.translate(10., 10.);
+                mark
+            })
+            .collect();
+        if let Err(error) = self.edit_document(
+            DocumentAction::EditAnnotations {
+                updates: Vec::new(),
+                additions,
+                deletions: Vec::new(),
+                remember: true,
+            },
+            cx,
+        ) {
+            self.feedback.status = error;
         }
+        cx.notify();
     }
+
     pub(super) fn apply_style(&mut self, color: bool, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
@@ -236,18 +253,20 @@ impl Editor {
         } else {
             defaults.width = self.interaction.width;
         }
-        if let Some(index) = self.interaction.selected {
-            let mut mark = self.document.marks[index].clone();
-            if color {
-                mark.color = self.interaction.color;
-            } else {
-                mark.width = self.interaction.width;
-            }
-            if let Err(error) =
-                self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)
-            {
-                self.feedback.status = error;
-            }
+        let value_color = self.interaction.color;
+        let width = self.interaction.width;
+        if let Err(error) = self.update_selected(
+            true,
+            |mark| {
+                if color {
+                    mark.color = value_color;
+                } else {
+                    mark.width = width;
+                }
+            },
+            cx,
+        ) {
+            self.feedback.status = error;
         }
         cx.notify();
     }
@@ -256,13 +275,21 @@ impl Editor {
             return;
         }
         self.cancel_gesture();
-        if let Some(index) = self.interaction.selected {
-            if let Err(error) = self.edit_document(DocumentAction::DeleteAnnotation { index }, cx) {
-                self.feedback.status = error;
-            }
-            cx.notify();
+        let deletions = self.selected_indices();
+        if let Err(error) = self.edit_document(
+            DocumentAction::EditAnnotations {
+                updates: Vec::new(),
+                additions: Vec::new(),
+                deletions,
+                remember: true,
+            },
+            cx,
+        ) {
+            self.feedback.status = error;
         }
+        cx.notify();
     }
+
     pub(super) fn toggle_backdrop(&mut self, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
@@ -431,7 +458,7 @@ impl Editor {
         if self.panels.animation {
             self.panels.backdrop = false;
             self.panels.enhance = false;
-            self.interaction.selected = None;
+            self.set_selection(Vec::new());
             self.replay_animation(cx);
         }
         cx.notify();
@@ -587,6 +614,9 @@ impl Editor {
                     | DocumentAction::Undo
                     | DocumentAction::Redo
             );
+            let wait_for_preview = wait_for_preview
+                || matches!(&edit,
+                DocumentAction::EditAnnotations { deletions, .. } if !deletions.is_empty());
             let metadata = matches!(
                 edit,
                 DocumentAction::SetBackdrop { .. } | DocumentAction::SetImageAnimation { .. }
@@ -598,8 +628,9 @@ impl Editor {
             let outcome = edit.apply(&mut self.document)?;
             match outcome.selection {
                 Selection::Keep => {}
-                Selection::Clear => self.interaction.selected = None,
-                Selection::Select(index) => self.interaction.selected = Some(index),
+                Selection::Clear => self.set_selection(Vec::new()),
+                Selection::Select(index) => self.set_selection(vec![index]),
+                Selection::SelectMany(indices) => self.set_selection(indices),
             }
             if outcome.reset_view {
                 self.viewport.zoom = None;
@@ -671,11 +702,7 @@ impl Editor {
         self.commit_text(cx);
         self.cancel_gesture();
         self.interaction.defaults[self.options_tool().index()].style = style;
-        if let Some(index) = self.interaction.selected {
-            let mut mark = self.document.marks[index].clone();
-            mark.style = style;
-            self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
-        }
+        self.update_selected(true, |mark| mark.style = style, cx)?;
         Ok(())
     }
     pub(super) fn set_magnifier_zoom(
@@ -785,5 +812,81 @@ impl Editor {
         }
         self.edit_document(DocumentAction::UpdateAnnotation { index, mark }, cx)?;
         Ok(())
+    }
+}
+
+impl Editor {
+    pub(super) fn selected_indices(&self) -> Vec<usize> {
+        let mut indices: Vec<_> = self
+            .interaction
+            .selected
+            .into_iter()
+            .chain(self.interaction.selected_others.iter().copied())
+            .filter(|i| *i < self.document.marks.len())
+            .collect();
+        indices.sort_unstable();
+        indices.dedup();
+        indices
+    }
+    pub(super) fn set_selection(&mut self, mut indices: Vec<usize>) {
+        indices.sort_unstable();
+        indices.dedup();
+        self.interaction.selected = indices.pop();
+        self.interaction.selected_others = indices;
+        if let Some(mark) = self
+            .interaction
+            .selected
+            .and_then(|i| self.document.marks.get(i))
+        {
+            self.interaction.color = mark.color;
+            self.interaction.width = mark.width;
+        }
+    }
+    pub(super) fn select_region(&mut self, rectangle: (f32, f32, f32, f32), additive: bool) {
+        let mut indices = if additive {
+            self.selected_indices()
+        } else {
+            Vec::new()
+        };
+        indices.extend(
+            self.document
+                .marks
+                .iter()
+                .enumerate()
+                .filter_map(|(i, mark)| {
+                    let (left, top, right, bottom) = mark.bounds();
+                    (left <= rectangle.0 + rectangle.2
+                        && right >= rectangle.0
+                        && top <= rectangle.1 + rectangle.3
+                        && bottom >= rectangle.1)
+                        .then_some(i)
+                }),
+        );
+        self.set_selection(indices);
+    }
+    pub(super) fn update_selected(
+        &mut self,
+        remember: bool,
+        mut update: impl FnMut(&mut crate::document::Mark),
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
+        let updates = self
+            .selected_indices()
+            .into_iter()
+            .map(|index| {
+                let mut mark = self.document.marks[index].clone();
+                update(&mut mark);
+                (index, mark)
+            })
+            .collect();
+        self.edit_document(
+            DocumentAction::EditAnnotations {
+                updates,
+                additions: Vec::new(),
+                deletions: Vec::new(),
+                remember,
+            },
+            cx,
+        )
     }
 }

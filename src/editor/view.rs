@@ -401,6 +401,9 @@ impl Render for Editor {
             .on_action(
                 cx.listener(|this, _: &menus::Help, _, cx| this.dispatch_ui(Action::Help, cx)),
             )
+            .on_action(cx.listener(|this, _: &menus::SelectAll, _, cx| {
+                this.dispatch_ui(Action::SelectAll, cx)
+            }))
             .on_action(cx.listener(|this, _: &menus::Duplicate, _, cx| {
                 this.dispatch_ui(Action::DuplicateSelection, cx)
             }))

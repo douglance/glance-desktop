@@ -235,6 +235,7 @@ impl Editor {
             interaction: InteractionState {
                 gesture: Gesture::Idle,
                 selected: None,
+                selected_others: Vec::new(),
 
                 tool: Tool::Select,
                 color: [255, 56, 100, 255],

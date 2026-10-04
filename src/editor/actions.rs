@@ -39,6 +39,16 @@ pub(crate) enum Action {
     Redo,
     Delete,
     DuplicateSelection,
+    SelectAll,
+    SelectAnnotations {
+        ids: Vec<String>,
+    },
+    /// Select intersecting annotation bounds in source image pixels.
+    SelectRegion {
+        rectangle: (f32, f32, f32, f32),
+        #[serde(default)]
+        additive: bool,
+    },
     SelectTool {
         tool: Tool,
     },

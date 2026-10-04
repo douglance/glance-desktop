@@ -91,6 +91,8 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         json!({"type":"capture","area":true}),
         json!({"type":"open_path","path":"/tmp/glance-synthetic.png"}),
         json!({"type":"select_tool","tool":"arrow"}),
+        json!({"type":"select_region","rectangle":[10,20,30,40],"additive":true}),
+        json!({"type":"select_annotations","ids":["0:0","0:2"]}),
         json!({"type":"set_color","color":[10,20,30,128]}),
         json!({"type":"sample_tool_color","position":[10,20]}),
         json!({"type":"set_stroke_width","width":3}),
@@ -136,6 +138,20 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         let canonical = serde_json::to_value(action).unwrap();
         validate_tool("dispatch_action", &json!({"action":canonical})).unwrap();
         Action::from_json(canonical).unwrap();
+    }
+    for payload in [
+        json!({"type":"select_annotations","ids":[]}),
+        json!({"type":"select_annotations","ids":["4:0","4:2"]}),
+        json!({"type":"select_region","rectangle":[0,0,10,20]}),
+        json!({"type":"select_region","rectangle":[0,0,10,20],"additive":false}),
+    ] {
+        validate_tool("dispatch_action", &json!({"action":payload})).unwrap();
+        let action = Action::from_json(payload).unwrap();
+        validate_tool(
+            "dispatch_action",
+            &json!({"action":serde_json::to_value(action).unwrap()}),
+        )
+        .unwrap();
     }
     for stop in 0..=1 {
         for rgb in [[0, 0, 0], [255, 255, 255], [0, 128, 255]] {

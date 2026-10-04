@@ -15,9 +15,13 @@ Capture, annotate, frame, and share from one native macOS window.
 - **⌘⌥2** captures an area using the native macOS selector. Escape cancels.
 - **⌘⌥3** captures the main display. The app hides itself before capture.
 - **V** selects annotation objects. Click a stroke, shape, label, highlight,
-  numbered callout or pixelation region; drag to move it, then press Delete or
-  Backspace to remove it. Clicking empty canvas or Escape clears selection.
-  The topmost matching object wins. Each move/deletion is one undo step.
+  numbered callout or pixelation region. Drag empty canvas to select annotations
+  whose bounds intersect the box. Shift-drag adds to the selection; Shift-click
+  adds or removes one. **⌘A** selects all annotations (Ctrl+A on Linux); during
+  inline text editing it selects the text. Drag any selected mark to move the
+  group; Delete, ⌘D and arrow-key nudges operate on the entire selection with
+  one undo step. Color, width and appearance edits apply to the whole selection.
+  Clicking empty canvas or Escape clears selection. The topmost clicked object wins.
   Crop and resize preserve editable annotations; rotation still flattens them.
 - Mark up with **P** pen, **A** arrow, **R** rectangle, **T** text, **H** highlight,
   **B** pixelation or **X** crop. Drag to crop immediately; undo restores it.

@@ -595,7 +595,7 @@ impl Editor {
             ),
             Tool::Select => (
                 "V",
-                "Click an annotation to edit it. Drag to move; Delete removes it.",
+                "Drag empty canvas to select multiple annotations. Shift-click adds or removes; ⌘A selects all. Drag to move; Delete removes the selection.",
             ),
         };
         let name = if tool == Tool::Arrow {

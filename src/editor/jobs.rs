@@ -81,8 +81,8 @@ impl Editor {
         }
         self.preview.rendering = true;
         let mut document = self.document.render_snapshot();
-        if let Some((drag, _)) = self.interaction.gesture.drag() {
-            document.marks.truncate(drag.index);
+        if let Some(index) = self.interaction.gesture.first_drag_index() {
+            document.marks.truncate(index);
         }
         let revision = self.preview.revision;
         let count = document.marks.len();
@@ -284,7 +284,7 @@ impl Editor {
                 }
             }
             OperationResult::Transformed(Ok((document, count, image))) => {
-                self.interaction.selected = None;
+                self.set_selection(Vec::new());
                 self.interaction.gesture = Gesture::Idle;
                 self.preview.inside_padding = document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document = document;
@@ -301,7 +301,7 @@ impl Editor {
             }
             OperationResult::Cropped(document, image) => {
                 let count = document.marks.len();
-                self.interaction.selected = None;
+                self.set_selection(Vec::new());
                 self.interaction.gesture = Gesture::Idle;
                 self.preview.inside_padding = document.backdrop.map_or(0, |b| b.inside_padding);
                 self.document = document;
@@ -315,7 +315,7 @@ impl Editor {
                 self.feedback.status = "Cropped • ⌘Z to restore".into();
             }
             OperationResult::Image(Ok(Some(image))) => {
-                self.interaction.selected = None;
+                self.set_selection(Vec::new());
                 self.interaction.gesture = Gesture::Idle;
                 self.document = Document::new(image);
                 self.panels.backdrop_disabled = None;

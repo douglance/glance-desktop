@@ -240,3 +240,15 @@ Seeds range from 0 to 4294967295; 0 restores the original composition. Omitted o
 null seeds choose a new nonzero value. `set_backdrop` also accepts `seed` when
 configuring a complete backdrop. All eight effects loop seamlessly for every
 seed, and preview and PNG/GIF/MP4 exports use the same variation.
+
+Multi-selection uses `dispatch_action` with `select_all`, `select_annotations`
+with exact revision-scoped `ids` from `get_document` (`[]` clears selection), or
+`select_region` with
+`rectangle: [x, y, width, height]` in source pixels and optional `additive: true`.
+The region selects annotations whose bounds intersect it. `get_editor_state`
+returns `selected_indices` and revision-scoped `selected_ids`, retaining `selected`
+as the primary inspector index. `select_all` selects text during an inline edit;
+finish the text edit before selecting explicit annotation IDs.
+`nudge_selection`, `delete`, `duplicate_selection`, color, width and appearance
+changes operate on the full selection atomically with one undo step. Supply
+`expected_revision` to reject stale requests.

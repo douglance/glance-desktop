@@ -459,3 +459,19 @@ while preparing: the first completed frame must remain paused. Replay or edit
 while preparing: stale frames must not remove the cover. Background-only shader
 startup uses the same cover. Confirm playback controls and window input remain
 responsive; normal frame/quality updates must not flash the cover.
+
+## Multi-selection — 2026-10-04
+
+Virtual GPUI coverage checks reversed selection boxes, Shift-drag addition,
+Shift-click toggling, empty-click clearing, cancellation, zoomed source coordinates,
+group preview geometry, one-step group movement/duplication/deletion/style undo,
+contextual Select All and the full native-menu/shortcut event dispatcher. Bridge
+coverage verifies selection read-back, invalid rectangles and stale revisions.
+Group document edits reject invalid members before changing annotations or history.
+
+For manual desktop verification, draw several synthetic annotations, switch to
+Select (V), drag empty canvas across several elements, and confirm the selection
+box and each selected outline remain visible. Shift-click and Shift-drag should
+add/remove elements. Drag a selected element to move the group, then undo once.
+Check ⌘A, ⌘D, Delete and arrow-key nudges, and confirm ⌘A still selects text in
+an inline label, a numeric inspector field and the color hex field.

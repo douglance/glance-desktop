@@ -8,6 +8,8 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- Select mode supports dragging a selection box, Shift-click multi-selection and
+  ⌘A to select all, with group dragging, styling, nudging, duplication and deletion.
 - Animation sidebar now focuses on foreground effects and playback; backdrop
   controls stay in Backdrop and export stays in the toolbar menu. Toolbar icons
   are ordered Backdrop, Animation, then Image tools.

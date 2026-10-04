@@ -47,6 +47,7 @@ impl Editor {
                     | Action::Undo
                     | Action::Redo
                     | Action::Delete
+                    | Action::SelectAll
             );
         if self.is_busy()
             && !contextual_text
@@ -63,6 +64,30 @@ impl Editor {
         {
             return Err("Editor is busy. Wait for the current operation to finish.".into());
         }
+        // Resolve revision-scoped selection IDs before committing text or canceling gestures.
+        let selection_indices = if let Action::SelectAnnotations { ids } = &action {
+            if self.interaction.text_edit.is_some() {
+                return Err("Finish the current text edit before selecting annotation IDs".into());
+            }
+            if ids.len() > 500 {
+                return Err("Maximum 500 selected annotations".into());
+            }
+            Some(
+                ids.iter()
+                    .map(|id| {
+                        let (revision, index) = id.split_once(':').ok_or("Invalid object id")?;
+                        let revision: u64 = revision.parse().map_err(|_| "Invalid revision")?;
+                        let index: usize = index.parse().map_err(|_| "Invalid index")?;
+                        if revision != self.preview.revision || index >= self.document.marks.len() {
+                            return Err("Stale object id; call get_document again".to_string());
+                        }
+                        Ok(index)
+                    })
+                    .collect::<Result<Vec<_>, String>>()?,
+            )
+        } else {
+            None
+        };
         // Validate before committing text or canceling a gesture.
         match &action {
             Action::RandomizeMotion { .. }
@@ -78,6 +103,18 @@ impl Editor {
                 if !width.is_finite() || !(0.5..=64.).contains(width) =>
             {
                 return Err("Stroke width must be 0.5..64".into());
+            }
+            Action::SelectRegion { rectangle, .. }
+                if ![rectangle.0, rectangle.1, rectangle.2, rectangle.3]
+                    .iter()
+                    .all(|n| n.is_finite())
+                    || rectangle.2 < 0.
+                    || rectangle.3 < 0. =>
+            {
+                return Err(
+                    "Selection rectangle must have finite coordinates and nonnegative dimensions"
+                        .into(),
+                );
             }
             Action::SetAppearance { style } => style.validate()?,
             Action::SampleToolColor { .. }
@@ -233,7 +270,14 @@ impl Editor {
                 document, replace, ..
             } => {
                 self.document = *document;
-                self.interaction.selected = self.document.marks.len().checked_sub(1);
+                self.set_selection(
+                    self.document
+                        .marks
+                        .len()
+                        .checked_sub(1)
+                        .into_iter()
+                        .collect(),
+                );
                 self.interaction.tool = Tool::Select;
                 if replace {
                     self.viewport.zoom = None;
@@ -258,6 +302,7 @@ impl Editor {
             | Action::Undo
             | Action::Redo
             | Action::Delete
+            | Action::SelectAll
                 if contextual_text =>
             {
                 let edit = self.interaction.text_edit.as_mut().unwrap();
@@ -282,6 +327,7 @@ impl Editor {
                         edit.buffer.history(matches!(action, Action::Redo))
                     }
                     Action::Delete => edit.buffer.delete(false),
+                    Action::SelectAll => edit.buffer.select_all(),
                     _ => unreachable!(),
                 }
                 edit.caret_on = true;
@@ -293,6 +339,30 @@ impl Editor {
             Action::Redo => self.history(true, cx),
             Action::Delete => self.delete_selected(cx),
             Action::DuplicateSelection => self.duplicate_selected(cx),
+            Action::SelectAll => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.interaction.tool = Tool::Select;
+                self.panels.animation = false;
+                self.set_selection((0..self.document.marks.len()).collect());
+            }
+            Action::SelectAnnotations { .. } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.interaction.tool = Tool::Select;
+                self.panels.animation = false;
+                self.set_selection(selection_indices.unwrap());
+            }
+            Action::SelectRegion {
+                rectangle,
+                additive,
+            } => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.interaction.tool = Tool::Select;
+                self.panels.animation = false;
+                self.select_region(rectangle, additive);
+            }
             Action::SelectTool { tool } => self.set_tool(tool, cx),
             Action::SetColor { color } => {
                 self.interaction.color = color;
@@ -343,21 +413,9 @@ impl Editor {
             }
             Action::NudgeSelection { delta, remember } => {
                 self.cancel_gesture();
-                if let Some(index) = self
-                    .interaction
-                    .selected
-                    .filter(|i| *i < self.document.marks.len())
-                {
-                    self.edit_document(
-                        DocumentAction::MoveAnnotation {
-                            index,
-                            delta,
-                            remember,
-                        },
-                        cx,
-                    )?;
-                }
+                self.update_selected(remember, |mark| mark.translate(delta.0, delta.1), cx)?;
             }
+
             Action::Fit | Action::ActualSize => {
                 self.viewport.zoom = matches!(action, Action::ActualSize).then_some(1.);
                 self.viewport.pan = (0., 0.);
@@ -560,7 +618,7 @@ impl Editor {
                 self.panels.animation = true;
                 self.panels.backdrop = false;
                 self.panels.enhance = false;
-                self.interaction.selected = None;
+                self.set_selection(Vec::new());
                 self.replay_animation(cx);
             }
             Action::SetImageAnimation { animation } => {
@@ -634,7 +692,7 @@ impl Editor {
                     self.feedback.status = "Text canceled".into();
                 } else {
                     self.cancel_gesture();
-                    self.interaction.selected = None;
+                    self.set_selection(Vec::new());
                 }
             }
             Action::Help => {
