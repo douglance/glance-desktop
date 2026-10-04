@@ -97,15 +97,23 @@ repository's Git configuration, which is shared by its worktrees.
 
 ## CI
 
-Every pull request and main-branch push runs formatting, Clippy, tests, release
-packaging, and a real MP4 encode/PNG decode round trip on macOS and Arch Linux.
-Successful runs upload `glance-macos-arm64-dev` (app ZIP plus SHA-256) and
-`glance-omarchy-x86_64` (Linux archive, Arch package/PKGBUILD, and SHA-256 files)
-as Actions artifacts, retained for 14 days. Download them from the run summary.
-The Arch job installs its generated package and checks its CLI and desktop entry.
+Every pull request and main-branch push runs formatting, Clippy, tests, and a
+real MP4 encode/PNG decode round trip on macOS and Arch Linux. These checks do
+not build release packages or upload downloads.
 
-CI uses ad-hoc macOS signing (`GLANCE_CODESIGN_IDENTITY=-`) and verifies the
-bundle and notices. It does not require secrets or publish GitHub Releases.
+The separate [release workflow](../.github/workflows/release.yml) runs only
+when a GitHub release is published, including a prerelease. It checks out that
+release's tag, runs the checks, and builds an Apple Silicon macOS ZIP and an
+Omarchy x86_64 Arch package/Linux archive. The Arch job installs its generated
+package and checks its CLI and desktop entry. After both jobs succeed, packages,
+the PKGBUILD, and SHA-256 files are attached to the existing GitHub release.
+It does not create releases; publishing one is an explicit maintainer action.
+Intermediate Actions artifacts are retained for 14 days; release assets remain
+available on the [Releases page](https://github.com/modem-dev/glance-desktop/releases).
+
+Release packaging currently uses ad-hoc macOS signing
+(`GLANCE_CODESIGN_IDENTITY=-`) and verifies the bundle and notices. Only the
+asset-upload job has repository write permission; no signing secrets are needed.
 A public macOS release still needs a Developer ID Application identity,
 hardened runtime/timestamp signing for all executables, notarization with
 `notarytool`, and a stapled ticket. Intel/universal builds are not configured.

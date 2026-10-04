@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   macos:
-    name: Test and package (macOS ARM64)
+    name: Check (macOS ARM64)
     runs-on: macos-15
     timeout-minutes: 60
     env:
@@ -39,34 +39,14 @@ jobs:
         run: cargo clippy --all-targets --locked -- -D warnings
       - name: Run tests
         run: cargo test --locked
-      - name: Build release app bundle
-        env:
-          GLANCE_CODESIGN_IDENTITY: "-"
-        run: ./scripts/bundle.sh release
-      - name: Test video encode and frame decode
-        run: cargo test --locked native_mcp_video_roundtrip -- --ignored
-      - name: Verify bundle and archive
+      - name: Build video helpers and test encode/decode
         run: |
-          codesign --verify --deep --strict target/Glance.app
-          test -x target/Glance.app/Contents/MacOS/Glance
-          test -x target/Glance.app/Contents/MacOS/glance-video-encoder
-          test -x target/Glance.app/Contents/MacOS/glance-video-frame
-          for notice in LICENSE THIRD_PARTY_NOTICES.md GPUI-LICENSE Lucide-LICENSE; do
-            test -s "target/Glance.app/Contents/Resources/$notice"
-          done
-          mkdir -p target/dist
-          ditto -c -k --sequesterRsrc --keepParent target/Glance.app target/dist/Glance-macos-arm64-dev.zip
-          (cd target/dist && shasum -a 256 Glance-macos-arm64-dev.zip > Glance-macos-arm64-dev.zip.sha256)
-      - name: Upload macOS development build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: glance-macos-arm64-dev
-          path: target/dist/*
-          if-no-files-found: error
-          retention-days: 14
+          /usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_encoder.swift -o target/glance-video-encoder
+          /usr/bin/swiftc -target "$(uname -m)-apple-macosx12.0" -O native/video_frame.swift -o target/glance-video-frame
+          cargo test --locked native_mcp_video_roundtrip -- --ignored
 
   omarchy:
-    name: Test and package (Omarchy x86_64)
+    name: Check (Omarchy x86_64)
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     env:
@@ -98,24 +78,3 @@ jobs:
         run: |
           cp native/linux/glance-video-* target/
           cargo test --locked native_mcp_video_roundtrip -- --ignored
-      - name: Build Linux archive
-        run: ./scripts/package-linux.sh release
-      - name: Build and verify Arch package
-        run: |
-          useradd --create-home builder
-          cp -a target/dist /home/builder/package
-          chown -R builder:builder /home/builder/package
-          runuser -u builder -- sh -c 'cd /home/builder/package && makepkg --noconfirm'
-          cp /home/builder/package/*.pkg.tar.zst target/dist/
-          pacman -U --noconfirm target/dist/*.pkg.tar.zst
-          glance --help
-          ./scripts/test-linux-platform.sh /usr/bin/glance
-          desktop-file-validate /usr/share/applications/glance.desktop
-          (cd target/dist && sha256sum ./*.pkg.tar.zst > arch-package.sha256)
-      - name: Upload Omarchy build
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: glance-omarchy-x86_64
-          path: target/dist/*
-          if-no-files-found: error
-          retention-days: 14

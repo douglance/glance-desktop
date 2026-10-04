@@ -79,10 +79,9 @@ custom signing identities, and permission fixes.
 
 ### Omarchy / Arch Linux (experimental)
 
-CI builds an **x86_64 Arch package** for Omarchy. Download the
-`glance-omarchy-x86_64` artifact from a successful
-[CI run](https://github.com/modem-dev/glance-desktop/actions/workflows/ci.yml),
-extract it, then install the included package:
+The release workflow builds an **x86_64 Arch package** for Omarchy. When a
+[release](https://github.com/modem-dev/glance-desktop/releases) is available,
+download its `.pkg.tar.zst` package and install it:
 
 ```sh
 sudo pacman -U ./glance-desktop-*.pkg.tar.zst
@@ -94,9 +93,10 @@ fonts, and FFmpeg. Your GPU needs a working Vulkan driver. Add optional Hyprland
 bindings to capture from anywhere; see the [Omarchy guide](docs/linux.md).
 Use **Ctrl** in place of **⌘** for editor shortcuts.
 
-CI also uploads an Apple Silicon macOS ZIP, ad-hoc signed for development.
-These are test builds with 14-day retention, not notarized public releases.
-Source builds remain available; the [Omarchy guide](docs/linux.md) covers them.
+Published releases also receive an Apple Silicon macOS ZIP, currently ad-hoc
+signed and not notarized. Packages are built only when a release is published;
+PRs and pushes to `main` run checks. There are no published downloads yet;
+the [Omarchy guide](docs/linux.md) covers source builds and checksum verification.
 
 ## Your first screenshot
 

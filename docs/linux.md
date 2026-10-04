@@ -6,11 +6,11 @@ clipboard operations use `wl-clipboard`, file dialogs use `zenity`, and video
 exports/frame extraction use your system FFmpeg. Linux annotation and UI fonts
 use DejaVu Sans. Remote sharing remains optional, as on macOS.
 
-## Install the CI package
+## Install a release package
 
-Open a successful [CI run](https://github.com/modem-dev/glance-desktop/actions/workflows/ci.yml)
-and download `glance-omarchy-x86_64` from its Artifacts section. Extract the
-Actions ZIP. Verify the package checksum and install it:
+When a [release](https://github.com/modem-dev/glance-desktop/releases) is
+available, download its `.pkg.tar.zst` package and `arch-package.sha256` into
+the same directory. Verify the checksum and install it:
 
 ```sh
 sha256sum -c arch-package.sha256
@@ -19,9 +19,10 @@ glance
 ```
 
 Pacman installs the declared dependencies. A working Vulkan GPU driver is also
-required; keep the driver appropriate to your hardware. CI artifacts are
-short-lived development snapshots; they are not published releases or an AUR
-package. The package places Glance and its helpers in `/usr/lib/glance/bin`,
+required; keep the driver appropriate to your hardware. Packages are built only
+when a GitHub release is published, including a prerelease. There are no
+published downloads yet; use the source instructions below until the first
+release. The package places Glance and its helpers in `/usr/lib/glance/bin`,
 links `/usr/bin/glance`, and installs the launcher/icon/license notices.
 
 ## Capture from Hyprland
@@ -67,7 +68,8 @@ sudo pacman -U ./glance-desktop-*.pkg.tar.zst
 
 `makepkg` runs as your normal user. The generated PKGBUILD installs the archive
 just built, verifies its SHA-256, and preserves both video helpers next to the
-executable. Local packaging follows the host architecture; CI targets x86_64.
+executable. Local packaging follows the host architecture; release builds
+target x86_64.
 
 For iteration, `cargo run --locked` opens the practice canvas. Copy
 `native/linux/glance-video-*` to `target/` once to enable video in Cargo builds.
@@ -77,9 +79,10 @@ remove the compatibility pin when upgrading that upstream dependency.
 
 ## Acceptance checks and limits
 
-CI checks the Linux build, virtual editor interactions, text export, actual
-FFmpeg encode/decode, and the installed Arch package. It cannot verify a real
-Hyprland desktop. Before calling this port stable, check area cancellation,
+CI checks the Linux build, virtual editor interactions, text export, and actual
+FFmpeg encode/decode. The release workflow also verifies the installed Arch
+package. Neither can verify a real Hyprland desktop. Before calling this port
+stable, check area cancellation,
 multi-monitor/scaled capture, clipboard ownership after Glance closes, open/save
 and overwrite dialogs, text/IME, GPU startup, window close, and the optional
 bindings on an Omarchy machine. Check PNG/GIF/MP4 output visually too.

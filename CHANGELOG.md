@@ -16,8 +16,9 @@ yet; the current development version is 0.1.0.
 
 - Experimental Omarchy/Hyprland support with Wayland capture and clipboard,
   Linux dialogs/fonts, Ctrl shortcuts, and FFmpeg video helpers.
-- Downloadable macOS ARM64 ZIP and Omarchy x86_64 Arch package in CI, including
-  real video encode/decode checks.
+- Release-triggered macOS ARM64 ZIP and Omarchy x86_64 Arch package builds with
+  checksums attached to GitHub releases; regular CI includes video encode/decode
+  checks.
 - `--open`, `--capture-area`, and `--capture-screen` startup options.
 
 ### Changed

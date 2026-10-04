@@ -1,0 +1,146 @@
+name: Release packages
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  macos:
+    name: Build release (macOS ARM64)
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          components: rustfmt, clippy
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release
+          save-if: false
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Lint and type-check all targets
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Run tests
+        run: cargo test --locked
+      - name: Build release app bundle
+        env:
+          GLANCE_CODESIGN_IDENTITY: "-"
+        run: ./scripts/bundle.sh release
+      - name: Test video encode and frame decode
+        run: cargo test --locked native_mcp_video_roundtrip -- --ignored
+      - name: Verify bundle and archive
+        run: |
+          codesign --verify --deep --strict target/Glance.app
+          test -x target/Glance.app/Contents/MacOS/Glance
+          test -x target/Glance.app/Contents/MacOS/glance-video-encoder
+          test -x target/Glance.app/Contents/MacOS/glance-video-frame
+          for notice in LICENSE THIRD_PARTY_NOTICES.md GPUI-LICENSE Lucide-LICENSE; do
+            test -s "target/Glance.app/Contents/Resources/$notice"
+          done
+          mkdir -p target/dist
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' target/Glance.app/Contents/Info.plist)"
+          ARCHIVE="Glance-$VERSION-macos-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent target/Glance.app "target/dist/$ARCHIVE"
+          (cd target/dist && shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256")
+      - name: Stage macOS release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: glance-macos-arm64
+          path: target/dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  omarchy:
+    name: Build release (Omarchy x86_64)
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    env:
+      CARGO_BUILD_JOBS: "2"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    timeout-minutes: 60
+    steps:
+      - name: Install build and runtime dependencies
+        run: |
+          pacman -Syu --needed --noconfirm git rust clang cmake \
+            fontconfig freetype2 libx11 libxcb libxkbcommon libxkbcommon-x11 \
+            wayland vulkan-icd-loader desktop-file-utils xdg-utils ttf-dejavu grim slurp wl-clipboard zenity ffmpeg
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.event.release.tag_name }}
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release
+          save-if: false
+      - name: Check formatting
+        run: cargo fmt --check
+      - name: Lint and type-check all targets
+        run: cargo clippy --all-targets --locked -- -D warnings
+      - name: Run tests
+        run: cargo test --locked
+      - name: Test FFmpeg encode and frame decode
+        run: |
+          cp native/linux/glance-video-* target/
+          cargo test --locked native_mcp_video_roundtrip -- --ignored
+      - name: Build Linux archive
+        run: ./scripts/package-linux.sh release
+      - name: Build and verify Arch package
+        run: |
+          useradd --create-home builder
+          cp -a target/dist /home/builder/package
+          chown -R builder:builder /home/builder/package
+          runuser -u builder -- sh -c 'cd /home/builder/package && makepkg --noconfirm'
+          cp /home/builder/package/*.pkg.tar.zst target/dist/
+          pacman -U --noconfirm target/dist/*.pkg.tar.zst
+          glance --help
+          ./scripts/test-linux-platform.sh /usr/bin/glance
+          desktop-file-validate /usr/share/applications/glance.desktop
+          (cd target/dist && sha256sum ./*.pkg.tar.zst > arch-package.sha256)
+      - name: Stage Omarchy release files
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: glance-omarchy-x86_64
+          path: target/dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Attach packages to release
+    needs: [macos, omarchy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified packages
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: glance-*
+          path: dist
+          merge-multiple: true
+      - name: Attach files to the published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
