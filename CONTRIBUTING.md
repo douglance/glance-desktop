@@ -1,43 +1,23 @@
 # Contributing to Glance
 
-Thanks for helping make screenshots easier to understand. Bug fixes, focused
-features, tests, and documentation improvements are welcome.
-
 ## Get started
 
-On macOS, you need macOS 12+, Xcode Command Line Tools, and stable Rust through
-[rustup](https://rustup.rs/). The repository's `rust-toolchain.toml` selects
-stable Rust and installs rustfmt and Clippy. Omarchy contributors should use the
-[Linux setup and packaging guide](docs/linux.md).
+Follow [BUILD.md](BUILD.md) for macOS or Omarchy setup. Use
+[the architecture guide](docs/architecture.md) to find the relevant modules.
 
-```sh
-git clone https://github.com/modem-dev/glance-desktop.git
-cd glance-desktop
-cargo run --locked
-```
+## Report a problem or propose a change
 
-Use the [bundled app setup](README.md#build-and-install) when testing screen
-capture or MP4 export. See [development](docs/development.md) for signing,
-permissions, and the optional pre-commit hook.
-
-## Pick a change
-
-- For a bug, include your OS version, architecture, steps to reproduce,
-  expected result, and what happened. Use a synthetic image when possible;
-  remove sensitive information from screenshots and logs.
-- For a larger feature or architectural change, open an issue describing the
-  problem and proposed approach before investing in an implementation.
-- For a small fix or documentation correction, a pull request is enough.
-- For security issues, follow [SECURITY.md](SECURITY.md).
+- For bugs, include OS version, architecture, reproduction steps, expected result,
+  and what happened. Use synthetic screenshots and remove sensitive data from logs.
+- For larger changes, open an issue describing the problem and approach first.
+  Small fixes can go straight to a pull request.
+- Report vulnerabilities through [SECURITY.md](SECURITY.md).
 
 ## Make a pull request
 
-Keep each PR focused on one problem. Explain the resulting behavior and how
-you checked it. Add a regression test when fixing behavior that can be exercised
-in the document model or GPUI's virtual platform. UI changes should include a
-screenshot or short recording made with non-sensitive sample content.
-
-Run the standard checks:
+Keep each PR focused. Explain the resulting behavior and how you checked it.
+Add a regression test for behavior in the document model or GPUI's virtual platform.
+Include a synthetic screenshot or recording for UI changes.
 
 ```sh
 cargo fmt --check
@@ -45,34 +25,25 @@ cargo clippy --all-targets --locked -- -D warnings
 cargo test --locked
 ```
 
-Build an app bundle when changing native helpers or packaging:
+For native-helper or packaging changes, also run `./scripts/bundle.sh debug`.
+Read opt-in tests before running them; some write media or upload to production.
+Use [QA.md](QA.md) for desktop acceptance and [development](docs/development.md)
+for hooks, CI, and release procedures.
 
-```sh
-./scripts/bundle.sh debug
-```
-
-GitHub Actions runs the same checks and builds the app on macOS. The regular test
-suite does not upload to production or control your desktop. Run ignored tests
-only when their purpose is relevant; some write media or perform live uploads.
-
-Document user-visible changes in [CHANGELOG.md](CHANGELOG.md) under the existing
-`Unreleased` subsection. Update the usage guide when shortcuts or behavior change.
-Commit titles should follow Conventional Commits, such as
-`fix: preserve selection after cropping` or `docs: explain local signing`.
+Update usage docs for behavior or shortcut changes and add user-visible changes
+to the existing `Unreleased` subsection in [CHANGELOG.md](CHANGELOG.md).
+Use Conventional Commits, such as `fix: preserve selection after cropping`.
 
 ## Project conventions
 
-- Preserve the native Rust/GPUI architecture. Start with the
-  [architecture guide](docs/architecture.md) for entry points.
-- Toolbar, menu, shortcut, and MCP triggers should use the common typed action
-  dispatcher. Keep expensive rendering and export off the UI thread.
-- Keep annotations editable through transforms where supported, preserve undo,
-  and reject outdated worker results.
-- Keep capture and local editing usable offline. Remote uploads and the local
-  automation bridge are explicit user actions.
-- Keep third-party attribution and license files with borrowed code or assets.
-- Never commit local signing keys, credentials, or real private captures.
+- Use Rust, Cargo, and the native GPUI architecture.
+- Dispatch toolbar, menu, shortcut, and MCP commands through shared typed actions.
+  Ship new commands/settings with MCP schema, read-back, docs, and contract coverage.
+- Keep rendering and exports off the UI thread. Preserve editable annotations and
+  undo, and reject stale worker results.
+- Keep local editing offline; sharing and automation are explicit user actions.
+- Preserve third-party licenses. Keep signing keys, credentials, and private captures outside Git.
 
-Treat other contributors with respect. Keep discussion focused on the problem
-and the change. By submitting a contribution, you agree to license your original
-contribution under the project's [MIT license](LICENSE).
+See [AGENTS.md](AGENTS.md) for file/process safety and MCP parity requirements.
+Keep discussion respectful and focused on the change. Contributions use the
+project's [MIT license](LICENSE).

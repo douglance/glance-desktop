@@ -4,6 +4,11 @@ Notable user-visible changes are recorded here.
 
 ## [Unreleased]
 
+### Changed
+
+- Reorganized documentation around release installation and first use, added a
+  macOS opening/capture FAQ, and consolidated source-build instructions in BUILD.md.
+
 ## [0.3.0] - 2026-10-04
 
 ### Changed

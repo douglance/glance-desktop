@@ -1,6 +1,6 @@
 # Drawing performance
 
-## Changes
+## Drawing path
 
 Pointer events append image-coordinate points and notify GPUI directly. The live
 stroke is an antialiased GPU path with round caps and joins. Pointer motion does
@@ -46,13 +46,12 @@ the new live path does neither. At extremely long stroke lengths tessellation
 can cost more CPU than the bounded raster comparison, and was approximately 1 ms in
 this run. No fixed FPS or display latency guarantee is claimed.
 
-## Validation
+## Editing and preview
 
 Compositor history/crop, pixelation bounds, non-destructive drafts, shared 4K
 history pixels, and 10,000-point path chunking are covered by automated tests.
-The updated native visual/input check was attempted, but computer use reported
-that the Mac was locked. That check must be completed after unlock; the prior
-build's native drawing/clipboard check does not verify this new rendering path.
+See [QA.md](QA.md) for desktop acceptance and the
+[QA record](docs/qa-history.md) for historical results.
 
 Backdrop controls paint their live preview through GPUI. Changing padding,
 colors, gradients, corners or shadow only updates framing metadata; it does not
@@ -87,19 +86,20 @@ path preparation measured p50 0.005 ms / p95 0.006 ms over 1,000 release samples
 ## Animated backdrops
 
 Display-frame requests run only for an active window with a playing motion
-backdrop. Flow and Starfield paint GPUI Metal gradient, Gaussian shadow and star primitives;
-the screenshot texture stays constant. Animation ticks allocate no screenshot
-pixels, upload no image textures, launch no compositor workers and create no
-undo snapshots. Pause, window deactivation and static backgrounds stop frame
-requests. Drawing and normal object edits retain the existing GPU overlay path.
+backdrop. Flow paints GPUI gradient and shadow primitives while keeping the screenshot
+texture constant. Shader effects use the worker path described below; Nebula
+also paints crisp star points above its worker-rendered background. Animation
+leaves source pixels and undo history unchanged. Pause, window deactivation,
+and static backgrounds stop ongoing frame requests. Drawing and object edits
+retain the GPU overlay path.
 
 Video export composites the screenshot/annotations once, caches the foreground
 and shadow coverage, then streams one bounded frame at a time to an AVFoundation
 helper. Soft-blob export shading uses a cached lookup of GPUI's Gaussian
 integration. Opaque foreground pixels bypass animated shading. H.264 output is
 30 fps with a maximum 1920 px edge; no frame sequence is retained in memory.
-Encoding speed varies with output size and effect; native desktop preview frame
-times/input latency have not been measured because app control remains denied.
+Encoding speed varies with output size and effect. Native display timing and
+input latency require separate measurements.
 
 MCP operations use a serial IPC worker. Image import, document transforms, PNG rendering, and MP4 encode/decode do not run on the GPUI thread. The worker snapshots shared document pixels/history, then applies edits only if the editor revision is unchanged. Preview rendering uses the existing asynchronous cache. Video frames stream to AVFoundation rather than accumulating a clip in memory; inline PNG previews are bounded and do not upscale small source images.
 
