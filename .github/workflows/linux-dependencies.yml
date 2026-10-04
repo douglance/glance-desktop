@@ -19,7 +19,8 @@ permissions:
 
 concurrency:
   group: linux-release-dependencies
-  cancel-in-progress: true
+  # Let a running seed save its libraries before processing the latest update.
+  cancel-in-progress: false
 
 jobs:
   dependencies:
