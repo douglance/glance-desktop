@@ -351,6 +351,7 @@ impl Editor {
             return;
         }
         let m = e.keystroke.modifiers;
+        let command = crate::platform::command_pressed(m);
         if self.interaction.text_edit.is_some() {
             if matches!(key, "enter" | "escape")
                 && self
@@ -374,10 +375,10 @@ impl Editor {
                 }
                 _ => {}
             }
-            if m.platform && (matches!(key, "s" | "o" | "q") || (m.shift && key == "c")) {
+            if command && (matches!(key, "s" | "o" | "q") || (m.shift && key == "c")) {
                 self.dispatch_ui(Action::CommitText, cx);
             } else {
-                let text_action = if m.platform {
+                let text_action = if command {
                     match key {
                         "c" => Some(Action::Copy),
                         "x" => Some(Action::Cut),
@@ -397,7 +398,7 @@ impl Editor {
                 }
                 let edit = self.interaction.text_edit.as_mut().unwrap();
                 let mut handled = true;
-                if m.platform {
+                if command {
                     match key {
                         "a" => edit.buffer.select_all(),
                         "left" => edit.buffer.move_to(0, m.shift),
@@ -423,7 +424,7 @@ impl Editor {
                 return;
             }
         }
-        if !m.platform && !m.alt && !m.control {
+        if !command && !m.alt && !m.control {
             if key == "space" {
                 self.viewport.space_down = true;
                 cx.notify();
@@ -458,9 +459,9 @@ impl Editor {
                 return;
             }
         }
-        let action = if m.platform && m.alt && matches!(key, "2" | "3") {
+        let action = if command && m.alt && matches!(key, "2" | "3") {
             Some(Action::Capture { area: key == "2" })
-        } else if m.platform {
+        } else if command {
             match key {
                 "q" => Some(Action::Quit),
                 "c" if m.shift => Some(Action::CopyRemote),
@@ -552,7 +553,7 @@ impl Editor {
             return;
         }
         let delta = e.delta.pixel_delta(px(24.));
-        let action = if e.modifiers.platform {
+        let action = if crate::platform::command_pressed(e.modifiers) {
             Action::ZoomAt {
                 factor: (f32::from(delta.y) * 0.008).exp(),
                 anchor: (f32::from(e.position.x), f32::from(e.position.y)),

@@ -2,7 +2,7 @@
 name = "glance"
 version = "0.1.0"
 edition = "2024"
-description = "A native macOS screenshot editor for annotation, animated backdrops, and sharing visual context with coding agents."
+description = "A native screenshot editor for annotation, animated backdrops, and sharing visual context with coding agents."
 license = "MIT"
 repository = "https://github.com/modem-dev/glance-desktop"
 homepage = "https://glance.sh"
@@ -16,8 +16,6 @@ publish = false
 gpui = { version = "=0.2.2", features = ["runtime_shaders"] }
 image = "0.25"
 imageproc = "0.25"
-global-hotkey = "0.7"
-arboard = "3.6"
 smallvec = "1"
 ab_glyph = "0.2"
 async-channel = "2"
@@ -34,7 +32,14 @@ sha2 = "0.10"
 hkdf = "0.12"
 aes-gcm = "0.10"
 
+[target.'cfg(target_os = "linux")'.dependencies]
+# GPUI 0.2.2 pulls xattr 0.2.3, which still uses libc::ENOATTR on Linux.
+# Keep the last verified compatible libc until that upstream dependency changes.
+libc = "=0.2.186"
+
 [target.'cfg(target_os = "macos")'.dependencies]
+global-hotkey = "0.7"
+arboard = "3.6"
 cocoa = "0.26"
 objc = "0.2"
 block = "0.1"

@@ -36,7 +36,14 @@ pub enum Request {
 }
 pub fn directory() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or("HOME is unavailable")?;
+    #[cfg(target_os = "macos")]
     let dir = PathBuf::from(home).join("Library/Caches/sh.glance.desktop/automation");
+    #[cfg(target_os = "linux")]
+    let dir = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .unwrap_or_else(|| PathBuf::from(home).join(".cache"))
+        .join("glance/automation");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
         .map_err(|e| e.to_string())?;

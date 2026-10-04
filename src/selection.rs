@@ -17,31 +17,23 @@ impl Mark {
         let a = self.points.first().copied().unwrap_or_default();
         if self.tool == Tool::Text {
             let em = (self.width * 7.).max(1.);
-            static FONT: std::sync::OnceLock<Option<ab_glyph::FontArc>> =
-                std::sync::OnceLock::new();
-            let font = FONT.get_or_init(|| {
-                std::fs::read("/System/Library/Fonts/Supplemental/Arial.ttf")
-                    .ok()
-                    .and_then(|b| ab_glyph::FontArc::try_from_vec(b).ok())
-            });
-            let w = font
-                .as_ref()
-                .map_or(self.text.chars().count() as f32 * em * 0.65, |f| {
-                    let scaled = f.as_scaled(
-                        em * f.height_unscaled() / f.units_per_em().unwrap_or(f.height_unscaled()),
-                    );
-                    let mut previous = None;
-                    let mut width = 0.;
-                    for c in self.text.chars() {
-                        let id = f.glyph_id(c);
-                        if let Some(p) = previous {
-                            width += scaled.kern(p, id);
-                        }
-                        width += scaled.h_advance(id);
-                        previous = Some(id);
+            let font = crate::platform::annotation_font();
+            let w = font.map_or(self.text.chars().count() as f32 * em * 0.65, |f| {
+                let scaled = f.as_scaled(
+                    em * f.height_unscaled() / f.units_per_em().unwrap_or(f.height_unscaled()),
+                );
+                let mut previous = None;
+                let mut width = 0.;
+                for c in self.text.chars() {
+                    let id = f.glyph_id(c);
+                    if let Some(p) = previous {
+                        width += scaled.kern(p, id);
                     }
-                    width
-                });
+                    width += scaled.h_advance(id);
+                    previous = Some(id);
+                }
+                width
+            });
             return (a.0, a.1, a.0 + w.max(1.), a.1 + em);
         }
         if self.tool == Tool::Magnifier {

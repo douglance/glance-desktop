@@ -5,9 +5,10 @@ features, tests, and documentation improvements are welcome.
 
 ## Get started
 
-You need macOS 12+, Xcode Command Line Tools, and stable Rust installed through
+On macOS, you need macOS 12+, Xcode Command Line Tools, and stable Rust through
 [rustup](https://rustup.rs/). The repository's `rust-toolchain.toml` selects
-stable Rust and installs rustfmt and Clippy.
+stable Rust and installs rustfmt and Clippy. Omarchy contributors should use the
+[Linux setup and packaging guide](docs/linux.md).
 
 ```sh
 git clone https://github.com/modem-dev/glance-desktop.git
@@ -21,7 +22,7 @@ permissions, and the optional pre-commit hook.
 
 ## Pick a change
 
-- For a bug, include your macOS version, Mac architecture, steps to reproduce,
+- For a bug, include your OS version, architecture, steps to reproduce,
   expected result, and what happened. Use a synthetic image when possible;
   remove sensitive information from screenshots and logs.
 - For a larger feature or architectural change, open an issue describing the

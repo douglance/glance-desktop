@@ -142,7 +142,7 @@ pub fn paint(
     };
     let run = TextRun {
         len: content.len(),
-        font: font("Arial"),
+        font: font(crate::platform::ANNOTATION_FONT),
         color: color.into(),
         background_color: None,
         underline: None,

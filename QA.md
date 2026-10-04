@@ -223,3 +223,12 @@ are signed first, then the staged bundle is signed and strictly verified.
 satisfy the same certificate-based requirement. The renamed bundle passed this
 check locally. Glance uses `sh.glance.desktop` and needs a one-time Screen
 Recording grant after the rename; actual desktop capture remains a manual pass.
+
+## Omarchy acceptance
+
+The Linux port is experimental. CI covers virtual editor tests, exported text,
+FFmpeg video round trips, and an installable Arch package. Before treating it as
+stable, complete the real Hyprland checks in [docs/linux.md](docs/linux.md),
+including capture/cancellation with display scaling, clipboard persistence,
+file dialogs/overwrite behavior, Ctrl shortcuts/IME, Vulkan startup, and window
+close. Linux animated backdrops currently use CPU rendering.

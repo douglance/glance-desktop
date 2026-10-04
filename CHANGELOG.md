@@ -14,6 +14,12 @@ yet; the current development version is 0.1.0.
 - Temporary image sharing through glance.sh and an opt-in local MCP companion.
 - MIT license, contributor and security guides, and macOS build validation.
 
+- Experimental Omarchy/Hyprland support with Wayland capture and clipboard,
+  Linux dialogs/fonts, Ctrl shortcuts, and FFmpeg video helpers.
+- Downloadable macOS ARM64 ZIP and Omarchy x86_64 Arch package in CI, including
+  real video encode/decode checks.
+- `--open`, `--capture-area`, and `--capture-screen` startup options.
+
 ### Changed
 
 - Reorganized the README around trying the app and sharing visual context, with

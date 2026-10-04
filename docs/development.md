@@ -5,7 +5,8 @@
 ## Build and run
 
 
-Requires macOS 12+, Xcode Command Line Tools and a current stable Rust toolchain.
+On macOS, requires macOS 12+, Xcode Command Line Tools and a current stable Rust
+toolchain. For Linux dependencies and packaging, see [Omarchy](linux.md).
 
 ```sh
 cargo run --locked
@@ -96,10 +97,19 @@ repository's Git configuration, which is shared by its worktrees.
 
 ## CI
 
-GitHub Actions runs formatting, Clippy, tests, and an app bundle build on macOS.
-CI uses ad-hoc signing (`GLANCE_CODESIGN_IDENTITY=-`), verifies the bundle and
-bundled notices, and does not change certificate trust or require signing secrets.
-This verifies packaging; it does not produce a notarized release.
+Every pull request and main-branch push runs formatting, Clippy, tests, release
+packaging, and a real MP4 encode/PNG decode round trip on macOS and Arch Linux.
+Successful runs upload `glance-macos-arm64-dev` (app ZIP plus SHA-256) and
+`glance-omarchy-x86_64` (Linux archive, Arch package/PKGBUILD, and SHA-256 files)
+as Actions artifacts, retained for 14 days. Download them from the run summary.
+The Arch job installs its generated package and checks its CLI and desktop entry.
+
+CI uses ad-hoc macOS signing (`GLANCE_CODESIGN_IDENTITY=-`) and verifies the
+bundle and notices. It does not require secrets or publish GitHub Releases.
+A public macOS release still needs a Developer ID Application identity,
+hardened runtime/timestamp signing for all executables, notarization with
+`notarytool`, and a stapled ticket. Intel/universal builds are not configured.
+CI’s virtual UI tests do not replace a real desktop acceptance pass.
 
 To verify packaging locally without replacing your normal bundle, choose a
 separate output path. Use ad-hoc signing only for this isolated check:

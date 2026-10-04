@@ -53,7 +53,7 @@ impl Editor {
         self.commit_text(cx);
         self.cancel_gesture();
         self.feedback.status = "Capturing… Escape cancels area selection".into();
-        cx.hide();
+        crate::platform::hide_editor(cx);
         self.spawn_operation(id, move || OperationResult::Image(platform::capture(area)));
         cx.notify();
         Ok(())

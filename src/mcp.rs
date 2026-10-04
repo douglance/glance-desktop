@@ -18,7 +18,8 @@ fn tool(name: &str, description: &str, properties: Value, required: &[&str], rea
 }
 pub fn tools() -> Vec<Value> {
     let number = json!({"type":"number"});
-    let path = json!({"type":"string","description":"Absolute path on the Mac running Glance."});
+    let path =
+        json!({"type":"string","description":"Absolute path on the computer running Glance."});
     let revision = json!({"type":"integer","minimum":0});
     let mark = json!({"type":"object","description":"Editable mark: tool, points [[x,y],...], color [r,g,b,a], width, text, curve (optional [x,y]). All coordinates source image pixels. Tools: arrow, pen, rectangle, highlight, pixelate, text, counter, spotlight, magnifier. Spotlight uses opposite corners. Magnifier points are [source center,lens center], width × 12 is lens radius, text is zoom 1.5..4 (default 2). Text font size = width × 7.","properties":{"tool":{"type":"string","enum":["arrow","pen","rectangle","highlight","pixelate","text","counter","spotlight","magnifier"]},"points":{"type":"array","minItems":1,"maxItems":2000,"items":{"type":"array","items":{"type":"number"},"minItems":2,"maxItems":2}},"color":{"type":"array","items":{"type":"integer","minimum":0,"maximum":255},"minItems":4,"maxItems":4},"width":{"type":"number","minimum":0.5,"maximum":64},"text":{"type":"string","maxLength":2000},"curve":{"type":["array","null"],"items":{"type":"number"},"minItems":2,"maxItems":2}},"required":["tool","points","color","width","text"],"additionalProperties":false});
     vec![
@@ -284,13 +285,11 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
                 }
                 decode(STANDARD.decode(data).map_err(|e| e.to_string())?)?
             } else {
-                let mut clipboard = arboard::Clipboard::new().map_err(|e| e.to_string())?;
-                let i = clipboard.get_image().map_err(|e| e.to_string())?;
-                if i.width as u64 * i.height as u64 > 32_000_000 {
+                let image = crate::platform::clipboard_image()?;
+                if image.width() as u64 * image.height() as u64 > 32_000_000 {
                     return Err("Clipboard image exceeds 32 megapixels".into());
                 }
-                image::RgbaImage::from_raw(i.width as u32, i.height as u32, i.bytes.into_owned())
-                    .ok_or("Invalid clipboard image")?
+                image
             };
             s.document = Document::new(image);
             replace = true;
@@ -443,14 +442,16 @@ fn helper(name: &str) -> Result<PathBuf, String> {
             return Ok(p);
         }
     }
-    Err(format!("Missing {name}; run scripts/bundle.sh first"))
+    Err(format!(
+        "Missing {name}; run scripts/bundle.sh (macOS) or scripts/package-linux.sh first"
+    ))
 }
 fn response(request: Value) -> Option<Value> {
     let id = request.get("id")?.clone();
     let method = request["method"].as_str().unwrap_or("");
     let result = match method {
         "initialize" => Ok(
-            json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"glance","version":env!("CARGO_PKG_VERSION")},"instructions":"Drive the native Glance editor via structured tools. Launch Glance --automation first. Image coordinates exclude backdrop padding. Read get_document before object edits; IDs are revision-scoped. read_image/read_video_frame return model-visible PNGs. Local paths refer to the Mac, not ChatGPT uploaded file IDs; supply base64 bytes or stage files locally. Import replaces the current document; other edits support native undo."}),
+            json!({"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"glance","version":env!("CARGO_PKG_VERSION")},"instructions":"Drive the native Glance editor via structured tools. Launch Glance --automation first. Image coordinates exclude backdrop padding. Read get_document before object edits; IDs are revision-scoped. read_image/read_video_frame return model-visible PNGs. Local paths refer to the computer running Glance, not ChatGPT uploaded file IDs; supply base64 bytes or stage files locally. Import replaces the current document; other edits support native undo."}),
         ),
         "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({"tools":tools()})),

@@ -1,0 +1,18 @@
+[Desktop Entry]
+Type=Application
+Name=Glance
+Comment=Capture, annotate, and share screenshots
+Exec=glance
+Icon=glance
+Terminal=false
+Categories=Graphics;Utility;
+Keywords=screenshot;annotation;capture;
+Actions=CaptureArea;CaptureScreen;
+
+[Desktop Action CaptureArea]
+Name=Capture Area
+Exec=glance --capture-area
+
+[Desktop Action CaptureScreen]
+Name=Capture Screen
+Exec=glance --capture-screen
