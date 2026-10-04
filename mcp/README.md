@@ -5,7 +5,9 @@ Image entrances are available through `dispatch_action`: `toggle_animation_panel
 `set_image_animation` (`animation`: `effect`, `duration_ms`, `delay_ms`, `seconds`,
 `exit`), `set_animation_control`, `seek_animation` (`seconds`), and
 `replay_animation`. `get_document` includes `image_animation`; `get_editor_state`
-includes the Animation panel and playback time. MP4/GIF export accepts an image
+includes the Animation panel, playback time and `playback.preparing`.
+The native canvas shows “Preparing preview…” during initial rendering and seeking;
+playback time holds until a matching frame is ready. MP4/GIF export accepts an image
 entrance over a still or absent backdrop and always begins at time zero.
 The native Animation panel focuses on the foreground track and playback;
 backdrop settings live in Backdrop and exports in the toolbar Export menu.

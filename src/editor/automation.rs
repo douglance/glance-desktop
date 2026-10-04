@@ -22,7 +22,7 @@ impl Editor {
                     "image_animation":self.document.image_animation,
                     "sampling_backdrop_color":self.panels.sampling_color,
                     "sampling_tool_color":self.panels.sampling_tool_color,
-                    "playback":{"paused":self.playback.paused,"time":self.clip_time(),"seconds":self.document.animation_seconds()},
+                    "playback":{"preparing":self.preview_preparing(),"paused":self.playback.paused,"time":self.clip_time(),"seconds":self.document.animation_seconds()},
                     "status":self.feedback.status,
                 })));
             }

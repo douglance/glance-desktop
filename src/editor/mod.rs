@@ -273,6 +273,7 @@ impl Editor {
                 seek: 0,
                 epoch: std::time::Instant::now(),
                 paused: false,
+                preparing: false,
                 position: 0.,
             },
             video_export: VideoExportState {

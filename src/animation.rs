@@ -402,6 +402,17 @@ impl Renderer {
         renderer.transparent_background = document.backdrop.is_none();
         renderer
     }
+    fn prepare_preview(&self) {
+        #[cfg(target_os = "macos")]
+        if self.image_animation.enabled() {
+            // A real command also warms Metal's first dispatch, behind the loading overlay.
+            let _ = entrance::gpu_preview_warmup(
+                &self.foreground,
+                self.image_animation.effect,
+                self.image_bounds,
+            );
+        }
+    }
     pub fn frame(&self, phase: f32) -> RgbaImage {
         let foreground = entrance::render_foreground(
             &self.foreground,

@@ -54,6 +54,7 @@ pub(super) struct PlaybackState {
     pub(super) seek: u64,
     pub(super) epoch: std::time::Instant,
     pub(super) paused: bool,
+    pub(super) preparing: bool,
     pub(super) position: f32,
 }
 pub(super) struct VideoExportState {

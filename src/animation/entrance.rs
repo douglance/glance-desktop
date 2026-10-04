@@ -298,6 +298,15 @@ pub(super) fn render_foreground(
     foreground(cached, animation, bounds, seconds)
 }
 
+#[cfg(target_os = "macos")]
+pub(super) fn gpu_preview_warmup(
+    source: &std::sync::Arc<image::RgbaImage>,
+    effect: Entrance,
+    bounds: (f32, f32, f32, f32),
+) -> Result<(), String> {
+    gpu::frame(source, effect, bounds, 0.5).map(|_| ())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

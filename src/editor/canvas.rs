@@ -61,6 +61,7 @@ impl Editor {
                 .borrow_mut()
                 .source(&self.document, self_revision)
         });
+        self.sync_preview_preparation(self.preview_preparing());
         let clip_time = self.clip_time();
         let seek = self.playback.seek;
         if !composition {
@@ -182,6 +183,17 @@ impl Editor {
                                         && clip_time < document.animation_seconds() as f32,
                                     window,
                                 );
+                                let preparing =
+                                    !composition_preview.borrow().ready_for(self_revision, seek);
+                                if preparing {
+                                    paint_preparing(frame_bounds.intersect(&bounds), window, cx);
+                                }
+                                text_entity.update(cx, |editor, cx| {
+                                    if editor.playback.preparing != preparing {
+                                        editor.sync_preview_preparation(preparing);
+                                        cx.notify();
+                                    }
+                                });
                                 return;
                             }
                             if let Some(b) = backdrop {
@@ -342,16 +354,33 @@ impl Editor {
                                     );
                                 },
                             );
+                            let preparing = backdrop.is_some_and(|b| {
+                                b.motion.uses_shader() && !motion_preview.borrow().ready_for(b)
+                            });
+                            if preparing {
+                                paint_preparing(frame_bounds.intersect(&bounds), window, cx);
+                            }
+                            text_entity.update(cx, |editor, cx| {
+                                if editor.playback.preparing != preparing {
+                                    editor.sync_preview_preparation(preparing);
+                                    cx.notify();
+                                }
+                            });
                         },
                     )
                     .h_full()
                     .flex_1()
                     .min_w_0(),
                     crate::accessibility::Node::group(format!(
-                        "Screenshot canvas, {} by {} pixels, {} annotations",
+                        "Screenshot canvas, {} by {} pixels, {} annotations{}",
                         dimensions.0,
                         dimensions.1,
-                        self.document.marks.len()
+                        self.document.marks.len(),
+                        if self.playback.preparing {
+                            ", preparing preview"
+                        } else {
+                            ""
+                        }
                     )),
                 ),
             )
@@ -369,4 +398,45 @@ impl Editor {
                 el.child(self.animation_controls(cx))
             })
     }
+}
+
+// An opaque cover hides partial backdrops/cards until a matching worker frame exists.
+// Preparation has no measurable total, so use a status rather than a fake percentage.
+fn paint_preparing(bounds: Bounds<Pixels>, window: &mut Window, cx: &mut App) {
+    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+        window.paint_quad(fill(bounds, rgb(0xe7e9ef)));
+        let text: SharedString = "Preparing preview…".into();
+        let font_size = px(14.);
+        let line = window.text_system().shape_line(
+            text.clone(),
+            font_size,
+            &[TextRun {
+                len: text.len(),
+                font: font(crate::platform::UI_FONT),
+                color: rgb(0x303542).into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            }],
+            None,
+        );
+        let badge = Bounds::new(
+            bounds.center() - point((line.width + px(32.)) / 2., px(20.)),
+            size(line.width + px(32.), px(40.)),
+        );
+        window.paint_quad(quad(
+            badge,
+            px(10.),
+            rgb(0xffffff),
+            px(1.),
+            rgb(0xd8dbe4),
+            Default::default(),
+        ));
+        let _ = line.paint(
+            badge.origin + point(px(16.), px(10.)),
+            font_size,
+            window,
+            cx,
+        );
+    });
 }

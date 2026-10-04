@@ -449,3 +449,13 @@ Omarchy accessibility and native export dialogs remain separate acceptance work.
 Formatting, strict Clippy and the regular suite pass: 146 passed, 16 opt-in tests
 ignored. The isolated debug bundle builds and signs successfully; the existing
 rust-objcopy/libLLVM debug-stripping warning remains non-fatal.
+
+### Preview preparation cover
+
+With a large synthetic image, select a shader backdrop and a foreground entrance.
+Replay and seek: “Preparing preview…” must cover the image until a matching frame
+is ready, then the entrance must start at zero (or the sought position). Pause
+while preparing: the first completed frame must remain paused. Replay or edit
+while preparing: stale frames must not remove the cover. Background-only shader
+startup uses the same cover. Confirm playback controls and window input remain
+responsive; normal frame/quality updates must not flash the cover.

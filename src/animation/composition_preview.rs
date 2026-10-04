@@ -154,6 +154,9 @@ impl Prepared {
         let mut renderer =
             Renderer::with_animation(pixels, spec.backdrop, Some(spec.edge), spec.animation);
         renderer.transparent_background = source.backdrop.is_none();
+        // Compile and upload before publishing the initial (often hidden) pose.
+        // Otherwise the first visible entrance frame can stall after playback starts.
+        renderer.prepare_preview();
         renderer
     }
     fn new(request: &Request) -> Self {
@@ -195,6 +198,7 @@ pub struct CompositionPreview {
     worker: Worker,
     source: Option<(u64, Arc<Document>)>,
     image: Option<Arc<RenderImage>>,
+    painted: Option<Key>,
     requested: Option<(Key, bool)>,
     quality: AdaptiveQuality,
 }
@@ -222,6 +226,27 @@ impl CompositionPreview {
             ),
             source: None,
             image: None,
+            painted: None,
+            requested: None,
+            quality: AdaptiveQuality::default(),
+        }
+    }
+    #[cfg(test)]
+    pub(crate) fn blocked_for_test(
+        gate: std::sync::mpsc::Receiver<()>,
+        notify: impl Fn() + Send + 'static,
+    ) -> Self {
+        Self {
+            worker: Worker::new(
+                move |_| {
+                    let _ = gate.recv();
+                    crate::editor::render_image(image::RgbaImage::new(2, 2))
+                },
+                notify,
+            ),
+            source: None,
+            image: None,
+            painted: None,
             requested: None,
             quality: AdaptiveQuality::default(),
         }
@@ -232,8 +257,15 @@ impl CompositionPreview {
             let _ = window.drop_image(image);
         }
         self.source = None;
+        self.painted = None;
         self.requested = None;
         self.quality = AdaptiveQuality::default();
+    }
+    pub fn ready_for(&self, revision: u64, seek: u64) -> bool {
+        self.image.is_some()
+            && self
+                .painted
+                .is_some_and(|key| key.spec.revision == revision && key.seek == seek)
     }
     pub fn source(&mut self, document: &Document, revision: u64) -> Arc<Document> {
         if self.source.as_ref().is_none_or(|(r, _)| *r != revision) {
@@ -292,6 +324,7 @@ impl CompositionPreview {
                 && completed.key.spec == spec
                 && completed.key.seek == seek
             {
+                self.painted = Some(completed.key);
                 if let Some(old) = self.image.replace(completed.image) {
                     let _ = window.drop_image(old);
                 }
@@ -350,6 +383,11 @@ mod tests {
             ),
             source: Some((0, document.clone())),
             image: Some(image.clone()),
+            painted: Some(Key {
+                spec,
+                tick: 12,
+                seek: 0,
+            }),
             requested: Some((
                 Key {
                     spec,
@@ -369,6 +407,8 @@ mod tests {
         let mut visual = VisualTestContext::from_window(*view, cx);
         visual.simulate_resize(size(px(1050.), px(600.)));
         visual.run_until_parked();
+        assert!(preview.borrow().ready_for(0, 0));
+        assert!(!preview.borrow().ready_for(0, 1));
         assert!(Arc::ptr_eq(
             preview.borrow().image.as_ref().unwrap(),
             &image
@@ -380,6 +420,7 @@ mod tests {
         .unwrap();
         visual.run_until_parked();
         assert!(preview.borrow().image.is_none());
+        assert!(!preview.borrow().ready_for(1, 0));
         drop(release);
     }
 

@@ -1335,3 +1335,93 @@ fn tool_screen_color_results_reject_stale_operations_revisions_and_targets(
         assert_eq!(e.tool_settings().color, [4, 5, 6, 64]);
     });
 }
+
+#[gpui::test]
+fn preview_preparation_holds_playback_and_reports_loading_through_bridge(cx: &mut TestAppContext) {
+    use crate::{animation::Entrance, automation::Request};
+    use std::{
+        cell::RefCell,
+        rc::Rc,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let (release, gate) = mpsc::channel();
+    let (notify, notifications) = mpsc::channel();
+    let preview = Rc::new(RefCell::new(
+        crate::animation::CompositionPreview::blocked_for_test(gate, move || {
+            let _ = notify.send(());
+        }),
+    ));
+    let view = cx.add_window(|_, cx| {
+        let mut editor = Editor::with_native(cx, false);
+        editor.document = Document::new(image::RgbaImage::new(2, 2));
+        editor.document.image_animation.effect = Entrance::Tilt;
+        editor.playback.composition_preview = preview;
+        editor.panels.animation = true;
+        editor.dispatch(Action::ReplayAnimation, cx).unwrap();
+        editor
+    });
+    let root = view.root(cx).unwrap();
+    let mut visual = VisualTestContext::from_window(*view, cx);
+    visual.simulate_resize(gpui::size(gpui::px(1050.), gpui::px(600.)));
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        e.playback.epoch = Instant::now() - Duration::from_secs(3);
+        assert_eq!(e.clip_time(), 0., "loading must not skip the entrance");
+        assert!(e.playback.preparing);
+        assert!(
+            e.accessibility
+                .nodes()
+                .iter()
+                .any(|node| node.label.ends_with("preparing preview")),
+            "the canvas must expose its loading cover"
+        );
+        let (reply, response) = mpsc::channel();
+        e.automation(Request::State(reply), cx);
+        let state = response.recv().unwrap().unwrap();
+        assert_eq!(state["playback"]["preparing"], true);
+        assert_eq!(state["playback"]["time"], 0.);
+    });
+    release.send(()).unwrap();
+    notifications.recv_timeout(Duration::from_secs(3)).unwrap();
+    root.update(&mut visual, |_, cx| cx.notify());
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        assert!(!e.playback.preparing);
+        assert!(e.clip_time() < 0.5, "the clock must restart after loading");
+        e.dispatch(Action::SeekAnimation { seconds: 1.25 }, cx)
+            .unwrap();
+    });
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        assert!(e.playback.preparing);
+        assert!(e.playback.paused);
+        assert_eq!(e.clip_time(), 1.25);
+        e.dispatch(Action::TogglePlayback, cx).unwrap();
+        e.playback.epoch = Instant::now() - Duration::from_secs(3);
+        e.dispatch(Action::TogglePlayback, cx).unwrap();
+        assert!(e.playback.paused);
+        assert_eq!(
+            e.clip_time(),
+            1.25,
+            "pausing while loading preserves the sought time"
+        );
+    });
+    // Allow any obsolete in-flight request and the sought frame to finish.
+    drop(release);
+    notifications.recv_timeout(Duration::from_secs(3)).unwrap();
+    root.update(&mut visual, |_, cx| cx.notify());
+    visual.run_until_parked();
+    root.update(&mut visual, |e, cx| {
+        assert!(!e.playback.preparing);
+        assert!(e.playback.paused);
+        assert_eq!(e.clip_time(), 1.25);
+        e.dispatch(Action::TogglePlayback, cx).unwrap();
+        assert!(
+            e.playback.preparing,
+            "Play must wait for its playback-quality frame"
+        );
+        e.playback.epoch = Instant::now() - Duration::from_secs(3);
+        assert_eq!(e.clip_time(), 1.25);
+    });
+}

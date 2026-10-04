@@ -96,6 +96,10 @@ adaptive preview quality policy. Preview and PNG/MP4/GIF use the same compositor
 Prepared annotated pixels survive effect/timing and quality edits; only image or
 annotation changes rerasterize them. Quality changes retain the last displayed
 composition, and entering composition preview can retain the previous backdrop.
+The canvas covers cold starts and seeks until a frame matching the document revision
+and seek is painted. The playback clock holds during preparation and restarts
+when the cover clears; shader warmup happens on the composition worker before
+its initial frame is published. MCP exposes this as `playback.preparing`.
 Entrances use absolute clip time; backdrop phase remains periodic. Video exports
 start at time zero, and an optional exit restores the background at the loop end.
 Normal editing uses the settled image pose, preserving annotation hit testing.

@@ -197,6 +197,16 @@ impl Preview {
         self.worker.clear();
         self.requested = None;
     }
+    pub fn ready_for(&self, b: Backdrop) -> bool {
+        self.image.is_some()
+            && self.base.is_some_and(|base| {
+                base.motion == b.motion
+                    && base.preset == b.preset
+                    && base.seed == b.seed
+                    && base.colors == b.colors
+                    && base.frames == b.seconds.max(2) * 30
+            })
+    }
     pub fn paint_cached(&self, b: Backdrop, bounds: Bounds<Pixels>, window: &mut Window) {
         if self.base.is_some_and(|base| {
             base.motion == b.motion
@@ -457,6 +467,20 @@ mod tests {
             base: Some(first.spec),
             quality: AdaptiveQuality::default(),
         };
+        let backdrop = Backdrop {
+            motion: Motion::Liquid,
+            preset: first.spec.preset,
+            ..Default::default()
+        };
+        assert!(preview.ready_for(backdrop));
+        assert!(!preview.ready_for(Backdrop {
+            seed: 42,
+            ..backdrop
+        }));
+        assert!(!preview.ready_for(Backdrop {
+            seconds: 6,
+            ..backdrop
+        }));
         preview.suspend();
         assert!(Arc::ptr_eq(preview.image.as_ref().unwrap(), &image));
         assert!(

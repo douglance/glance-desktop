@@ -14,6 +14,9 @@ Notable user-visible changes are recorded here.
 
 ### Fixed
 
+- Animation previews show a loading cover while preparing the first frame or
+  seeking, and hold playback so startup does not skip the entrance or flash
+  incomplete frames.
 - Foreground animations over moving backdrops use cached Metal sampling on macOS,
   reuse the prepared card during effect/timing edits, and avoid blank flashes
   while preview quality changes or the combined preview starts.

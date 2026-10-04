@@ -363,9 +363,32 @@ impl Editor {
         });
         cx.notify();
     }
+    pub(super) fn preview_preparing(&self) -> bool {
+        if self.panels.animation && self.document.image_animation.enabled() {
+            !self
+                .playback
+                .composition_preview
+                .borrow()
+                .ready_for(self.preview.revision, self.playback.seek)
+        } else {
+            self.document.backdrop.is_some_and(|b| {
+                b.motion.uses_shader() && !self.playback.motion_preview.borrow().ready_for(b)
+            })
+        }
+    }
+    pub(super) fn sync_preview_preparation(&mut self, preparing: bool) {
+        if self.playback.preparing == preparing {
+            return;
+        }
+        if preparing && !self.playback.paused {
+            self.playback.position += self.playback.epoch.elapsed().as_secs_f32();
+        }
+        self.playback.epoch = std::time::Instant::now();
+        self.playback.preparing = preparing;
+    }
     pub(super) fn animation_phase(&self) -> f32 {
         let seconds = self.document.animation_seconds().max(2) as f32;
-        let elapsed = if self.playback.paused {
+        let elapsed = if self.playback.paused || self.playback.preparing {
             0.
         } else {
             self.playback.epoch.elapsed().as_secs_f32()
@@ -373,7 +396,7 @@ impl Editor {
         ((self.playback.position + elapsed) / seconds).rem_euclid(1.)
     }
     pub(super) fn clip_time(&self) -> f32 {
-        let elapsed = if self.playback.paused {
+        let elapsed = if self.playback.paused || self.playback.preparing {
             0.
         } else {
             self.playback.epoch.elapsed().as_secs_f32()
@@ -397,6 +420,7 @@ impl Editor {
         self.playback.epoch = std::time::Instant::now();
         self.playback.paused = false;
         self.playback.seek = self.playback.seek.wrapping_add(1);
+        self.playback.preparing = self.preview_preparing();
         cx.notify();
     }
     pub(super) fn toggle_animation_panel(&mut self, cx: &mut Context<Self>) {
@@ -423,8 +447,16 @@ impl Editor {
         if self.playback.paused {
             self.playback.epoch = std::time::Instant::now();
             self.playback.paused = false;
+            if self.panels.animation && self.document.image_animation.enabled() {
+                // Paused previews use a different quality tier. Wait for a frame
+                // prepared for playback instead of advancing over that rebuild.
+                self.playback.seek = self.playback.seek.wrapping_add(1);
+            }
+            self.playback.preparing = self.preview_preparing();
         } else {
-            self.playback.position += self.playback.epoch.elapsed().as_secs_f32();
+            if !self.playback.preparing {
+                self.playback.position += self.playback.epoch.elapsed().as_secs_f32();
+            }
             self.playback.paused = true;
         }
         cx.notify();
