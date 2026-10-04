@@ -8,7 +8,6 @@ use std::{cell::Cell, ops::Range, rc::Rc, sync::Arc};
 pub type Rgb = [u8; 3];
 pub enum ColorPickerEvent {
     Changed(Rgb),
-    PickImage,
     PickScreen,
 }
 impl EventEmitter<ColorPickerEvent> for ColorPicker {}
@@ -583,30 +582,31 @@ impl ColorPicker {
                 )
             })
             .child(
-                div().flex().gap_2().text_xs().children(
-                    [(false, "Pick from image"), (true, "Pick from screen")]
-                        .into_iter()
-                        .map(|(screen, label)| {
-                            div()
-                                .id(label)
-                                .debug_selector(move || label.into())
-                                .flex_1()
-                                .p_2()
-                                .rounded_md()
-                                .border_1()
-                                .border_color(rgb(0xdfe1e7))
-                                .cursor_pointer()
-                                .child(label)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.close(window, cx);
-                                    cx.emit(if screen {
-                                        ColorPickerEvent::PickScreen
-                                    } else {
-                                        ColorPickerEvent::PickImage
-                                    });
-                                }))
-                        }),
-                ),
+                div()
+                    .id("Pick from screen")
+                    .debug_selector(|| "Pick from screen".into())
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .gap_2()
+                    .p_2()
+                    .text_xs()
+                    .rounded_md()
+                    .border_1()
+                    .border_color(rgb(0xdfe1e7))
+                    .cursor_pointer()
+                    .child(
+                        svg()
+                            .path("icons/pipette.svg")
+                            .size(px(16.))
+                            .flex_shrink_0()
+                            .text_color(rgb(0x282b34)),
+                    )
+                    .child("Pick from screen")
+                    .on_click(cx.listener(|this, _, window, cx| {
+                        this.close(window, cx);
+                        cx.emit(ColorPickerEvent::PickScreen);
+                    })),
             )
     }
 }

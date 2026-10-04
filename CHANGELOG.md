@@ -9,6 +9,8 @@ Notable user-visible changes are recorded here.
 - Animation sidebar now focuses on foreground effects and playback; backdrop
   controls stay in Backdrop and export stays in the toolbar menu. Toolbar icons
   are ordered Backdrop, Animation, then Image tools.
+- Color pickers now offer a single “Pick from screen” button with an eyedropper
+  icon, replacing the separate image and screen sampling buttons.
 
 ### Fixed
 

@@ -185,9 +185,6 @@ impl Editor {
                         ColorPickerEvent::Changed(rgb) => {
                             actions::Action::SetBackdropColor { stop, rgb: *rgb }
                         }
-                        ColorPickerEvent::PickImage => {
-                            actions::Action::BeginBackdropColorSampling { stop }
-                        }
                         ColorPickerEvent::PickScreen => {
                             actions::Action::PickBackdropScreenColor { stop }
                         }
@@ -206,7 +203,6 @@ impl Editor {
                     color[..3].copy_from_slice(rgb);
                     actions::Action::SetColor { color }
                 }
-                ColorPickerEvent::PickImage => actions::Action::BeginToolColorSampling,
                 ColorPickerEvent::PickScreen => actions::Action::PickToolScreenColor,
             };
             this.dispatch_ui(action, cx);

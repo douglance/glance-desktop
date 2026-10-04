@@ -1123,8 +1123,12 @@ fn color_popup_hex_wheel_and_source_eyedropper_are_isolated_from_tools(cx: &mut 
         );
         cx.notify();
     });
-    click(&mut visual, "Pick from image");
+    assert!(visual.debug_bounds("Pick from image").is_none());
+    assert!(visual.debug_bounds("Pick from screen").is_some());
+    visual.simulate_keystrokes("escape");
     root.update(&mut visual, |e, cx| {
+        e.dispatch(Action::BeginBackdropColorSampling { stop: 0 }, cx)
+            .unwrap();
         e.dispatch(Action::Zoom { factor: 2. }, cx).unwrap();
     });
     visual.run_until_parked();
@@ -1157,7 +1161,11 @@ fn color_popup_hex_wheel_and_source_eyedropper_are_isolated_from_tools(cx: &mut 
         )
     });
     click(&mut visual, "color-picker-color-2");
-    click(&mut visual, "Pick from image");
+    visual.simulate_keystrokes("escape");
+    root.update(&mut visual, |e, cx| {
+        e.dispatch(Action::BeginBackdropColorSampling { stop: 1 }, cx)
+            .unwrap();
+    });
     let revision = root.read_with(&visual, |e, _| e.preview.revision);
     visual.simulate_keystrokes("escape");
     root.read_with(&visual, |e, _| {

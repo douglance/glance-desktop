@@ -177,8 +177,8 @@ defaults, and supports native undo for selected annotations. It rejects points
 outside the source image and tools without a color option. `pick_tool_screen_color`
 opens the native interactive sampler and returns an operation ID; results require
 the same operation, document revision and annotation/tool target. Neither action
-changes the backdrop. `get_editor_state.sampling_tool_color` reports a pending
-canvas eyedropper gesture. The pointer-only `begin_tool_color_sampling` action is
+changes the backdrop. `get_editor_state.sampling_tool_color` reports an internal
+canvas sampling gesture. The internal `begin_tool_color_sampling` action is
 excluded from discovery; use `sample_tool_color` with source coordinates instead.
 
 Stored annotation widths and corner radii can exceed sidebar ranges after a
@@ -212,8 +212,8 @@ The shared dispatcher exposes:
   and delayed results require the same operation and document revision.
 
 Use `expected_revision` for each dispatch. `set_backdrop_preset` clears custom
-colors; changing fill or motion preserves them. The canvas eyedropper gesture is
-UI-only; automation uses `sample_backdrop_color` instead.
+colors; changing fill or motion preserves them. The picker offers screen sampling;
+automation can sample original source pixels with `sample_backdrop_color`.
 
 ## Randomizing backdrop motion
 

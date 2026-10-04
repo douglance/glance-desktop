@@ -1415,8 +1415,11 @@ fn tool_picker_custom_colors_preserve_opacity_and_source_sampling_keeps_selectio
     })
     .unwrap();
     click(&mut visual, "color-picker-custom-color");
-    click(&mut visual, "Pick from image");
+    assert!(visual.debug_bounds("Pick from image").is_none());
+    assert!(visual.debug_bounds("Pick from screen").is_some());
+    visual.simulate_keystrokes("escape");
     view.update(&mut visual, |e, w, cx| {
+        e.dispatch(Action::BeginToolColorSampling, cx).unwrap();
         assert!(e.panels.sampling_tool_color);
         reset_layout(e);
         e.begin(&down(20., 20.), w, cx);

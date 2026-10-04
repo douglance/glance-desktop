@@ -37,9 +37,8 @@ Capture, annotate, frame, and share from one native macOS window.
   add a waypoint or straighten the selected line; hover for each action's name.
   Magnifier diameter and Zoom sit side by side, with labels above their controls.
   Each color-capable tool has six presets and a square custom-color picker with
-  wheel, brightness, hex entry, and image/screen eyedroppers. Custom RGB and
-  sampled colors preserve the current opacity. Image sampling reads the original
-  source pixels and keeps the annotation selected.
+  wheel, brightness, hex entry, and a **Pick from screen** eyedropper button.
+  Custom RGB and sampled colors preserve the current opacity.
   Lines support dashes, dots, independent ends and draggable added points. Boxes
   support outline/fill and rounded corners. Pen cleanup offers Raw, Smooth and
   Adaptive while retaining original samples. See [the full tool map](../TOOL_OPTIONS.md). **⌘D** duplicates the
@@ -67,9 +66,8 @@ Capture, annotate, frame, and share from one native macOS window.
   swatches; hex values are shown inside the picker. Play/Pause is outlined beside
   the duration slider. Click a color swatch to open a picker with a color wheel, brightness
   slider and a hex field (**#RGB** or **#RRGGBB**, then **Apply** or Enter). Solid
-  uses one color; Gradient and Motion use two. **Pick from image** samples an
-  original screenshot pixel, including pasted images, at any zoom; Escape cancels.
-  **Pick from screen** opens the native macOS eyedropper (Omarchy requires
+  uses one color; Gradient and Motion use two. The **Pick from screen** button
+  opens the native macOS eyedropper (Omarchy requires
   `hyprpicker`). Colors are opaque sRGB. Custom colors survive mode/effect changes;
   choosing a palette preset resets them. Each wheel/brightness gesture commits on
   release as one undo step; uncommitted hex input is discarded when closed.

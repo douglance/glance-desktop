@@ -15,7 +15,7 @@ build and paint the interface. `text_input.rs` implements native text input;
 anchored popup, HSV wheel/brightness state and native hex input in
 `color_picker/input.rs`. Construct it with a label and the focus handle to
 restore on dismissal, synchronize committed model colors through `set_value`,
-and retain subscriptions to `ColorPickerEvent::{Changed, PickImage, PickScreen}`.
+and retain subscriptions to `ColorPickerEvent::{Changed, PickScreen}`.
 Consumers dispatch their own typed actions; the component has no document or
 backdrop dependency. Wheel and brightness gestures preview locally and emit one
 committed RGB change on release. Its `ColorPicker` key context suppresses canvas
