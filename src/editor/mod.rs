@@ -36,6 +36,9 @@ use state::{
 use std::{cell::Cell, rc::Rc, sync::Arc};
 pub(crate) struct Editor {
     color_pickers: [Entity<crate::color_picker::ColorPicker>; 2],
+    tool_color_picker: Entity<crate::color_picker::ColorPicker>,
+    tool_picker_target: Option<(Tool, Option<usize>, u64)>,
+    number_inputs: std::collections::BTreeMap<&'static str, Entity<panels::number::NumberInput>>,
     _color_subscriptions: Vec<Subscription>,
     document: Document,
     interaction: InteractionState,
@@ -172,7 +175,7 @@ impl Editor {
                 )
             })
         });
-        let color_subscriptions: Vec<_> = color_pickers
+        let mut color_subscriptions: Vec<_> = color_pickers
             .iter()
             .enumerate()
             .map(|(stop, picker)| {
@@ -193,11 +196,41 @@ impl Editor {
                 })
             })
             .collect();
+        let tool_color_picker =
+            cx.new(|cx| crate::color_picker::ColorPicker::new("Custom color", focus.clone(), cx));
+        color_subscriptions.push(cx.subscribe(&tool_color_picker, |this, _, event, cx| {
+            use crate::color_picker::ColorPickerEvent;
+            let action = match event {
+                ColorPickerEvent::Changed(rgb) => {
+                    let mut color = this.tool_settings().color;
+                    color[..3].copy_from_slice(rgb);
+                    actions::Action::SetColor { color }
+                }
+                ColorPickerEvent::PickImage => actions::Action::BeginToolColorSampling,
+                ColorPickerEvent::PickScreen => actions::Action::PickToolScreenColor,
+            };
+            this.dispatch_ui(action, cx);
+        }));
+        let number_inputs = panels::number::FIELDS
+            .into_iter()
+            .map(|label| {
+                let input = cx.new(|cx| panels::number::NumberInput::new(label, focus.clone(), cx));
+                color_subscriptions.push(cx.subscribe(&input, move |this, _, event, cx| {
+                    if event.scope == this.tool_scope() {
+                        this.dispatch_ui(this.number_action(label, event.value), cx);
+                    }
+                }));
+                (label, input)
+            })
+            .collect();
         #[cfg(target_os = "macos")]
         let gestures =
             native.then(|| gestures::Monitor::new(sender.clone(), canvas_bounds.clone()));
         Self {
             color_pickers,
+            tool_color_picker,
+            tool_picker_target: None,
+            number_inputs,
             _color_subscriptions: color_subscriptions,
             document,
             interaction: InteractionState {
@@ -250,6 +283,7 @@ impl Editor {
             },
             panels: PanelState {
                 sampling_color: None,
+                sampling_tool_color: false,
                 backdrop_disabled: None,
                 popup: None,
                 popup_index: 0,

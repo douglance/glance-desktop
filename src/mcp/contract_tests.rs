@@ -50,6 +50,10 @@ fn every_serializable_action_is_exposed_or_explicitly_excluded() {
     // and must never appear in either the wire inventory or published schema.
     let excluded = [
         (
+            "begin_tool_color_sampling",
+            "sample_tool_color with source pixel coordinates instead of pointer gestures",
+        ),
+        (
             "begin_backdrop_color_sampling",
             "sample_backdrop_color with source pixel coordinates instead of pointer gestures",
         ),
@@ -88,6 +92,7 @@ fn every_exposed_action_has_a_valid_round_trip_payload() {
         json!({"type":"open_path","path":"/tmp/glance-synthetic.png"}),
         json!({"type":"select_tool","tool":"arrow"}),
         json!({"type":"set_color","color":[10,20,30,128]}),
+        json!({"type":"sample_tool_color","position":[10,20]}),
         json!({"type":"set_stroke_width","width":3}),
         json!({"type":"set_appearance","style":crate::style::Style::default()}),
         json!({"type":"set_magnifier_zoom","zoom":3}),

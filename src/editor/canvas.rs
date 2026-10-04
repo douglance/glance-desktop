@@ -97,15 +97,17 @@ impl Editor {
             .flex_1()
             .min_h_0()
             .overflow_hidden()
-            .cursor(if self.panels.sampling_color.is_some() {
-                CursorStyle::Crosshair
-            } else if self.viewport.space_down {
-                CursorStyle::OpenHand
-            } else if self.interaction.tool == Tool::Select {
-                CursorStyle::Arrow
-            } else {
-                CursorStyle::Crosshair
-            })
+            .cursor(
+                if self.panels.sampling_color.is_some() || self.panels.sampling_tool_color {
+                    CursorStyle::Crosshair
+                } else if self.viewport.space_down {
+                    CursorStyle::OpenHand
+                } else if self.interaction.tool == Tool::Select {
+                    CursorStyle::Arrow
+                } else {
+                    CursorStyle::Crosshair
+                },
+            )
             .on_mouse_down(MouseButton::Left, cx.listener(Self::begin))
             .on_mouse_down(
                 MouseButton::Right,

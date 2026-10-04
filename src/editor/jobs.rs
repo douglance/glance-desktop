@@ -48,6 +48,12 @@ pub(crate) enum Message {
     VideoProgress(OperationId, u32),
 }
 pub(crate) enum OperationResult {
+    ToolColorSample {
+        tool: crate::document::Tool,
+        selected: Option<usize>,
+        revision: u64,
+        result: Result<Option<[u8; 3]>, String>,
+    },
     ColorSample {
         stop: usize,
         revision: u64,
@@ -198,6 +204,7 @@ impl Editor {
             &result,
             OperationResult::Failed(_)
                 | OperationResult::ColorSample { result: Err(_), .. }
+                | OperationResult::ToolColorSample { result: Err(_), .. }
                 | OperationResult::Image(Err(_))
                 | OperationResult::VideoSaved(Err(_))
                 | OperationResult::Saved(Err(_))
@@ -206,6 +213,30 @@ impl Editor {
                 | OperationResult::Transformed(Err(_))
         );
         match result {
+            OperationResult::ToolColorSample {
+                tool,
+                selected,
+                revision,
+                result,
+            } => {
+                if revision != self.preview.revision
+                    || tool != self.options_tool()
+                    || selected != self.interaction.selected
+                {
+                    self.feedback.status =
+                        "Annotation changed while sampling; pick the color again".into();
+                } else {
+                    match result {
+                        Ok(Some(rgb)) => {
+                            let mut color = self.tool_settings().color;
+                            color[..3].copy_from_slice(&rgb);
+                            self.dispatch_ui(super::actions::Action::SetColor { color }, cx);
+                        }
+                        Ok(None) => self.feedback.status = "Color sampling canceled".into(),
+                        Err(error) => self.feedback.status = error,
+                    }
+                }
+            }
             OperationResult::ColorSample {
                 stop,
                 revision,
@@ -262,6 +293,7 @@ impl Editor {
                 self.document = Document::new(image);
                 self.panels.backdrop_disabled = None;
                 self.panels.sampling_color = None;
+                self.panels.sampling_tool_color = false;
                 self.panels.popup = None;
                 self.viewport.zoom = None;
                 self.viewport.pan = (0., 0.);

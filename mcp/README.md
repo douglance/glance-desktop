@@ -155,6 +155,9 @@ tool. The native sidebar and MCP share these actions:
 {"type":"set_magnifier_zoom","zoom":3}
 {"type":"set_counter_number","number":5}
 {"type":"set_crop_ratio","ratio":1.7777778}
+{"type":"set_color","color":[18,171,239,128]}
+{"type":"sample_tool_color","position":[20,40]}
+{"type":"pick_tool_screen_color"}
 ```
 
 Appearance replaces the style (omitted fields take their default values), edits
@@ -163,6 +166,17 @@ and `straighten_line` require a selected line. Other settings work before drawin
 A mark's optional `style` object also round-trips through annotation tools. Legacy
 marks retain their original appearance. Lines support up to 32 points; `curve`
 controls a two-point line. Opacity is the alpha channel of `set_color`.
+
+The custom color picker uses `set_color`; numeric fields use the existing size,
+color and appearance actions. `sample_tool_color` reads an unannotated source
+pixel, preserves opacity, updates the selected annotation or active tool's
+defaults, and supports native undo for selected annotations. It rejects points
+outside the source image and tools without a color option. `pick_tool_screen_color`
+opens the native interactive sampler and returns an operation ID; results require
+the same operation, document revision and annotation/tool target. Neither action
+changes the backdrop. `get_editor_state.sampling_tool_color` reports a pending
+canvas eyedropper gesture. The pointer-only `begin_tool_color_sampling` action is
+excluded from discovery; use `sample_tool_color` with source coordinates instead.
 
 Stored annotation widths and corner radii can exceed sidebar ranges after a
 resize. Annotation tools accept these physical sizes up to 32768 pixels (width

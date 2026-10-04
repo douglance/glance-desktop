@@ -1165,3 +1165,165 @@ fn color_popup_hex_wheel_and_source_eyedropper_are_isolated_from_tools(cx: &mut 
         assert_eq!(e.preview.revision, revision);
     });
 }
+
+#[gpui::test]
+fn tool_color_sampling_bridge_checks_revisions_bounds_state_and_undo(cx: &mut TestAppContext) {
+    use crate::{
+        automation::Request,
+        document::{Mark, actions::DocumentAction},
+    };
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.document = Document::new(image::RgbaImage::from_pixel(
+            4,
+            3,
+            image::Rgba([41, 82, 123, 255]),
+        ));
+        let bridge = |e: &mut Editor, cx: &mut gpui::Context<Editor>, position, revision| {
+            let payload = serde_json::json!({"type":"sample_tool_color","position":position});
+            crate::mcp::validate_tool("dispatch_action", &serde_json::json!({"action":payload}))
+                .unwrap();
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(
+                Request::Dispatch {
+                    action: Action::from_json(payload).unwrap(),
+                    expected_revision: Some(revision),
+                    reply,
+                },
+                cx,
+            );
+            response.recv().unwrap()
+        };
+        for tool in [
+            Tool::Pen,
+            Tool::Arrow,
+            Tool::Rectangle,
+            Tool::Text,
+            Tool::Highlight,
+            Tool::Counter,
+            Tool::Spotlight,
+            Tool::Magnifier,
+        ] {
+            e.dispatch(Action::SelectTool { tool }, cx).unwrap();
+            e.dispatch(
+                Action::SetColor {
+                    color: [1, 2, 3, 64],
+                },
+                cx,
+            )
+            .unwrap();
+            bridge(e, cx, [3, 2], e.preview.revision).unwrap();
+            assert_eq!(e.tool_settings().color, [41, 82, 123, 64]);
+            assert!(e.document.backdrop.is_none());
+        }
+        e.dispatch(
+            Action::Edit {
+                edit: DocumentAction::AddAnnotation {
+                    mark: Mark {
+                        tool: Tool::Rectangle,
+                        points: vec![(0., 0.), (3., 2.)],
+                        color: [9, 8, 7, 128],
+                        width: 1.,
+                        text: String::new(),
+                        curve: None,
+                        style: Default::default(),
+                    },
+                },
+            },
+            cx,
+        )
+        .unwrap();
+        let revision = e.preview.revision;
+        assert!(bridge(e, cx, [4, 0], revision).is_err());
+        assert!(bridge(e, cx, [0, 0], revision - 1).is_err());
+        assert_eq!(e.document.marks[0].color, [9, 8, 7, 128]);
+        e.dispatch(Action::BeginToolColorSampling, cx).unwrap();
+        let (reply, response) = std::sync::mpsc::channel();
+        e.automation(Request::State(reply), cx);
+        assert_eq!(
+            response.recv().unwrap().unwrap()["sampling_tool_color"],
+            true
+        );
+        bridge(e, cx, [3, 2], revision).unwrap();
+        assert_eq!(e.document.marks[0].color, [41, 82, 123, 128]);
+        assert_eq!(e.preview.revision, revision + 1);
+        assert!(!e.panels.sampling_tool_color);
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.marks[0].color, [9, 8, 7, 128]);
+    });
+}
+
+#[gpui::test]
+fn tool_screen_color_results_reject_stale_operations_revisions_and_targets(
+    cx: &mut TestAppContext,
+) {
+    use super::jobs::{Message, OperationResult};
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.dispatch(Action::SelectTool { tool: Tool::Pen }, cx)
+            .unwrap();
+        e.dispatch(
+            Action::SetColor {
+                color: [1, 2, 3, 64],
+            },
+            cx,
+        )
+        .unwrap();
+        let revision = e.preview.revision;
+        let id = e.start_operation(OperationKind::ColorSample).unwrap();
+        e.receive(
+            Message::Operation(
+                id,
+                OperationResult::ToolColorSample {
+                    tool: Tool::Pen,
+                    selected: None,
+                    revision: revision + 1,
+                    result: Ok(Some([4, 5, 6])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(e.tool_settings().color, [1, 2, 3, 64]);
+        let current = e.start_operation(OperationKind::ColorSample).unwrap();
+        e.receive(
+            Message::Operation(
+                id,
+                OperationResult::ToolColorSample {
+                    tool: Tool::Pen,
+                    selected: None,
+                    revision,
+                    result: Ok(Some([4, 5, 6])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(e.operations.active.as_ref().unwrap().id, current);
+        e.receive(
+            Message::Operation(
+                current,
+                OperationResult::ToolColorSample {
+                    tool: Tool::Arrow,
+                    selected: None,
+                    revision,
+                    result: Ok(Some([4, 5, 6])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(e.tool_settings().color, [1, 2, 3, 64]);
+        let current = e.start_operation(OperationKind::ColorSample).unwrap();
+        e.receive(
+            Message::Operation(
+                current,
+                OperationResult::ToolColorSample {
+                    tool: Tool::Pen,
+                    selected: None,
+                    revision,
+                    result: Ok(Some([4, 5, 6])),
+                },
+            ),
+            cx,
+        );
+        assert_eq!(e.tool_settings().color, [4, 5, 6, 64]);
+    });
+}

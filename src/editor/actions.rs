@@ -45,6 +45,13 @@ pub(crate) enum Action {
     SetColor {
         color: [u8; 4],
     },
+    /// Samples the unannotated source image and preserves annotation opacity.
+    SampleToolColor {
+        position: (u32, u32),
+    },
+    PickToolScreenColor,
+    /// Canvas gesture; MCP uses SampleToolColor with source pixel coordinates.
+    BeginToolColorSampling,
     SetStrokeWidth {
         width: f32,
     },

@@ -28,6 +28,16 @@ Capture, annotate, frame, and share from one native macOS window.
 - The right sidebar follows the selected annotation or active tool. Each tool
   remembers its defaults during the session. Change color, thickness, opacity,
   and tool-specific options there; edits to existing annotations support undo.
+  Compact fields pair related settings. Click a numeric value to type an exact
+  size or percentage; Enter or leaving the field applies it, Escape cancels,
+  and the small arrows step the value. Invalid or out-of-range text is rejected.
+  Stroke, fill and arrow endpoints show visual samples. The **Points** controls
+  add a waypoint or straighten the selected line; hover for each action's name.
+  Magnifier diameter and Zoom sit side by side, with labels above their controls.
+  Each color-capable tool has six presets and a square custom-color picker with
+  wheel, brightness, hex entry, and image/screen eyedroppers. Custom RGB and
+  sampled colors preserve the current opacity. Image sampling reads the original
+  source pixels and keeps the annotation selected.
   Lines support dashes, dots, independent ends and draggable added points. Boxes
   support outline/fill and rounded corners. Pen cleanup offers Raw, Smooth and
   Adaptive while retaining original samples. See [the full tool map](../TOOL_OPTIONS.md). **⌘D** duplicates the
@@ -67,8 +77,8 @@ Capture, annotate, frame, and share from one native macOS window.
 - **Image entrances:** open **Animation** (play icon) and choose **Diagonal reveal**,
   **Spring pop**, or **3D settle**. Set entrance duration, delay, and a 2–15 second
   clip length. **Replay** starts the clip again; **Play/Pause** and the **Preview
-  time** slider let you inspect any frame. Choose **Enter & hold**, or **Enter,
-  hold & exit** for a repeating clip that returns to the empty backdrop. Backdrop
+  time** slider let you inspect any frame. Under **After entrance**, choose
+  **Hold**, or **Exit** for a repeating clip that returns to the empty backdrop. Backdrop
   motion is independent: choose any of the eight effects here, or keep it still.
   Entrances also work without a backdrop. The image, annotations, rounded image
   corners, and shadow animate together. Close the panel or click the canvas to

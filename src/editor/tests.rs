@@ -1146,6 +1146,45 @@ fn every_tool_sidebar_fits_the_minimum_window_and_sidebar_scroll_does_not_pan(
         let b = visual.debug_bounds("tool-panel").unwrap();
         assert_eq!(b.size.width, px(260.));
         assert!(b.origin.x >= px(0.) && b.right() <= px(1050.));
+        for selector in [
+            "thickness-field",
+            "opacity-field",
+            "font-size-field",
+            "block-size-field",
+            "badge-diameter-field",
+            "next-number-field",
+            "lens-diameter-field",
+            "dim-surroundings-field",
+            "intensity-field",
+            "corner-radius-field",
+            "field-stroke",
+            "field-fill",
+            "field-start",
+            "field-end",
+            "field-zoom",
+            "field-aspect-ratio",
+            "color-picker-custom-color",
+        ] {
+            if let Some(control) = visual.debug_bounds(selector) {
+                assert!(
+                    control.left() >= b.left() && control.right() <= b.right(),
+                    "{tool:?}: {selector} extends outside the inspector"
+                );
+                assert!(
+                    control.top() >= b.top() && control.bottom() <= b.bottom(),
+                    "{tool:?}: {selector} needs scrolling at the minimum window size"
+                );
+            }
+        }
+        if tool == Tool::Arrow {
+            assert!(visual.debug_bounds("field-stroke").unwrap().size.width <= px(110.));
+        }
+        if tool == Tool::Magnifier {
+            let diameter = visual.debug_bounds("lens-diameter-field").unwrap();
+            let zoom = visual.debug_bounds("field-zoom").unwrap();
+            assert!(zoom.left() > diameter.right());
+            assert!(zoom.top() < diameter.bottom() && zoom.bottom() > diameter.top());
+        }
         let pan = view.update(&mut visual, |e, _, _| e.viewport.pan).unwrap();
         visual.simulate_event(gpui::ScrollWheelEvent {
             position: point(b.origin.x + px(100.), b.origin.y + px(100.)),
@@ -1191,6 +1230,147 @@ fn sidebar_buttons_change_objects_without_starting_canvas_gestures(cx: &mut Test
         assert_eq!(e.document.marks[0].style.radius, 4.);
         assert!(!e.interaction.gesture.is_active());
         assert_eq!(e.interaction.selected, Some(0));
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn compact_numeric_entry_preserves_selection_and_local_text_history(cx: &mut TestAppContext) {
+    use super::actions::Action;
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.dispatch(
+            Action::SelectTool {
+                tool: Tool::Rectangle,
+            },
+            cx,
+        )
+        .unwrap();
+        reset_layout(e);
+        e.begin(&down(10., 10.), w, cx);
+        e.finish(&up(80., 80.), cx);
+    })
+    .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.update(|window, cx| {
+        window.activate_window();
+        crate::menus::install(cx);
+    });
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let click = |visual: &mut gpui::VisualTestContext, selector| {
+        let p = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_click(p, Default::default());
+        visual.run_until_parked();
+    };
+    click(&mut visual, "thickness-value");
+    visual.simulate_input("12");
+    visual.simulate_keystrokes("enter");
+    visual.run_until_parked();
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].width, 12.);
+        assert_eq!(e.interaction.selected, Some(0));
+        assert!(!e.interaction.gesture.is_active());
+    })
+    .unwrap();
+    click(&mut visual, "thickness-value");
+    visual.simulate_input("NaN");
+    visual.simulate_keystrokes("enter");
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].width, 12.);
+        assert_eq!(e.options_tool(), Tool::Rectangle);
+    })
+    .unwrap();
+    visual.simulate_keystrokes("escape");
+    click(&mut visual, "thickness-value");
+    visual.update(|_, cx| cx.write_to_clipboard(gpui::ClipboardItem::new_string("8".into())));
+    visual.simulate_keystrokes(&crate::platform::key_binding("cmd-v cmd-z enter"));
+    visual.run_until_parked();
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].width, 12.)
+    })
+    .unwrap();
+    // A valid draft commits when another field takes focus.
+    click(&mut visual, "thickness-value");
+    visual.simulate_input("9");
+    click(&mut visual, "opacity-value");
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].width, 9.)
+    })
+    .unwrap();
+    visual.simulate_keystrokes("escape");
+    visual.simulate_keystrokes(&crate::platform::key_binding("cmd-z"));
+    visual.run_until_parked();
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].width, 12.)
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn tool_picker_custom_colors_preserve_opacity_and_source_sampling_keeps_selection(
+    cx: &mut TestAppContext,
+) {
+    use super::actions::Action;
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        e.document = Document::new(image::RgbaImage::from_pixel(
+            100,
+            100,
+            image::Rgba([22, 44, 88, 255]),
+        ));
+        e.dispatch(Action::SelectTool { tool: Tool::Arrow }, cx)
+            .unwrap();
+        e.dispatch(
+            Action::SetColor {
+                color: [255, 56, 100, 128],
+            },
+            cx,
+        )
+        .unwrap();
+        reset_layout(e);
+        e.begin(&down(10., 50.), w, cx);
+        e.finish(&up(90., 50.), cx);
+    })
+    .unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*view, cx);
+    visual.update(|_, cx| crate::menus::install(cx));
+    visual.simulate_resize(size(px(1050.), px(600.)));
+    visual.run_until_parked();
+    let click = |visual: &mut gpui::VisualTestContext, selector| {
+        let p = visual.debug_bounds(selector).unwrap().center();
+        visual.simulate_click(p, Default::default());
+        visual.run_until_parked();
+    };
+    click(&mut visual, "color-picker-custom-color");
+    let popup = visual.debug_bounds("color-picker-popup").unwrap();
+    assert!(
+        popup.top() >= px(0.) && popup.bottom() <= px(600.),
+        "popup: {popup:?}"
+    );
+    click(&mut visual, "color-picker-hex");
+    visual.simulate_input("#12abEF");
+    visual.simulate_keystrokes("enter escape");
+    visual.run_until_parked();
+    view.update(&mut visual, |e, _, _| {
+        assert_eq!(e.document.marks[0].color, [18, 171, 239, 128]);
+        assert_eq!(e.interaction.selected, Some(0));
+        assert!(e.document.backdrop.is_none());
+    })
+    .unwrap();
+    click(&mut visual, "color-picker-custom-color");
+    click(&mut visual, "Pick from image");
+    view.update(&mut visual, |e, w, cx| {
+        assert!(e.panels.sampling_tool_color);
+        reset_layout(e);
+        e.begin(&down(20., 20.), w, cx);
+        assert_eq!(e.document.marks.len(), 1);
+        assert_eq!(e.document.marks[0].color, [22, 44, 88, 128]);
+        assert_eq!(e.interaction.selected, Some(0));
+        assert!(!e.panels.sampling_tool_color);
+        assert!(!e.interaction.gesture.is_active());
+        e.dispatch(Action::Undo, cx).unwrap();
+        assert_eq!(e.document.marks[0].color, [18, 171, 239, 128]);
     })
     .unwrap();
 }

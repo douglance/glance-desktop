@@ -145,6 +145,20 @@ impl Editor {
 }
 impl Render for Editor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let tool_target = (
+            self.options_tool(),
+            self.interaction.selected,
+            self.interaction.text_session,
+        );
+        if self.tool_picker_target != Some(tool_target)
+            || self.panels.backdrop
+            || self.panels.enhance
+            || self.panels.animation
+        {
+            self.tool_color_picker
+                .update(cx, |picker, cx| picker.close_if_open(window, cx));
+        }
+        self.tool_picker_target = Some(tool_target);
         if !self.panels.backdrop {
             for picker in &self.color_pickers {
                 picker.update(cx, |picker, cx| picker.close_if_open(window, cx));

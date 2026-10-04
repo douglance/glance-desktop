@@ -17,7 +17,12 @@ pub(in crate::editor) enum Popup {
 }
 
 impl Editor {
-    fn motion_button(&self, motion: Motion, active: bool, cx: &Context<Self>) -> impl IntoElement {
+    pub(in crate::editor) fn motion_button(
+        &self,
+        motion: Motion,
+        active: bool,
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
         let name = match motion {
             Motion::Still => "square",
             Motion::Flow => "motion-flow",
@@ -32,7 +37,7 @@ impl Editor {
         div()
             .id(motion.label())
             .debug_selector(move || format!("backdrop-motion-{}", motion.label()))
-            .w(px(101.))
+            .w(px(110.))
             .h(px(32.))
             .px_2()
             .flex()
@@ -428,28 +433,7 @@ impl Editor {
             let color = [(color >> 16) as u8, (color >> 8) as u8, color as u8];
             picker.update(cx, |picker, cx| picker.set_value(color, cx));
         }
-        div()
-            .id("backdrop-panel")
-            .debug_selector(|| "backdrop-panel".into())
-            .w(px(260.))
-            .h_full()
-            .flex_shrink_0()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .p_5()
-            .overflow_y_scroll()
-            .bg(rgb(0xfcfcfd))
-            .border_l_1()
-            .border_color(rgb(0xe5e5ec))
-            .cursor(CursorStyle::Arrow)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.dispatch_ui(Action::CommitText, cx);
-                    cx.stop_propagation();
-                }),
-            )
+        super::controls::panel("backdrop-panel", cx)
             .child(
                 div()
                     .flex()

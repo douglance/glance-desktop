@@ -21,6 +21,14 @@ backdrop dependency. Wheel and brightness gestures preview locally and emit one
 committed RGB change on release. Its `ColorPicker` key context suppresses canvas
 shortcuts, and clipboard/text undo stays within the hex field.
 
+Annotation tools subscribe to the same picker, preserving their alpha channel
+when dispatching `SetColor`. Source and screen eyedroppers use `SampleToolColor`
+and `PickToolScreenColor`; screen results also validate the tool and selection.
+`editor/panels/controls.rs` owns shared inspector fields, pairs and visual samples.
+`panels/number.rs` owns bounded native numeric drafts and emits scoped values;
+the editor translates them into existing typed size/color/appearance actions.
+Drafts reset when their document revision or annotation/tool context changes.
+
 Backdrop endpoints are optional opaque sRGB colors; absent endpoints preserve
 legacy preset palettes. Both CPU and Metal renderers use them, and preview keys
 include colors to reject frames from the old palette. The editor samples source

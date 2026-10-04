@@ -23,13 +23,23 @@ impl Editor {
         stop: usize,
         cx: &mut Context<Self>,
     ) -> Result<(), String> {
+        self.pick_screen_color(Some(stop), cx)
+    }
+    pub(super) fn pick_screen_color(
+        &mut self,
+        stop: Option<usize>,
+        cx: &mut Context<Self>,
+    ) -> Result<(), String> {
         self.commit_text(cx);
         self.panels.sampling_color = None;
+        self.panels.sampling_tool_color = false;
         let receiver = platform::sample_screen_color()?;
         let id = self
             .start_operation(OperationKind::ColorSample)
             .ok_or("Editor is busy")?;
         let revision = self.preview.revision;
+        let tool = self.options_tool();
+        let selected = self.interaction.selected;
         self.feedback.status = "Pick a screen color • Escape to cancel".into();
         let sender = self.sender.clone();
         cx.spawn(async move |_, _| {
@@ -40,10 +50,19 @@ impl Editor {
             let _ = sender
                 .send(Message::Operation(
                     id,
-                    OperationResult::ColorSample {
-                        stop,
-                        revision,
-                        result,
+                    if let Some(stop) = stop {
+                        OperationResult::ColorSample {
+                            stop,
+                            revision,
+                            result,
+                        }
+                    } else {
+                        OperationResult::ToolColorSample {
+                            tool,
+                            selected,
+                            revision,
+                            result,
+                        }
                     },
                 ))
                 .await;

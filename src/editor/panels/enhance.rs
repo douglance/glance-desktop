@@ -6,27 +6,7 @@ impl Editor {
     pub(in crate::editor) fn enhance_controls(&self, cx: &Context<Self>) -> impl IntoElement {
         let target =
             crate::enhance::dimensions(self.document.base.dimensions(), self.panels.resize_scale);
-        div()
-            .id("image-panel")
-            .w(px(260.))
-            .h_full()
-            .flex_shrink_0()
-            .p_5()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .overflow_y_scroll()
-            .bg(rgb(0xfcfcfd))
-            .border_l_1()
-            .border_color(rgb(0xe5e5ec))
-            .cursor(CursorStyle::Arrow)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.dispatch_ui(Action::CommitText, cx);
-                    cx.stop_propagation();
-                }),
-            )
+        super::controls::panel("image-panel", cx)
             .child(
                 div()
                     .flex()
@@ -60,32 +40,17 @@ impl Editor {
                     .font_weight(FontWeight::SEMIBOLD)
                     .child("Resize"),
             )
-            .child(div().flex().flex_wrap().gap_2().children(
+            .child(div().flex().flex_wrap().gap_1().children(
                 [0.5_f32, 1., 1.5, 2., 3., 4.].into_iter().map(|scale| {
-                    div()
-                        .id(("resize-scale", (scale * 100.) as u32))
-                        .w(px(66.))
-                        .h(px(32.))
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .rounded_md()
-                        .text_xs()
-                        .cursor_pointer()
-                        .bg(rgb(if self.panels.resize_scale == scale {
-                            0xffe9e4
-                        } else {
-                            0xf0f1f5
-                        }))
-                        .text_color(rgb(if self.panels.resize_scale == scale {
-                            0xd94d38
-                        } else {
-                            0x555966
-                        }))
-                        .child(format!("{}%", (scale * 100.) as u32))
-                        .on_click(cx.listener(move |this, _, _, cx| {
-                            this.dispatch_ui(Action::SetResizeScale { scale }, cx);
-                        }))
+                    let label = format!("{}%", (scale * 100.) as u32);
+                    div().w(px(72.)).child(self.choice(
+                        format!("resize-scale-{}", (scale * 100.) as u32),
+                        label.clone(),
+                        div().child(label).into_any_element(),
+                        (self.panels.resize_scale == scale, true),
+                        Action::SetResizeScale { scale },
+                        cx,
+                    ))
                 }),
             ))
             .child(
@@ -154,7 +119,18 @@ impl Editor {
                 Action::ApplyResize,
             ))
             .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
-            .child(self.button("Rotate 90°", false, cx, Action::Rotate))
-            .child(self.button("Paste image  ⌘V", false, cx, Action::PasteImage))
+            .child(
+                div()
+                    .flex()
+                    .gap_2()
+                    .child(self.button("Rotate 90°", false, cx, Action::Rotate))
+                    .child(self.compact_button(
+                        "Paste image  ⌘V",
+                        "clipboard-paste",
+                        false,
+                        cx,
+                        Action::PasteImage,
+                    )),
+            )
     }
 }

@@ -80,6 +80,16 @@ impl Editor {
                 return Err("Stroke width must be 0.5..64".into());
             }
             Action::SetAppearance { style } => style.validate()?,
+            Action::SampleToolColor { .. }
+            | Action::PickToolScreenColor
+            | Action::BeginToolColorSampling
+                if matches!(
+                    self.options_tool(),
+                    Tool::Select | Tool::Crop | Tool::Pixelate
+                ) =>
+            {
+                return Err("Select an annotation or a tool with a color option".into());
+            }
             Action::SetImageAnimation { animation } => animation.validate()?,
             Action::SelectEntrance { effect } => {
                 let mut animation = self.document.image_animation;
@@ -157,7 +167,10 @@ impl Editor {
             }
             Action::SampleBackdropColor {
                 position: (x, y), ..
-            } if *x >= self.document.base.width() || *y >= self.document.base.height() => {
+            }
+            | Action::SampleToolColor { position: (x, y) }
+                if *x >= self.document.base.width() || *y >= self.document.base.height() =>
+            {
                 return Err("Sample position must be inside the source image".into());
             }
             Action::SetBackdrop { backdrop: Some(b) } => {
@@ -200,6 +213,8 @@ impl Editor {
             action,
             Action::BeginBackdropColorSampling { .. }
                 | Action::SampleBackdropColor { .. }
+                | Action::BeginToolColorSampling
+                | Action::SampleToolColor { .. }
                 | Action::Fit
                 | Action::ActualSize
                 | Action::Zoom { .. }
@@ -209,6 +224,7 @@ impl Editor {
                 | Action::CommitText
         ) {
             self.panels.sampling_color = None;
+            self.panels.sampling_tool_color = false;
         }
         let previous_operation = self.operations.active.as_ref().map(|op| op.id);
         match action {
@@ -282,6 +298,23 @@ impl Editor {
                 self.interaction.color = color;
                 self.apply_style(true, cx);
             }
+            Action::SampleToolColor { position: (x, y) } => {
+                let pixel = self.document.base.get_pixel(x, y).0;
+                let mut color = self.tool_settings().color;
+                color[..3].copy_from_slice(&pixel[..3]);
+                self.interaction.color = color;
+                self.apply_style(true, cx);
+                self.panels.sampling_tool_color = false;
+            }
+            Action::BeginToolColorSampling => {
+                self.commit_text(cx);
+                self.cancel_gesture();
+                self.panels.sampling_color = None;
+                self.panels.sampling_tool_color = true;
+                self.feedback.status =
+                    "Click a pixel in the image to pick its color • Escape to cancel".into();
+            }
+            Action::PickToolScreenColor => self.pick_screen_color(None, cx)?,
             Action::SetStrokeWidth { width } => {
                 self.interaction.width = width;
                 self.apply_style(false, cx);
@@ -341,6 +374,7 @@ impl Editor {
             Action::ClosePanel { panel } => {
                 self.panels.popup = None;
                 self.panels.sampling_color = None;
+                self.panels.sampling_tool_color = false;
                 match panel {
                     Panel::Backdrop => self.panels.backdrop = false,
                     Panel::Enhance => self.panels.enhance = false,
@@ -434,11 +468,13 @@ impl Editor {
                 let pixel = self.document.base.get_pixel(x, y).0;
                 self.backdrop_style(|b| b.set_color(stop, [pixel[0], pixel[1], pixel[2]]), cx);
                 self.panels.sampling_color = None;
+                self.panels.sampling_tool_color = false;
             }
             Action::BeginBackdropColorSampling { stop } => {
                 self.commit_text(cx);
                 self.cancel_gesture();
                 self.panels.sampling_color = Some(stop);
+                self.panels.sampling_tool_color = false;
                 self.feedback.status =
                     "Click a pixel in the image to pick its color • Escape to cancel".into();
             }
@@ -591,6 +627,7 @@ impl Editor {
             Action::CommitText => self.commit_text(cx),
             Action::Cancel => {
                 self.panels.sampling_color = None;
+                self.panels.sampling_tool_color = false;
                 if self.video_export.cancel.is_some() {
                     self.cancel_video(cx);
                 } else if self.interaction.text_edit.take().is_some() {

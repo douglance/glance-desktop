@@ -25,6 +25,11 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- All tool inspectors use compact paired fields, editable numeric values, visual
+  stroke/fill/endpoint choices and a shared custom color picker. Backdrop, Image
+  tools and Animation use the same spacing and compact controls; annotation
+  color sampling preserves opacity and is also available through MCP.
+
 - Starfield is now called Nebula, with subtle evolving gas clouds, soft
   filaments and dark dust lanes behind the prominent drifting stars.
 

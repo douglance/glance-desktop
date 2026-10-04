@@ -113,28 +113,7 @@ impl Editor {
         let a = self.document.image_animation;
         let motion = self.document.backdrop.map_or(Motion::Still, |b| b.motion);
         let finished = self.clip_time() >= a.seconds as f32;
-        div()
-            .id("animation-panel")
-            .debug_selector(|| "animation-panel".into())
-            .w(px(260.))
-            .h_full()
-            .flex_shrink_0()
-            .p_5()
-            .flex()
-            .flex_col()
-            .gap_4()
-            .overflow_y_scroll()
-            .bg(rgb(0xfcfcfd))
-            .border_l_1()
-            .border_color(rgb(0xe5e5ec))
-            .cursor(CursorStyle::Arrow)
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, _, _, cx| {
-                    this.dispatch_ui(Action::CommitText, cx);
-                    cx.stop_propagation();
-                }),
-            )
+        super::controls::panel("animation-panel", cx)
             .child(
                 div()
                     .flex()
@@ -169,31 +148,35 @@ impl Editor {
                     .flex_wrap()
                     .gap_2()
                     .children(Entrance::ALL.into_iter().map(|effect| {
-                        div()
-                            .id(("entrance", effect as usize))
-                            .debug_selector(move || format!("entrance-{effect:?}"))
-                            .w(px(100.))
-                            .h(px(42.))
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .rounded_md()
-                            .text_xs()
-                            .cursor_pointer()
-                            .bg(rgb(if a.effect == effect {
-                                0xe8f6f2
-                            } else {
-                                0xf0f1f5
-                            }))
-                            .text_color(rgb(if a.effect == effect {
-                                0x147d6d
-                            } else {
-                                0x555966
-                            }))
-                            .child(effect.label())
-                            .on_click(cx.listener(move |this, _, _, cx| {
-                                this.dispatch_ui(Action::SelectEntrance { effect }, cx)
-                            }))
+                        let name = match effect {
+                            Entrance::None => "square",
+                            Entrance::Diagonal => "arrow-up-right",
+                            Entrance::Pop => "maximize",
+                            Entrance::Tilt => "rotate-cw",
+                        };
+                        div().w(px(110.)).child(
+                            self.choice(
+                                format!("entrance-{effect:?}"),
+                                effect.label().into(),
+                                div()
+                                    .flex()
+                                    .items_center()
+                                    .gap_1()
+                                    .child(icon(
+                                        name,
+                                        if a.effect == effect {
+                                            0xd94d38
+                                        } else {
+                                            0x555966
+                                        },
+                                    ))
+                                    .child(effect.label())
+                                    .into_any_element(),
+                                (a.effect == effect, true),
+                                Action::SelectEntrance { effect },
+                                cx,
+                            ),
+                        )
                     })),
             )
             .child(
@@ -218,33 +201,37 @@ impl Editor {
                 self.clip_time(),
                 a.seconds
             )))
-            .child(self.animation_slider(AnimationControl::Duration, cx))
-            .child(self.animation_slider(AnimationControl::Delay, cx))
+            .child(super::controls::pair(
+                self.animation_slider(AnimationControl::Duration, cx),
+                self.animation_slider(AnimationControl::Delay, cx),
+            ))
             .child(self.animation_slider(AnimationControl::Length, cx))
-            .child(div().text_xs().child("Clip behavior"))
-            .child(
+            .child(super::controls::field(
+                "After entrance",
                 div()
                     .flex()
-                    .flex_col()
-                    .gap_2()
-                    .child(self.button(
-                        "Enter & hold",
-                        !a.exit,
-                        cx,
+                    .gap_1()
+                    .child(self.choice(
+                        "animation-hold".into(),
+                        "Enter and hold".into(),
+                        div().child("Hold").into_any_element(),
+                        (!a.exit, true),
                         Action::SetImageAnimation {
                             animation: crate::animation::ImageAnimation { exit: false, ..a },
                         },
-                    ))
-                    .child(self.button(
-                        "Enter, hold & exit",
-                        a.exit,
                         cx,
+                    ))
+                    .child(self.choice(
+                        "animation-exit".into(),
+                        "Enter, hold and exit".into(),
+                        div().child("Exit").into_any_element(),
+                        (a.exit, true),
                         Action::SetImageAnimation {
                             animation: crate::animation::ImageAnimation { exit: true, ..a },
                         },
+                        cx,
                     )),
-            )
-            .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
+            ))
             .child(div().h(px(1.)).bg(rgb(0xe5e5ec)))
             .child(div().text_xs().child("Backdrop motion"))
             .child(
@@ -252,14 +239,7 @@ impl Editor {
                     std::iter::once(Motion::Still)
                         .chain(Motion::EFFECTS)
                         .map(|motion_choice| {
-                            div().w(px(100.)).child(self.button(
-                                motion_choice.label(),
-                                motion == motion_choice,
-                                cx,
-                                Action::SelectMotion {
-                                    motion: motion_choice,
-                                },
-                            ))
+                            self.motion_button(motion_choice, motion == motion_choice, cx)
                         }),
                 ),
             )

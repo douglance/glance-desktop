@@ -46,6 +46,17 @@ impl Editor {
         if self.is_busy() {
             return;
         }
+        if self.panels.sampling_tool_color {
+            if let Some((x, y)) = self.coordinate(e.position, false) {
+                self.dispatch_ui(
+                    Action::SampleToolColor {
+                        position: (x.floor() as u32, y.floor() as u32),
+                    },
+                    cx,
+                );
+            }
+            return;
+        }
         if let Some(stop) = self.panels.sampling_color {
             if let Some((x, y)) = self.coordinate(e.position, false) {
                 self.dispatch_ui(
@@ -370,10 +381,15 @@ impl Editor {
         }
     }
     pub(super) fn key(&mut self, e: &KeyDownEvent, window: &mut Window, cx: &mut Context<Self>) {
-        if self
-            .color_pickers
-            .iter()
-            .any(|picker| picker.read(cx).has_focus(window))
+        if self.tool_color_picker.read(cx).has_focus(window)
+            || self
+                .number_inputs
+                .values()
+                .any(|input| input.read(cx).has_focus(window))
+            || self
+                .color_pickers
+                .iter()
+                .any(|picker| picker.read(cx).has_focus(window))
         {
             return;
         }

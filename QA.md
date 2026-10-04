@@ -370,3 +370,21 @@ its sRGB hex value. On Omarchy check hyprpicker selection, cancellation and the
 missing-command error. Reopen/close the panel, switch effects, choose a preset,
 undo/redo and compare custom-color PNG/GIF/MP4 output. Native sampler and physical
 display behavior require a manual pass.
+
+## Compact inspectors and annotation colors
+
+Virtual-platform coverage checks every tool's fields at 1050×600, including
+half-width Stroke choices and aligned Magnifier diameter/Zoom. Native input tests
+cover numeric commit/cancel, invalid values, clipboard/text undo, blur commit and
+annotation undo. Tool-picker tests enter custom hex, preserve opacity and selection,
+sample synthetic source pixels, and check popup bounds. Bridge tests check source
+bounds, read-back, revision conflicts, undo, and stale screen-sampler results.
+
+For desktop acceptance, cycle all tools and select existing annotations at the
+minimum window size. Verify visual solid/dash/dot strokes, fill and independent
+ends, Points tooltips, numeric entry/step arrows, and paired Magnifier settings.
+Open each tool's seventh color swatch, edit hex/wheel/brightness and sample image
+and screen colors; opacity, selection and undo should survive. Switching tools or
+opening another panel closes the old popup. Check Backdrop, Image tools and
+Animation for consistent spacing, readable effect names, paired timing and the
+Hold/Exit choices. Native screen sampling remains a manual desktop check.

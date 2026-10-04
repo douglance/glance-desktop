@@ -63,6 +63,7 @@ pub(super) struct VideoExportState {
 }
 pub(super) struct PanelState {
     pub(super) sampling_color: Option<usize>,
+    pub(super) sampling_tool_color: bool,
     pub(super) backdrop_disabled: Option<crate::backdrop::Backdrop>,
     pub(super) popup: Option<super::panels::Popup>,
     pub(super) popup_index: usize,
