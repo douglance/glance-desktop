@@ -105,6 +105,7 @@ jobs:
           cp /home/builder/package/*.pkg.tar.zst target/dist/
           pacman -U --noconfirm target/dist/*.pkg.tar.zst
           glance --help
+          ./scripts/test-linux-platform.sh /usr/bin/glance
           desktop-file-validate /usr/share/applications/glance.desktop
           (cd target/dist && sha256sum ./*.pkg.tar.zst > arch-package.sha256)
       - name: Upload Omarchy build
