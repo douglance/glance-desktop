@@ -15,6 +15,8 @@ trap 'rm -rf "$STAGE"' EXIT
 trap 'exit 1' HUP INT TERM
 ROOT="$STAGE/$NAME"
 mkdir -p "$ROOT/bin" "$ROOT/share/applications" "$ROOT/share/icons/hicolor/scalable/apps" "$ROOT/share/licenses/glance"
+# Keep the Cargo executable usable with MCP/video after packaging too.
+install -m755 native/linux/glance-video-* "${CARGO_TARGET_DIR:-target}/$MODE/"
 install -m755 "${CARGO_TARGET_DIR:-target}/$MODE/glance" "$ROOT/bin/glance"
 install -m755 native/linux/glance-video-* "$ROOT/bin/"
 install -m644 packaging/linux/glance.desktop "$ROOT/share/applications/"
