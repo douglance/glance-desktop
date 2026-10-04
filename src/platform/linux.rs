@@ -31,11 +31,11 @@ pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
     } else {
         None
     };
-    let path = std::env::temp_dir().join(format!(
-        "glance-{}-{}.png",
-        std::process::id(),
-        NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed)
-    ));
+    let capture_dir = tempfile::Builder::new()
+        .prefix("glance-capture-")
+        .tempdir()
+        .map_err(|e| e.to_string())?;
+    let path = capture_dir.path().join("capture.png");
     // Allow the compositor to process the editor's minimize request.
     std::thread::sleep(std::time::Duration::from_millis(250));
     let mut command = Command::new("grim");
@@ -97,7 +97,7 @@ pub fn destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
         "--filename=Screenshot {}.{extension}",
         String::from_utf8_lossy(&stamp.stdout).trim()
     );
-    let Some(mut path) = dialog(&[
+    let Some(path) = dialog(&[
         "--save",
         "--confirm-overwrite",
         "--title=Export from Glance",
@@ -106,18 +106,9 @@ pub fn destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
     else {
         return Ok(None);
     };
-    // Preserve the chosen path: changing an extension after the dialog
-    // would bypass Zenity's overwrite confirmation for the actual target.
-    if path.extension().is_none() {
-        path.set_extension(extension);
-        if path.exists() {
-            return Err("That filename already exists; choose the full filename in the save dialog to confirm replacement.".into());
-        }
-    } else if path.extension().is_none_or(|ext| ext != extension) {
-        return Err(format!("Choose a filename ending in .{extension}"));
-    }
-    Ok(Some(path))
+    checked_export_path(path, extension).map(Some)
 }
+
 pub fn copy(image: RgbaImage) -> Result<(), String> {
     let mut bytes = std::io::Cursor::new(Vec::new());
     image

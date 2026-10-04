@@ -145,3 +145,11 @@ Glance edits one image at a time. Save or copy before capturing, opening, or
 pasting a replacement image; annotations are not persisted across launches.
 Crop out sensitive information before sharing. Pixelation is a visual effect,
 not a guarantee that information has been removed.
+
+### Export filenames
+
+Save with the matching `.png`, `.gif`, or `.mp4` extension. Glance preserves
+that filename so the native dialog's overwrite confirmation applies to the
+actual destination. If you omit the extension, Glance appends it only when the
+resulting filename does not already exist; otherwise choose the full filename
+in the dialog to confirm replacement.

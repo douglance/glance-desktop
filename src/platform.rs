@@ -1,10 +1,5 @@
 use image::{ImageReader, RgbaImage};
-use std::{
-    path::PathBuf,
-    process::Command,
-    sync::atomic::{AtomicU64, Ordering},
-};
-static NEXT_CAPTURE: AtomicU64 = AtomicU64::new(0);
+use std::{path::PathBuf, process::Command};
 pub fn load(path: &std::path::Path) -> Result<RgbaImage, String> {
     let reader = ImageReader::open(path)
         .map_err(|e| e.to_string())?
@@ -60,12 +55,13 @@ fn capture_failure(area: bool, stderr: &[u8], code: Option<i32>) -> Option<Strin
 }
 #[cfg(target_os = "macos")]
 pub fn capture(area: bool) -> Result<Option<RgbaImage>, String> {
-    // Unique paths avoid mistaking a canceled selection for a previous capture.
-    let path = std::env::temp_dir().join(format!(
-        "glance-{}-{}.png",
-        std::process::id(),
-        NEXT_CAPTURE.fetch_add(1, Ordering::Relaxed)
-    ));
+    // A private directory prevents other local accounts from planting a
+    // symlink at the capture path or reading the unedited screenshot.
+    let capture_dir = tempfile::Builder::new()
+        .prefix("glance-capture-")
+        .tempdir()
+        .map_err(|e| e.to_string())?;
+    let path = capture_dir.path().join("capture.png");
     std::thread::sleep(std::time::Duration::from_millis(250));
     let mut command = Command::new("/usr/sbin/screencapture");
     command.args(["-x", "-t", "png"]);
@@ -182,13 +178,26 @@ fn export_destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
 set exportName to "{name} " & timestamp & ".{extension}"
 POSIX path of (choose file name with prompt "{prompt}" default name exportName default location (path to {folder} folder))"#
     );
-    let Some(mut path) = dialog(&script)? else {
-        return Ok(None);
-    };
-    if !matches!(format, ExportFormat::Png) || path.extension().is_none() {
+    dialog(&script)?
+        .map(|path| checked_export_path(path, extension))
+        .transpose()
+}
+
+// Changing a save-dialog path can bypass its overwrite confirmation.
+// An explicitly chosen filename may be replaced; an appended extension must
+// never turn an unconfirmed choice into a replacement (including symlinks).
+fn checked_export_path(mut path: PathBuf, extension: &str) -> Result<PathBuf, String> {
+    if path.extension().is_none() {
         path.set_extension(extension);
+        match std::fs::symlink_metadata(&path) {
+            Ok(_) => return Err("That filename already exists; choose the full filename in the save dialog to confirm replacement.".into()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {},
+            Err(e) => return Err(e.to_string()),
+        }
+    } else if path.extension().is_none_or(|ext| ext != extension) {
+        return Err(format!("Choose a filename ending in .{extension}"));
     }
-    Ok(Some(path))
+    Ok(path)
 }
 
 pub fn animation_destination(gif: bool) -> Result<Option<PathBuf>, String> {
@@ -323,6 +332,7 @@ fn export_destination(format: ExportFormat) -> Result<Option<PathBuf>, String> {
 #[cfg(test)]
 mod tests {
     use super::capture_failure;
+    use super::checked_export_path;
     #[test]
     fn startup_rejects_missing_or_conflicting_image_arguments() {
         for args in [
@@ -361,6 +371,30 @@ mod tests {
             document.render(None).pixels().any(|pixel| pixel[0] < 128),
             "Text must survive export"
         );
+    }
+    #[test]
+    fn appended_export_extensions_cannot_bypass_overwrite_confirmation() {
+        let dir = tempfile::tempdir().unwrap();
+        for extension in ["png", "gif", "mp4"] {
+            let chosen = dir.path().join(format!("screenshot.{extension}"));
+            std::fs::write(&chosen, b"original").unwrap();
+            assert!(checked_export_path(dir.path().join("screenshot"), extension).is_err());
+            assert_eq!(
+                checked_export_path(chosen.clone(), extension).unwrap(),
+                chosen
+            );
+            assert_eq!(std::fs::read(&chosen).unwrap(), b"original");
+            assert!(checked_export_path(dir.path().join("screenshot.other"), extension).is_err());
+            let new = dir.path().join(format!("new-{extension}"));
+            assert_eq!(
+                checked_export_path(new.clone(), extension).unwrap(),
+                new.with_extension(extension)
+            );
+        }
+        let link = dir.path().join("dangling.png");
+        std::os::unix::fs::symlink(dir.path().join("missing"), &link).unwrap();
+        assert!(checked_export_path(dir.path().join("dangling"), "png").is_err());
+        assert!(link.is_symlink());
     }
     #[test]
     fn capture_errors_preserve_real_cause_and_cancellation_is_quiet() {

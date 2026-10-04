@@ -35,6 +35,20 @@ See `docs/architecture.md` for details and `docs/usage.md` for current behavior.
   provenance. Keep signing material and credentials outside Git.
 - Keep PRs focused and update usage docs when behavior or shortcuts change.
 
+## File and process safety
+
+- Use private, randomized temporary directories for captures and helper outputs.
+  Keep export scratch files beside the destination for atomic rename. Never use
+  predictable PID/counter paths or truncate an unreserved temporary file.
+- Preserve the exact filename confirmed by a save dialog. An appended extension
+  must not silently replace an existing file or symlink. MCP exports create new
+  destinations and must keep rejecting existing files.
+- Treat automation media inputs as local files: reject URLs and special files,
+  bound actual reads, and disable network protocols in media helpers. Pass
+  arguments directly to processes; never interpolate them into shell scripts.
+- Check dependency advisories during security reviews. Distinguish affected
+  versions from reachable vulnerable APIs; record evidence and upstream limits.
+
 ## MCP parity
 
 - Every user-facing command or editable setting needs a semantic MCP path through

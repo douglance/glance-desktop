@@ -15,12 +15,6 @@ fn matte(image: &mut image::RgbaImage) {
         p[3] = 255;
     }
 }
-struct Temporary(std::path::PathBuf);
-impl Drop for Temporary {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
 pub fn encode(
     document: &Document,
     path: &Path,
@@ -59,13 +53,16 @@ pub fn encode(
     }
     let quantizer = color_quant::NeuQuant::new(10, 256, &samples);
     let palette = quantizer.color_map_rgb();
-    let stamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| e.to_string())?
-        .as_nanos();
-    let temp =
-        Temporary(path.with_file_name(format!(".glance-{}-{stamp}.gif", std::process::id())));
-    let file = File::create(&temp.0).map_err(|e| e.to_string())?;
+    let export_dir = tempfile::Builder::new()
+        .prefix(".glance-export-")
+        .tempdir_in(
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new(".")),
+        )
+        .map_err(|e| e.to_string())?;
+    let temporary_path = export_dir.path().join("animation.gif");
+    let file = File::create_new(&temporary_path).map_err(|e| e.to_string())?;
     let mut writer = BufWriter::new(file);
     {
         let mut encoder = gif::Encoder::new(
@@ -106,7 +103,7 @@ pub fn encode(
     if cancel.load(Ordering::Relaxed) {
         return Ok(false);
     }
-    std::fs::rename(&temp.0, path).map_err(|e| e.to_string())?;
+    std::fs::rename(&temporary_path, path).map_err(|e| e.to_string())?;
     progress(100);
     Ok(true)
 }

@@ -7,7 +7,7 @@ use crate::{
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
 use std::{
-    io::{BufReader, Cursor, Write},
+    io::{BufReader, Cursor, Read, Write},
     path::PathBuf,
     sync::atomic::AtomicBool,
 };
@@ -80,7 +80,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "import_image",
-            "Replace native canvas with an image from a local path OR base64 image bytes OR the Mac clipboard. This starts a new document; existing document is replaced.",
+            "Replace native canvas with an image from a local path OR base64 image bytes OR the system clipboard. This starts a new document; existing document is replaced.",
             json!({"path":path,"base64":{"type":"string"},"clipboard":{"type":"boolean"},"expected_revision":revision}),
             &[],
             false,
@@ -178,7 +178,7 @@ pub fn tools() -> Vec<Value> {
         ),
         tool(
             "read_video_frame",
-            "Decode an MP4 frame at time seconds and return PNG image content. Can inspect an exported video. Native AVFoundation; no FFmpeg required.",
+            "Decode a frame from an absolute local MP4 path at time seconds and return PNG image content. Uses AVFoundation on macOS or FFmpeg on Linux; remote URLs are rejected.",
             json!({"path":path,"seconds":{"type":"number","minimum":0},"max_edge":{"type":"integer","minimum":64,"maximum":4096}}),
             &["path", "seconds"],
             true,
@@ -253,6 +253,33 @@ fn output(args: &Value, extension: &str) -> Result<PathBuf, String> {
         .as_nanos();
     Ok(dir.join(format!("Glance-{}-{stamp}.{extension}", std::process::id())))
 }
+fn read_local_image(path: &std::path::Path) -> Result<Vec<u8>, String> {
+    if !path.is_absolute() {
+        return Err("Use an absolute input path".into());
+    }
+    // Reject devices and FIFOs before opening. Limit the actual read as well as
+    // the metadata so a growing file cannot bypass the import size limit.
+    if !std::fs::metadata(path)
+        .map_err(|e| e.to_string())?
+        .is_file()
+    {
+        return Err("Input must be a local regular file".into());
+    }
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let metadata = file.metadata().map_err(|e| e.to_string())?;
+    const LIMIT: u64 = 16 * 1024 * 1024;
+    if !metadata.is_file() || metadata.len() > LIMIT {
+        return Err("Input must be a regular file of at most 16 MiB".into());
+    }
+    let mut bytes = Vec::new();
+    file.take(LIMIT + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|e| e.to_string())?;
+    if bytes.len() as u64 > LIMIT {
+        return Err("Input file exceeds 16 MiB".into());
+    }
+    Ok(bytes)
+}
 fn decode(bytes: Vec<u8>) -> Result<image::RgbaImage, String> {
     let mut reader = image::ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
@@ -290,11 +317,7 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
                 return Err("Provide exactly one of path, base64 or clipboard=true".into());
             }
             let image = if let Some(path) = args["path"].as_str() {
-                let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
-                if metadata.len() > 16 * 1024 * 1024 {
-                    return Err("Input file exceeds 16 MiB".into());
-                }
-                decode(std::fs::read(path).map_err(|e| e.to_string())?)?
+                decode(read_local_image(std::path::Path::new(path))?)?
             } else if let Some(data) = args["base64"].as_str() {
                 if data.len() > 22 * 1024 * 1024 {
                     return Err("Input exceeds 16 MiB".into());
@@ -423,12 +446,19 @@ pub fn operate(name: &str, args: &Value, s: &mut Snapshot) -> Result<(Value, boo
             ));
         }
         "read_video_frame" => {
-            let path = args["path"].as_str().ok_or("Missing path")?;
+            let path = std::path::Path::new(args["path"].as_str().ok_or("Missing path")?);
+            if !path.is_absolute() || !path.is_file() {
+                return Err("Use an absolute path to a local video file".into());
+            }
             let seconds = num(args, "seconds")?;
             if seconds < 0. {
                 return Err("seconds must be nonnegative".into());
             }
-            let output = output(&json!({}), "png")?;
+            let frame_dir = tempfile::Builder::new()
+                .prefix("glance-video-frame-")
+                .tempdir()
+                .map_err(|e| e.to_string())?;
+            let output = frame_dir.path().join("frame.png");
             let helper = helper("glance-video-frame")?;
             let status = std::process::Command::new(helper)
                 .arg(path)
@@ -769,6 +799,40 @@ mod tests {
                 ["isError"],
             true
         );
+    }
+    #[test]
+    fn local_inputs_reject_urls_options_and_special_files_before_decoding() {
+        let mut s = snapshot();
+        let directory = tempfile::tempdir().unwrap();
+        for input in [
+            "https://example.com/video.mp4",
+            "-help",
+            "/dev/zero",
+            "/dev/null",
+            directory.path().to_str().unwrap(),
+        ] {
+            assert!(
+                operate(
+                    "read_video_frame",
+                    &json!({"path":input,"seconds":0}),
+                    &mut s
+                )
+                .unwrap_err()
+                .contains("local video file")
+            );
+            assert!(operate("import_image", &json!({"path":input}), &mut s).is_err());
+        }
+        let image_path = directory.path().join("image.png");
+        image::RgbaImage::new(2, 2).save(&image_path).unwrap();
+        operate("import_image", &json!({"path":image_path}), &mut s).unwrap();
+        assert_eq!(s.document.base.dimensions(), (2, 2));
+        let large = directory.path().join("large.png");
+        std::fs::File::create(&large)
+            .unwrap()
+            .set_len(16 * 1024 * 1024 + 1)
+            .unwrap();
+        assert!(operate("import_image", &json!({"path":large}), &mut s).is_err());
+        assert_eq!(s.document.base.dimensions(), (2, 2));
     }
     #[test]
     fn exports_preserve_existing_files() {

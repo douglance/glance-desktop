@@ -57,7 +57,7 @@ This repo supplies the MCP server and native bridge. It does not create an OpenA
 - `export_png`: full resolution image to a new local file.
 - `export_mp4`: backdrop motion and/or image entrance, H.264/30fps, 2–15 seconds, max edge 1920. Requires a motion backdrop or image entrance; starts at time zero.
 - `export_gif`: the same composition with infinite repeat, 20fps, max edge 960.
-- `read_video_frame`: rasterize an MP4 at a timestamp into model-visible PNG content using AVFoundation. No FFmpeg dependency.
+- `read_video_frame`: rasterize an MP4 at a timestamp into model-visible PNG content using AVFoundation on macOS or FFmpeg on Linux. Requires an absolute path to a local regular file; remote URLs and network protocols are rejected.
 
 Example workflow:
 
@@ -169,3 +169,8 @@ resize. Annotation tools accept these physical sizes up to 32768 pixels (width
 must be positive) so marks returned by `get_document` remain editable. The
 `set_stroke_width` action still uses the toolbar's 0.5–64 pixel range. Resizes
 reject transformed geometry outside document limits before changing history.
+
+Local image imports also require an absolute path to a regular file. The 16 MiB
+file-size limit is enforced on the actual bytes read, including growing files;
+devices, directories, and FIFOs are rejected. Capture and video frame scratch
+files live in private temporary directories and are removed after use.

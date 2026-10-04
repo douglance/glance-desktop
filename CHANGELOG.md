@@ -26,6 +26,12 @@ Notable user-visible changes are recorded here.
 
 ### Fixed
 
+- Capture and animation-export scratch files use private temporary directories,
+  preventing local symlink attacks and exposure of unedited captures.
+- Save dialogs preserve overwrite confirmation when checking filename extensions.
+- MCP media reads reject remote URLs and special files; image imports enforce
+  their size limit while reading, and Linux video decoding disables network protocols.
+
 - Resized annotation widths and corners stay editable and round-trip through MCP;
   invalid transformed geometry is rejected before changing the image or undo history.
 - Zero-length arrows retain their live stroke in exports, and incompatible backdrop

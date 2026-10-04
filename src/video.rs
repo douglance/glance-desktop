@@ -15,12 +15,6 @@ impl Drop for Encoder {
         let _ = self.0.wait();
     }
 }
-struct Temporary(PathBuf);
-impl Drop for Temporary {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
-}
 fn encoder_path() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let dir = exe.parent().ok_or("App directory unavailable")?;
@@ -62,14 +56,15 @@ pub fn encode(
     } else {
         start_phase
     };
-    let temp = Temporary(path.with_file_name(format!(
-            ".glance-{}-{}.mp4",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos()
-        )));
+    let export_dir = tempfile::Builder::new()
+        .prefix(".glance-export-")
+        .tempdir_in(
+            path.parent()
+                .filter(|p| !p.as_os_str().is_empty())
+                .unwrap_or(Path::new(".")),
+        )
+        .map_err(|e| e.to_string())?;
+    let temporary_path = export_dir.path().join("animation.mp4");
     let count = b.seconds * 30;
     let mut encoder = Encoder(
         Command::new(native)
@@ -77,7 +72,7 @@ pub fn encode(
             .arg(renderer.height.to_string())
             .arg("30")
             .arg(count.to_string())
-            .arg(&temp.0)
+            .arg(&temporary_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -126,7 +121,7 @@ pub fn encode(
     if cancel.load(Ordering::Relaxed) {
         return Ok(false);
     }
-    std::fs::rename(&temp.0, path).map_err(|e| e.to_string())?;
+    std::fs::rename(&temporary_path, path).map_err(|e| e.to_string())?;
     progress(100);
     Ok(true)
 }
