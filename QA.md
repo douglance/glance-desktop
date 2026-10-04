@@ -388,3 +388,22 @@ and screen colors; opacity, selection and undo should survive. Switching tools o
 opening another panel closes the old popup. Check Backdrop, Image tools and
 Animation for consistent spacing, readable effect names, paired timing and the
 Hold/Exit choices. Native screen sampling remains a manual desktop check.
+
+## 0.2.0 release preparation
+
+2026-10-04: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`
+and `cargo test --locked` pass: 143 tests passed, 16 opt-in tests ignored.
+An isolated ad-hoc debug bundle builds successfully without replacing the normal
+bundle. Both `CFBundleShortVersionString` and `CFBundleVersion` are `0.2.0`;
+strict code-signature verification, CLI help and bundled license notices pass.
+
+The bundled native helpers encoded a synthetic 64×48, 60-frame H.264 video at
+30 fps, decoded its one-second frame to a PNG with matching dimensions, and
+rejected a frame time beyond the two-second duration. Media files were created
+in a private randomized temporary directory and removed after verification.
+
+The local icon build reported a missing `libLLVM.dylib` while stripping debug
+information with `rust-objcopy`; compilation and packaging still succeeded.
+The toolchain also reports future incompatibilities in `block` and
+`proc-macro-error2`. Physical macOS desktop acceptance and Omarchy packaging/
+desktop acceptance were not rerun during this preparation.

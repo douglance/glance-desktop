@@ -26,8 +26,10 @@ Capture, annotate, frame, and share from one native macOS window.
   endpoint handles to reorient them and a middle handle to bend them; Shift
   snaps endpoint drags to 45°. Text editing has a transparent background.
 - The right sidebar follows the selected annotation or active tool. Each tool
-  remembers its defaults during the session. Change color, thickness, opacity,
-  and tool-specific options there; edits to existing annotations support undo.
+  has a **?** icon beside its name; hover to see its shortcut and a brief guide.
+  For selected annotations, the tooltip also shows the keyboard move shortcuts.
+  Each tool remembers its defaults during the session. Change color, thickness,
+  opacity, and tool-specific options there; edits to existing annotations support undo.
   Compact fields pair related settings. Click a numeric value to type an exact
   size or percentage; Enter or leaving the field applies it, Escape cancels,
   and the small arrows step the value. Invalid or out-of-range text is rejected.

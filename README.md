@@ -25,6 +25,8 @@ with a Lava backdrop. This PNG captures one frame of the animation.*
   or gradient backdrops. Choose a square, portrait, or landscape format.
 - **Put the background in motion.** Eight animated styles export as looping GIFs
   or MP4s while your screenshot and annotations stay still.
+- **Animate the entrance.** Reveal, pop, or settle your image into place, with
+  replay, scrubbing, and optional exits in GIF and MP4 exports.
 - **Share with a remote agent.** Copy a temporary image URL that an agent can
   fetch, or use the local MCP companion to let a client edit the native canvas.
 
@@ -34,14 +36,14 @@ sharing is optional.
 
 ## Build and install
 
-Glance is in early development. Download the initial
-[v0.1.0 release](https://github.com/modem-dev/glance-desktop/releases/tag/v0.1.0)
+Glance is in early development. Download the
+[latest release](https://github.com/modem-dev/glance-desktop/releases/latest)
 for Apple Silicon macOS or Omarchy x86_64, or build from source below.
 
 ### macOS
 
-Download `Glance-0.1.0-macos-arm64.zip`, extract it, and move `Glance.app` to
-Applications. The download is ad-hoc signed and not notarized, so macOS may
+Download the release's `Glance-<version>-macos-arm64.zip`, extract it, and move
+`Glance.app` to Applications. The download is ad-hoc signed and not notarized, so macOS may
 block opening it. For a persistent local signing identity, build from source:
 
 Requires **macOS 12+**, Xcode Command Line Tools, and a current stable Rust

@@ -4,6 +4,8 @@ Notable user-visible changes are recorded here.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-04
+
 ### Added
 
 - Randomize button for all eight backdrop motions, with undoable, reproducible
@@ -24,6 +26,10 @@ Notable user-visible changes are recorded here.
   aspect ratios, step numbers, spotlight dimming, and magnifier defaults.
 
 ### Changed
+
+- Removed the “New annotation” label from tool inspector headers.
+- Tool shortcuts and brief instructions now appear in a hover tooltip on the
+  help icon beside each tool's name, replacing the inspector footer hints.
 
 - All tool inspectors use compact paired fields, editable numeric values, visual
   stroke/fill/endpoint choices and a shared custom color picker. Backdrop, Image

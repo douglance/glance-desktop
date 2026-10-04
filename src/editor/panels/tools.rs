@@ -13,6 +13,57 @@ use crate::{
 };
 use gpui::{prelude::*, *};
 
+struct ToolHelp {
+    name: &'static str,
+    shortcut: &'static str,
+    description: &'static str,
+    selected: bool,
+}
+
+impl Render for ToolHelp {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .id("tool-help-tooltip")
+            .debug_selector(|| "tool-help-tooltip".into())
+            .w(px(240.))
+            .px_3()
+            .py_2()
+            .flex()
+            .flex_col()
+            .gap_2()
+            .rounded_md()
+            .bg(rgb(0x282b34))
+            .text_color(rgb(0xffffff))
+            .text_xs()
+            .shadow_md()
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap_2()
+                    .child(div().font_weight(FontWeight::SEMIBOLD).child(self.name))
+                    .child(
+                        div()
+                            .px_2()
+                            .py_0p5()
+                            .rounded_sm()
+                            .bg(rgb(0x414550))
+                            .font_weight(FontWeight::SEMIBOLD)
+                            .child(self.shortcut),
+                    ),
+            )
+            .child(crate::platform::shortcut_label(self.description))
+            .when(self.selected, |el| {
+                el.child(
+                    div()
+                        .text_color(rgb(0xc5c8d1))
+                        .child("Arrow keys move · Shift moves 10 px"),
+                )
+            })
+    }
+}
+
 impl Editor {
     pub(in crate::editor) fn tool_scope(&self) -> number::Scope {
         (
@@ -476,43 +527,44 @@ impl Editor {
                 ),
             ));
         }
-        let help = match tool {
-            Tool::Arrow if selected => {
-                "Drag handles to move endpoints, bends and waypoints. Add point inserts a waypoint; Straighten removes bends and waypoints."
-            }
-            Tool::Arrow => {
-                "Draw a line, then select it to add and drag points. Start and End choose each endpoint independently."
-            }
-            Tool::Pen => match settings.style.cleanup {
-                Cleanup::Raw => "Keeps your original movement.",
-                Cleanup::Smooth => "Rounds small wobbles for a softer stroke.",
-                Cleanup::Adaptive => "Smooths gentle curves and preserves sharp turns.",
-            },
-            Tool::Crop => "Drag to crop immediately. Shift draws a square. ⌘Z restores the image.",
-            Tool::Rectangle | Tool::Pixelate => "Shift-drag to draw a square.",
-            Tool::Highlight => {
-                "Intensity scales the transparent tint; image details stay visible. Shift-drag draws a square."
-            }
-            Tool::Text => "Click and type. Enter finishes; Escape cancels.",
-            Tool::Spotlight => "Drag a focus window. Corner handles resize it.",
-            Tool::Magnifier => {
-                "Drag from a detail to its lens position. Handles move the source and lens."
-            }
-            Tool::Counter => "Click to place a step. Numbers advance automatically.",
-            Tool::Select => "Click an annotation to see its options.",
+        let (shortcut, description) = match tool {
+            Tool::Pen => ("P", "Drag to draw a freehand stroke."),
+            Tool::Arrow => (
+                "A",
+                "Drag to draw a line or arrow. Select it to adjust handles and add points.",
+            ),
+            Tool::Rectangle => ("R", "Drag to draw a box. Hold Shift for a square."),
+            Tool::Text => ("T", "Click and type. Enter finishes; Escape cancels."),
+            Tool::Highlight => (
+                "H",
+                "Drag to highlight an area while keeping details visible.",
+            ),
+            Tool::Pixelate => (
+                "B",
+                "Drag over an area to pixelate it. Hold Shift for a square.",
+            ),
+            Tool::Crop => ("X", "Drag to crop. Hold Shift for a square; ⌘Z undoes."),
+            Tool::Counter => (
+                "N",
+                "Click to place numbered steps. Numbers advance automatically.",
+            ),
+            Tool::Spotlight => (
+                "S",
+                "Drag a focus area to dim its surroundings. Handles resize it.",
+            ),
+            Tool::Magnifier => (
+                "M",
+                "Drag from a detail to its lens position to magnify it.",
+            ),
+            Tool::Select => (
+                "V",
+                "Click an annotation to edit it. Drag to move; Delete removes it.",
+            ),
         };
-        let hint = match tool {
-            Tool::Pen => "P · draw a stroke",
-            Tool::Arrow => "A · draw a line",
-            Tool::Rectangle => "R · Shift-drag for a square",
-            Tool::Text => "T · click and type",
-            Tool::Highlight => "H · drag a highlight",
-            Tool::Pixelate => "B · drag to redact",
-            Tool::Crop => "X · drag to crop",
-            Tool::Counter => "N · click to place a step",
-            Tool::Spotlight => "S · drag a focus window",
-            Tool::Magnifier => "M · drag from detail to lens",
-            Tool::Select => "V · select an annotation",
+        let name = if tool == Tool::Arrow {
+            "Line / Arrow"
+        } else {
+            tool.label()
         };
         controls::panel("tool-panel", cx)
             .child(
@@ -521,23 +573,55 @@ impl Editor {
                     .items_center()
                     .justify_between()
                     .gap_2()
-                    .child(div().text_sm().font_weight(FontWeight::SEMIBOLD).child(
-                        if tool == Tool::Arrow {
-                            "Line / Arrow"
-                        } else {
-                            tool.label()
-                        },
-                    ))
                     .child(
                         div()
-                            .text_xs()
-                            .text_color(rgb(0x646976))
-                            .child(if selected {
-                                "Selected"
-                            } else {
-                                "New annotation"
-                            }),
-                    ),
+                            .flex()
+                            .items_center()
+                            .gap_1()
+                            .child(
+                                div()
+                                    .text_sm()
+                                    .font_weight(FontWeight::SEMIBOLD)
+                                    .child(name),
+                            )
+                            .child(
+                                div()
+                                    .id(("tool-help", tool.index()))
+                                    .debug_selector(|| "tool-help".into())
+                                    .size(px(24.))
+                                    .flex_shrink_0()
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .rounded_md()
+                                    .text_xs()
+                                    .text_color(rgb(0x646976))
+                                    .hover(|s| s.bg(rgb(0xf0f1f5)).text_color(rgb(0x44454f)))
+                                    .child(
+                                        div()
+                                            .size(px(16.))
+                                            .flex()
+                                            .items_center()
+                                            .justify_center()
+                                            .rounded_full()
+                                            .border_1()
+                                            .border_color(rgb(0xc5c8d1))
+                                            .child("?"),
+                                    )
+                                    .tooltip(move |_, cx| {
+                                        cx.new(|_| ToolHelp {
+                                            name,
+                                            shortcut,
+                                            description,
+                                            selected,
+                                        })
+                                        .into()
+                                    }),
+                            ),
+                    )
+                    .when(selected, |el| {
+                        el.child(div().text_xs().text_color(rgb(0x646976)).child("Selected"))
+                    }),
             )
             .children(
                 sections
@@ -567,35 +651,5 @@ impl Editor {
                         )),
                 )
             })
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap_2()
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(rgb(0x646976))
-                            .child(if selected {
-                                "Arrow keys move · Shift moves 10 px"
-                            } else {
-                                hint
-                            }),
-                    )
-                    .child(
-                        div()
-                            .id("tool-help")
-                            .size(px(24.))
-                            .flex_shrink_0()
-                            .flex()
-                            .items_center()
-                            .justify_center()
-                            .text_xs()
-                            .text_color(rgb(0x646976))
-                            .child("?")
-                            .tooltip(move |_, cx| cx.new(|_| HoverLabel(help.into())).into()),
-                    ),
-            )
     }
 }
