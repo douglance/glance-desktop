@@ -21,35 +21,52 @@ impl Editor {
             .document
             .marks
             .iter()
+            .enumerate()
             .skip(self.preview.mark_count)
-            .chain(self.interaction.gesture.draft())
-            .map(|mark| {
-                if let Some((drag, _)) = self.interaction.gesture.drag()
-                    && std::ptr::eq(mark, &self.document.marks[drag.index])
-                {
-                    return drag.moved.clone();
-                }
-                mark.clone()
+            .map(|(index, mark)| {
+                self.interaction
+                    .gesture
+                    .moved_mark(index)
+                    .unwrap_or(mark)
+                    .clone()
             })
+            .chain(self.interaction.gesture.draft().cloned())
             .collect();
         self.prepare_lens(&overlays);
         let live_lens = self.preview.lens.clone();
-        let selected_mark = self.interaction.selected.and_then(|index| {
-            self.interaction
-                .gesture
-                .drag()
-                .map(|(drag, _)| &drag.moved)
-                .or_else(|| self.document.marks.get(index))
-                .cloned()
-        });
-        let selection_bounds = self.interaction.selected.and_then(|index| {
-            self.interaction
-                .gesture
-                .drag()
-                .map(|(drag, _)| &drag.moved)
-                .or_else(|| self.document.marks.get(index))
-                .map(Mark::bounds)
-        });
+        let selected_indices = self.selected_indices();
+        let selected_marks: Vec<Mark> = selected_indices
+            .iter()
+            .filter_map(|index| {
+                self.interaction
+                    .gesture
+                    .moved_mark(*index)
+                    .or_else(|| self.document.marks.get(*index))
+                    .cloned()
+            })
+            .collect();
+        let selected_mark = (selected_marks.len() == 1).then(|| selected_marks[0].clone());
+        let selection_bounds: Vec<_> = selected_marks
+            .iter()
+            .filter(|mark| {
+                selected_marks.len() > 1
+                    || !matches!(mark.tool, Tool::Arrow | Tool::Magnifier | Tool::Spotlight)
+            })
+            .map(Mark::bounds)
+            .collect();
+        let marquee = if let super::state::Gesture::Selecting {
+            origin, current, ..
+        } = self.interaction.gesture
+        {
+            Some((
+                origin.0.min(current.0),
+                origin.1.min(current.1),
+                origin.0.max(current.0),
+                origin.1.max(current.1),
+            ))
+        } else {
+            None
+        };
         let canvas_bounds = self.viewport.canvas_bounds.clone();
         let layout = self.viewport.layout.clone();
         let dimensions = self.document.base.dimensions();
@@ -314,16 +331,7 @@ impl Editor {
                                     {
                                         arrow::paint_handles(mark, layout.get(), window);
                                     }
-                                    if let Some((left, top, right, bottom)) = selection_bounds
-                                        .filter(|_| {
-                                            selected_mark.as_ref().is_none_or(|m| {
-                                                !matches!(
-                                                    m.tool,
-                                                    Tool::Arrow | Tool::Magnifier | Tool::Spotlight
-                                                )
-                                            })
-                                        })
-                                    {
+                                    for &(left, top, right, bottom) in &selection_bounds {
                                         let l = layout.get();
                                         let b = Bounds::new(
                                             point(
@@ -340,6 +348,27 @@ impl Editor {
                                             b,
                                             px(3.),
                                             gpui::transparent_black(),
+                                            px(1.),
+                                            rgb(0x4c8dff),
+                                            Default::default(),
+                                        ));
+                                    }
+                                    if let Some((left, top, right, bottom)) = marquee {
+                                        let l = layout.get();
+                                        let b = Bounds::new(
+                                            point(
+                                                px(l.x + left * l.scale),
+                                                px(l.y + top * l.scale),
+                                            ),
+                                            size(
+                                                px((right - left) * l.scale),
+                                                px((bottom - top) * l.scale),
+                                            ),
+                                        );
+                                        window.paint_quad(quad(
+                                            b,
+                                            px(0.),
+                                            rgba(0x4c8dff22),
                                             px(1.),
                                             rgb(0x4c8dff),
                                             Default::default(),

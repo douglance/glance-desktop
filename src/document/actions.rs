@@ -21,6 +21,13 @@ pub(crate) enum DocumentAction {
     DeleteAnnotation {
         index: usize,
     },
+    /// Atomic group edit, validated before changing history or any annotation.
+    EditAnnotations {
+        updates: Vec<(usize, Mark)>,
+        additions: Vec<Mark>,
+        deletions: Vec<usize>,
+        remember: bool,
+    },
     Crop {
         rectangle: (f32, f32, f32, f32),
     },
@@ -46,6 +53,7 @@ pub(crate) enum Selection {
     Keep,
     Clear,
     Select(usize),
+    SelectMany(Vec<usize>),
 }
 pub(crate) struct EditOutcome {
     pub(crate) changed: bool,
@@ -153,6 +161,62 @@ impl DocumentAction {
                 }
                 document.delete_mark(index);
                 outcome.selection = Selection::Clear;
+            }
+            Self::EditAnnotations {
+                updates,
+                additions,
+                mut deletions,
+                remember,
+            } => {
+                let mut indices = std::collections::BTreeSet::new();
+                for (index, mark) in &updates {
+                    if *index >= document.marks.len() || !indices.insert(*index) {
+                        return Err("Invalid or repeated annotation index".into());
+                    }
+                    validate_mark(mark)?;
+                }
+                for index in &deletions {
+                    if *index >= document.marks.len() || !indices.insert(*index) {
+                        return Err("Invalid or repeated annotation index".into());
+                    }
+                }
+                for mark in &additions {
+                    validate_mark(mark)?;
+                }
+                let count = document.marks.len() - deletions.len() + additions.len();
+                if count > 500 {
+                    return Err("Maximum 500 annotations".into());
+                }
+                let added = updates.iter().map(|(_, m)| m.points.len()).sum::<usize>()
+                    + additions.iter().map(|m| m.points.len()).sum::<usize>();
+                let removed = indices
+                    .iter()
+                    .map(|i| document.marks[*i].points.len())
+                    .sum();
+                check_points(document, added, removed)?;
+                outcome.changed = !additions.is_empty()
+                    || !deletions.is_empty()
+                    || updates.iter().any(|(i, m)| document.marks[*i] != *m);
+                if outcome.changed {
+                    if remember {
+                        document.remember();
+                    }
+                    for (index, mark) in updates {
+                        document.marks[index] = mark;
+                    }
+                    deletions.sort_unstable();
+                    for index in deletions.iter().rev() {
+                        document.marks.remove(*index);
+                    }
+                    let first = document.marks.len();
+                    document.marks.extend(additions);
+                    if first < document.marks.len() {
+                        outcome.selection =
+                            Selection::SelectMany((first..document.marks.len()).collect());
+                    } else if !deletions.is_empty() {
+                        outcome.selection = Selection::Clear;
+                    }
+                }
             }
             Self::Crop {
                 rectangle: (x, y, width, height),
@@ -357,6 +421,62 @@ mod tests {
         d.redo();
         assert!(d.image_animation.enabled());
         assert_eq!(d.render_snapshot().image_animation, d.image_animation);
+    }
+    #[test]
+    fn group_edits_validate_every_member_before_changing_document_or_history() {
+        let mut document = Document::new(image::RgbaImage::new(100, 100));
+        let mark = Mark {
+            tool: Tool::Rectangle,
+            points: vec![(10., 10.), (20., 20.)],
+            color: [255; 4],
+            width: 2.,
+            text: String::new(),
+            curve: None,
+            style: Default::default(),
+        };
+        document.commit(mark.clone());
+        document.commit(mark.clone());
+        let original = document.marks.clone();
+        let undo = document.undo.len();
+        let mut moved = mark.clone();
+        moved.translate(10., 10.);
+        let mut invalid = mark.clone();
+        invalid.points[0].0 = f32::INFINITY;
+        for edit in [
+            DocumentAction::EditAnnotations {
+                updates: vec![(0, moved.clone()), (1, invalid)],
+                additions: Vec::new(),
+                deletions: Vec::new(),
+                remember: true,
+            },
+            DocumentAction::EditAnnotations {
+                updates: vec![(0, moved.clone())],
+                additions: Vec::new(),
+                deletions: vec![0],
+                remember: true,
+            },
+            DocumentAction::EditAnnotations {
+                updates: Vec::new(),
+                additions: vec![mark; 499],
+                deletions: Vec::new(),
+                remember: true,
+            },
+        ] {
+            assert!(edit.apply(&mut document).is_err());
+            assert_eq!(document.marks, original);
+            assert_eq!(document.undo.len(), undo);
+        }
+        DocumentAction::EditAnnotations {
+            updates: vec![(0, moved.clone()), (1, moved)],
+            additions: Vec::new(),
+            deletions: Vec::new(),
+            remember: true,
+        }
+        .apply(&mut document)
+        .unwrap();
+        assert_eq!(document.undo.len(), undo + 1);
+        document.undo();
+        assert_eq!(document.marks, original);
     }
     #[test]
     fn invalid_edits_preserve_document_and_history() {

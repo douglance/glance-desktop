@@ -1,106 +1,91 @@
 # Glance local MCP companion
 
-Image entrances are available through `dispatch_action`: `toggle_animation_panel`,
-`select_entrance` (`effect`: `none`, `diagonal`, `pop`, or `tilt`),
-`set_image_animation` (`animation`: `effect`, `duration_ms`, `delay_ms`, `seconds`,
-`exit`), `set_animation_control`, `seek_animation` (`seconds`), and
-`replay_animation`. `get_document` includes `image_animation`; `get_editor_state`
-includes the Animation panel, playback time and `playback.preparing`.
-The native canvas shows “Preparing preview…” during initial rendering and seeking;
-playback time holds until a matching frame is ready. MP4/GIF export accepts an image
-entrance over a still or absent backdrop and always begins at time zero.
-The native Animation panel focuses on the foreground track and playback;
-backdrop settings live in Backdrop and exports in the toolbar Export menu.
-These commands remain available through the same shared MCP actions.
-Image-entrance sampling uses the same cached Metal path for preview, PNG read-back,
-and MP4/GIF on macOS, with a CPU fallback. Effect names, timing, undo and revision
-conflicts keep their existing semantics.
+An MCP client can read, annotate, and export the image in Glance's native window.
+Start the editor with `--automation`, then connect its stdio companion with `--mcp`.
 
-ChatGPT or another MCP client can edit the **real native GPUI window** using structured tools. GPUI stays native; there is no web canvas or screenshot-click automation. The stdio companion connects to the opted-in editor over a private Unix socket.
+## Setup
 
-## Build and start
+[Install Glance](../README.md#install), quit any running instance, and launch the
+installed macOS bundle with automation enabled:
 
 ```sh
-./scripts/bundle.sh release
-./target/Glance.app/Contents/MacOS/Glance --automation
+/Applications/Glance.app/Contents/MacOS/Glance --automation
 ```
 
-On Omarchy, install the Arch package and run `glance --automation`. Configure
-MCP with `command: "/usr/bin/glance"` and `args: ["--mcp"]`. The socket lives in
-`$XDG_CACHE_HOME/glance/automation` (or `~/.cache/glance/automation`).
-
-Start this build as your editor. If another automation-enabled Glance is already running, stop that instance first. Ordinary launches without `--automation` do not expose the bridge. Keep the editor running while using MCP.
-
-Configure a local stdio MCP client with an **absolute path** to this checkout's `scripts/mcp.sh`:
+Configure your local MCP client:
 
 ```json
 {
   "mcpServers": {
     "glance": {
-      "command": "/absolute/path/to/glance/scripts/mcp.sh",
-      "args": []
+      "command": "/Applications/Glance.app/Contents/MacOS/Glance",
+      "args": ["--mcp"]
     }
   }
 }
 ```
 
-For an installed bundle you can instead use `/Applications/Glance.app/Contents/MacOS/Glance` as the command with `args: ["--mcp"]`, provided that bundle contains this build. Launch that same bundle's executable with `--automation` for the native editor.
+On Omarchy, launch `glance --automation` and use `/usr/bin/glance` as the MCP command
+with `args: ["--mcp"]`. Keep the editor running and use the same build for both processes.
 
-## Connect ChatGPT
+For source builds, follow [BUILD.md](../BUILD.md), launch the built executable
+with `--automation`, and configure the absolute path to `scripts/mcp.sh` as your
+client command with no arguments. Restart both processes after rebuilding.
 
-Use [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels) with its local stdio profile, setting the MCP command to the absolute `scripts/mcp.sh` path. Follow the official tunnel setup/login instructions, then keep `tunnel-client run` running. In ChatGPT, enable developer mode in Settings → Security and login, add a Plugin connection using **Tunnel**, and select that tunnel. Availability depends on account and workspace policy. See [Connect and test](https://developers.openai.com/plugins/deploy/connect-chatgpt).
+### ChatGPT
 
-This repo supplies the MCP server and native bridge. It does not create an OpenAI tunnel, store account credentials, or automatically install a ChatGPT connection. No OpenAI API call or API key is needed by Glance itself. A stdio process alone cannot be reached from ChatGPT's cloud without a supported transport such as the tunnel.
+Use [Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
+with a local stdio profile whose MCP command is
+`/Applications/Glance.app/Contents/MacOS/Glance --mcp` (or `/usr/bin/glance --mcp`
+on Omarchy). Follow the official setup instructions and keep the tunnel client running.
+Then follow [Connect and test](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+to select the tunnel in ChatGPT. Access depends on organization and workspace policy.
 
-## Tools
+A remote client receives the previews returned by Glance through its transport.
+Supply image bytes as base64 or stage files on the computer running Glance.
 
-- `open_editor`: bring the connected native app forward.
-- `dispatch_action`: submit the same typed action as toolbar buttons and shortcuts.
-- `get_editor_state`: read tool, selection, zoom, panels, status, and operation progress, including while workers are busy. Animation export progress is the same percentage shown in the window's persistent progress bar; `cancel_export` through `dispatch_action` uses the same cancellation path as its button.
-- `get_document`: dimensions, revision, backdrop, image animation, editable marks and current IDs.
-- `import_image`: exactly one local `path`, image `base64`, or `clipboard: true`. Replaces the current document.
-- `add_annotation`, `update_annotation`, `move_annotation`, `delete_annotation`: editable pen, arrow (including quadratic curve), box, text, highlight, pixelate, counter objects.
-- `crop_image`, `resize_image`, `set_backdrop`, `undo`, `redo`: native document edits.
-- `read_image`: rasterize the current canvas into model-visible PNG content, optionally at animation `phase` 0..1. Preview maximum edge defaults to 1600; never upscales.
-- `export_png`: full resolution image to a new local file.
-- `export_mp4`: backdrop motion and/or image entrance, H.264/30fps, 2–15 seconds, max edge 1920. Requires a motion backdrop or image entrance; starts at time zero.
-- `export_gif`: the same composition with infinite repeat, 20fps, max edge 960.
-- `read_video_frame`: rasterize an MP4 at a timestamp into model-visible PNG content using AVFoundation on macOS or FFmpeg on Linux. Requires an absolute path to a local regular file; remote URLs and network protocols are rejected.
+## First edit
 
-Example workflow:
+1. Call `import_image` with exactly one of `path`, `base64`, or `clipboard: true`.
+   This replaces the current image and its undo history.
+2. Call `get_document` for dimensions, revision, and annotation IDs.
+3. Call `add_annotation` with an arrow:
 
-1. Import an image from local disk or clipboard, then call `get_document`.
-2. Add an arrow:
    ```json
    {"mark":{"tool":"arrow","points":[[100,100],[400,250]],"curve":[260,60],"color":[255,56,100,255],"width":5,"text":""}}
    ```
-3. Add text using one point, `tool: "text"`, and the label in `text`. Font size is `width × 7` pixels.
-4. Move/delete/update using an ID returned by the latest state. IDs include a revision and expire after every edit. Optional `expected_revision` rejects stale mutations.
-5. Set a moving backdrop:
-   ```json
-   {"backdrop":{"motion":"lava","preset":0,"padding":100,"inside_padding":24,"seconds":5,"inner_radius":18,"shadow":24}}
-   ```
-   `padding` is the backdrop margin; `inside_padding` repeats the nearest
-   screenshot edge pixels before rounding and shadow. Both accept 0–512 physical
-   pixels. Annotation coordinates continue to refer to the original image. The
-   former `outer_radius` option has been removed.
 
-6. Call `read_image` to inspect, `export_mp4` to encode, and `read_video_frame` with the returned path and `seconds: 2.5` to inspect a video frame.
+4. Call `read_image` to inspect, then `export_png` to save to a new local file.
 
-Local paths refer to the Mac. ChatGPT upload/file IDs are not native file paths; the client must supply image bytes as base64 or stage the image locally. There is no automatic ChatGPT attachment download integration in this prototype. PNG image tool responses are inline; MP4 exports return a **local path**, not a cloud-downloadable attachment.
+Coordinates are physical source-image pixels. Use IDs from the latest
+`get_document` when updating, moving, or deleting marks. IDs expire after each
+edit; pass `expected_revision` with mutations to reject stale requests.
+PNG previews are inline content; exported media paths refer to the computer running Glance.
 
-## Behavior and limits
+## Tools
 
-Document tools prepare heavy edits on the IPC worker using the same document actions as the UI. They apply successful edits through the editor dispatcher only if the revision is unchanged and no manual gesture/text edit is in progress. Native undo history is preserved. The newest object is selected for direct manual editing. Requests are serialized; a synchronous `export_mp4` or `export_gif` tool call can delay the next MCP call while the native window remains responsive. `dispatch_action` starts editor background operations and returns an acceptance receipt immediately.
+| Tool | Purpose |
+| --- | --- |
+| `open_editor` | Bring the native window forward |
+| `get_editor_state` | Tool options, selection, zoom, panels, playback, status, and operation progress |
+| `get_document` | Dimensions, revision, backdrop, image animation, marks, and IDs |
+| `dispatch_action` | Run a typed editor command; see examples below |
+| `import_image` | Load one local `path`, image `base64`, or `clipboard: true` |
+| `add_annotation`, `update_annotation`, `move_annotation`, `delete_annotation` | Edit annotation objects |
+| `crop_image`, `resize_image`, `set_backdrop`, `undo`, `redo` | Edit the document |
+| `read_image` | Inline PNG preview, optional animation `phase` 0–1; maximum edge defaults to 1600, without upscaling |
+| `export_png` | Full-resolution PNG |
+| `export_mp4` | H.264, 30 fps, 2–15 seconds, maximum edge 1920 |
+| `export_gif` | Infinite-repeat GIF, 20 fps, maximum edge 960 |
+| `read_video_frame` | Inline PNG of a local MP4 at `seconds` |
 
-The Unix socket is in `~/Library/Caches/sh.glance.desktop/automation/editor.sock`, inside a mode-0700 directory, with mode-0600 socket access. This is local-account access, not isolation from other processes running as you. The bridge does not listen on a TCP port. Exports default to the private `automation/exports` folder; explicit output paths must be absolute and existing files are never overwritten.
-
-Images imported through MCP are limited to 16 MiB encoded / 32 megapixels. Drawing schemas and bounds are validated. The bridge refuses edits against stale revisions and unfinished manual operations. Import starts a new document and discards its previous undo history; the path-based export/edit tools do not prompt for save dialogs.
+MP4/GIF require a motion backdrop or image entrance and begin at time zero.
+Exports return a MIME type and local path; animated exports also return duration
+and fps. Inspect a video with `read_video_frame` using its path and timestamp.
 
 ## Editor actions
 
-Call `dispatch_action` with an `action` object. The `type` chooses the intent;
-its other fields carry the parameters. For example:
+Call `dispatch_action` with an `action` object. `type` chooses the command:
 
 ```json
 {"action":{"type":"select_tool","tool":"arrow"}}
@@ -108,51 +93,45 @@ its other fields carry the parameters. For example:
 {"action":{"type":"pan_by","delta":[40,0]}}
 {"action":{"type":"copy_image"}}
 {"action":{"type":"resize","scale":2,"smart":true},"expected_revision":7}
-{"action":{"type":"set_backdrop","backdrop":{"motion":"aurora","padding":80}}}
 {"action":{"type":"set_backdrop_format","format":"shorts"}}
 {"action":{"type":"toggle_backdrop_enabled"}}
 {"action":{"type":"export_animation","format":"gif"}}
 ```
 
-These execute through the same dispatcher as the native interface, including
-validation, busy checks, undo, and copy feedback. `copy`, `cut`, `paste`, `undo`,
-`redo`, and `delete` act on inline text while editing it. `copy_image`,
-`copy_remote`, and `paste_image` explicitly act on the image and commit inline
-text first. Revision-scoped annotation tools remain available for object edits.
+Actions share UI validation and undo. `copy`, `cut`, `paste`, `undo`, `redo`, and
+`delete` operate on inline text during editing. `copy_image`, `copy_remote`, and
+`paste_image` commit that text and act on the image.
 
-A response such as `{"revision":7,"operation_id":12}` means background work
-was accepted; it does not mean the operation completed successfully. Call
-`get_editor_state` to inspect `busy`, the active operation ID/kind/progress,
-and the status message. Busy actions return an error; cancellation and state
-inspection remain available. Capture, open, save, and animation-export actions
-have the same native permissions/dialogs as their toolbar counterparts. Use
-the path-based export tools when a native save dialog is unwanted.
+A receipt such as `{"revision":7,"operation_id":12}` accepts background work.
+Poll `get_editor_state` for `busy`, operation ID/kind/progress, and status to check
+completion. `cancel_export` cancels an active animation export; progress matches
+the native export bar. State inspection and cancellation remain available while busy.
+Capture, open, save, and export actions use native permissions/dialogs;
+path-based export tools save directly to files.
 
-Restart the automation-enabled editor and MCP companion after rebuilding to
-use the new action tools.
+### Select annotations
 
-Every user-facing command and setting should have a semantic MCP path in the
-same change. `src/mcp/contract_tests.rs` compares the actual serializable action
-inventory with discovery and checks complete payloads against both the schema
-and Rust deserialization. CI runs these checks with `cargo test --locked`.
-Raw `edit` actions use indices and are intentionally replaced by revision-scoped
-document tools. Pointer slider gestures use `set_backdrop_control` or
-`set_animation_control` instead. Worker completion actions are not serializable.
+Use `select_all`, `select_annotations` with revision-scoped `ids` from
+`get_document` (`[]` clears selection), or `select_region` with
+`rectangle: [x, y, width, height]` and optional `additive: true`.
+The region selects marks whose bounds intersect it. `get_editor_state` returns
+`selected_indices`, revision-scoped `selected_ids`, and the primary inspector index
+as `selected`.
 
-## Verification
-
-`cargo test --locked` covers MCP discovery, schemas, import/edit/read-back, arrow geometry, undo, stale IDs, output-file protection, and GPUI-thread application/conflict handling on GPUI's virtual platform. `cargo test --release --locked native_mcp_video_roundtrip -- --ignored --nocapture` additionally exercises the built encoder/decoder against real MP4 and PNG files. Native desktop visibility and ChatGPT account/tunnel connection require a manual acceptance pass.
-
-### Focus tools and GIF export
-
-`add_annotation` / `update_annotation` also accept `spotlight` and `magnifier` marks. Spotlight uses two opposite rectangle corners. Magnifier uses two points: source center and lens center; its radius is `width × 12` pixels (18–300), and `text` specifies zoom (1.5–4, default 2). Source and lens can be moved independently by replacing the mark's points. These objects support native selection, delete, and undo.
-
-`export_gif` uses the same moving backdrop and output-path rules as `export_mp4`, returning `image/gif`, local path, duration and fps. GIFs repeat indefinitely at 20 fps, max edge 960. The palette is learned across one cycle and reused for every frame. The native bridge must be restarted on the new build to use new tool/object types.
+`select_all` selects text during an inline edit; finish editing before selecting
+explicit annotation IDs. `nudge_selection`, `delete`, `duplicate_selection`, color,
+width, and appearance changes apply atomically to the group with one undo step.
+Supply `expected_revision` to reject stale requests.
 
 ### Annotation options
 
-`get_editor_state` includes `tool_options` for the selected annotation or active
-tool. The native sidebar and MCP share these actions:
+Annotation tools accept pen, arrow, box, text, highlight, pixelate, counter,
+spotlight, and magnifier. Text uses one point; font size is `width × 7` pixels.
+Spotlight uses opposite rectangle corners. Magnifier uses source and lens centers;
+radius is `width × 12` pixels (18–300), and `text` sets zoom (1.5–4, default 2).
+Replace its points to move source and lens independently.
+
+`get_editor_state.tool_options` reports the selection or active tool's settings:
 
 ```json
 {"type":"set_appearance","style":{"dash":"dashed","start":"none","end":"arrow"}}
@@ -168,78 +147,98 @@ tool. The native sidebar and MCP share these actions:
 {"type":"pick_tool_screen_color"}
 ```
 
-Appearance replaces the style (omitted fields take their default values), edits
-the selection, and remembers it for that tool's next annotation. `add_line_point`
-and `straighten_line` require a selected line. Other settings work before drawing.
-A mark's optional `style` object also round-trips through annotation tools. Legacy
-marks retain their original appearance. Lines support up to 32 points; `curve`
-controls a two-point line. Opacity is the alpha channel of `set_color`.
+These objects belong inside `dispatch_action.action`. Appearance replaces the
+style; omitted fields take defaults. Changes edit the selection and remember the
+tool's next-mark settings. `add_line_point` and `straighten_line` require a selected
+line. Marks also accept an optional `style` object. Lines allow up to 32 points;
+`curve` controls a two-point line. Opacity is `set_color`'s alpha channel.
 
-The custom color picker uses `set_color`; numeric fields use the existing size,
-color and appearance actions. `sample_tool_color` reads an unannotated source
-pixel, preserves opacity, updates the selected annotation or active tool's
-defaults, and supports native undo for selected annotations. It rejects points
-outside the source image and tools without a color option. `pick_tool_screen_color`
-opens the native interactive sampler and returns an operation ID; results require
-the same operation, document revision and annotation/tool target. Neither action
-changes the backdrop. `get_editor_state.sampling_tool_color` reports an internal
-canvas sampling gesture. The internal `begin_tool_color_sampling` action is
-excluded from discovery; use `sample_tool_color` with source coordinates instead.
+`sample_tool_color` samples an unannotated source pixel, preserves opacity, and
+supports undo on selected marks. Invalid positions or tools without colors are rejected.
+`pick_tool_screen_color` opens the native sampler and returns an operation ID;
+results require the same operation, revision, and annotation/tool target.
+`get_editor_state.sampling_tool_color` reports internal canvas sampling.
+Use `sample_tool_color` for coordinate-based automation.
 
-Stored annotation widths and corner radii can exceed sidebar ranges after a
-resize. Annotation tools accept these physical sizes up to 32768 pixels (width
-must be positive) so marks returned by `get_document` remain editable. The
-`set_stroke_width` action still uses the toolbar's 0.5–64 pixel range. Resizes
-reject transformed geometry outside document limits before changing history.
+Annotation tools accept positive widths and corner radii up to 32768 pixels to
+keep resized marks editable. `set_stroke_width` uses the sidebar's 0.5–64 range.
+Resizes reject geometry outside document limits before changing history.
 
-Local image imports also require an absolute path to a regular file. The 16 MiB
-file-size limit is enforced on the actual bytes read, including growing files;
-devices, directories, and FIFOs are rejected. Capture and video frame scratch
-files live in private temporary directories and are removed after use.
+### Backdrops
 
-## Custom backdrop colors
+```json
+{"action":{"type":"set_backdrop","backdrop":{"motion":"lava","preset":0,"padding":100,"inside_padding":24,"seconds":5,"inner_radius":18,"shadow":24}}}
+```
 
-`set_backdrop` accepts `colors: [[r,g,b],[r,g,b]]` (opaque sRGB channels 0–255),
-or `colors: null` to use the selected `preset`. Older payloads keep preset colors.
-`get_document` returns these custom endpoints. Solid fills use the first endpoint;
-gradient and motion use both, including PNG/GIF/MP4 output.
+`padding` sets the backdrop margin; `inside_padding` repeats source edge pixels
+before rounding and shadow. Both accept 0–512 physical pixels. Annotation
+coordinates remain relative to the original image. `set_backdrop` is also a
+document tool with a `backdrop` parameter.
 
-The shared dispatcher exposes:
+For custom colors, supply `colors: [[r,g,b],[r,g,b]]` (opaque sRGB, 0–255), or
+`colors: null` to use `preset`. `get_document` returns the endpoints. Solid uses
+the first color; gradient and motion use both. Shared actions include:
 
-- `set_backdrop_color`: `stop` (0 or 1) and `rgb` (three channels). The other endpoint
-  is preserved, initially from the current preset. Changes are undoable.
-- `sample_backdrop_color`: `stop` and `position: [x,y]` in source image pixels.
-  Samples the original imported/pasted image, excluding annotations and backdrop.
-  Out-of-bounds positions are rejected without modifying the document.
-- `pick_backdrop_screen_color`: `stop`. Opens an interactive native macOS color
-  sampler, or `hyprpicker` on Omarchy. Returns an operation ID; use
-  `get_editor_state` until completion. Cancellation keeps the document unchanged,
-  and delayed results require the same operation and document revision.
+- `set_backdrop_color`: `stop` (0 or 1) and `rgb` (three channels). Preserves the
+  other endpoint, initially from the preset; supports undo.
+- `sample_backdrop_color`: `stop` and `position: [x,y]` in unannotated source pixels.
+- `pick_backdrop_screen_color`: `stop`. Opens the macOS sampler or Omarchy's
+  `hyprpicker` and returns an operation ID. Cancellation preserves the document;
+  delayed results require the same operation and revision.
 
-Use `expected_revision` for each dispatch. `set_backdrop_preset` clears custom
-colors; changing fill or motion preserves them. The picker offers screen sampling;
-automation can sample original source pixels with `sample_backdrop_color`.
+Use `expected_revision`. Invalid samples leave the document unchanged.
+`set_backdrop_preset` clears custom colors; changing fill or motion preserves them.
 
-## Randomizing backdrop motion
-
-Nebula is the renamed Starfield effect. Use `"motion":"nebula"` with
-`set_backdrop` or `select_motion`. The legacy `"stars"` value remains accepted;
-`get_document` returns `"nebula"` for either value.
-
-`dispatch_action` accepts `{"type":"randomize_motion"}` to pick a fresh seed for
-the current motion. The action requires a moving backdrop and is undoable; it
-preserves the effect, colors, framing, duration and paused preview time.
-`get_document` returns the selected `backdrop.seed`. Pass that same seed to
-reproduce the variation:
+Use `"motion":"nebula"` with `set_backdrop` or `select_motion`; the legacy
+`"stars"` alias is accepted and reads back as `"nebula"`.
+`randomize_motion` requires a moving backdrop, supports undo, and preserves
+colors, framing, duration, and paused time. `get_document` returns `backdrop.seed`:
 
 ```json
 {"action":{"type":"randomize_motion","seed":42},"expected_revision":3}
 ```
 
-Seeds range from 0 to 4294967295; 0 restores the original composition. Omitted or
-null seeds choose a new nonzero value. `set_backdrop` also accepts `seed` when
-configuring a complete backdrop. All eight effects loop seamlessly for every
-seed, and preview and PNG/GIF/MP4 exports use the same variation.
+Seeds range from 0–4294967295; 0 restores the original composition.
+Omitted/null seeds choose a new nonzero value. `set_backdrop` also accepts `seed`.
+Preview and PNG/GIF/MP4 use the same looping variation.
+
+### Image entrances
+
+Use `toggle_animation_panel`, `select_entrance` (`effect`: `none`, `diagonal`,
+`pop`, or `tilt`), `set_image_animation` (`animation`: `effect`, `duration_ms`,
+`delay_ms`, `seconds`, `exit`), `set_animation_control`, `seek_animation`
+(`seconds`), and `replay_animation` through `dispatch_action`.
+
+`get_document.image_animation` returns the track; `get_editor_state` returns the
+panel, playback time, and `playback.preparing`. Playback holds during startup or
+seeking until a matching frame is ready. Entrances work over moving, still, or
+absent backdrops. MP4/GIF begin at time zero.
+
+## Behavior and limits
+
+Document edits preserve native undo and apply only if the revision is unchanged
+and no manual gesture/text edit is in progress. New marks are selected for manual
+editing. Requests are serialized; synchronous media exports can delay subsequent
+MCP calls while the native window remains responsive. `dispatch_action` accepts
+background operations immediately.
+
+Local imports and video reads require absolute paths to regular files.
+Image imports are bounded to 16 MiB encoded / 32 megapixels; actual reads enforce
+the size limit even for growing files. Media helpers reject network inputs.
+Exports default to the private `automation/exports` directory. Explicit paths
+must be absolute and new: existing files are rejected.
+
+The macOS socket is `~/Library/Caches/sh.glance.desktop/automation/editor.sock`;
+Linux uses `$XDG_CACHE_HOME/glance/automation` (or `~/.cache/glance/automation`).
+The directory is mode 0700 and socket mode 0600. Processes running as your user
+can access the bridge. Enable it for trusted clients; see [SECURITY.md](../SECURITY.md).
+
+## Verification
+
+`cargo test --locked` covers discovery/schema contracts, bridge edits/read-back,
+undo, stale revisions/IDs, and output-file protection on GPUI's virtual platform.
+See [QA.md](../QA.md) for native media and desktop checks, and
+[architecture](../docs/architecture.md) for dispatcher and schema conventions.
 
 ## Incurs and Code Mode
 

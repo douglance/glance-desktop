@@ -1657,3 +1657,181 @@ fn incurs_catalog_uses_native_dispatch_state_undo_and_revision_guards(cx: &mut T
     }
     worker.join().unwrap();
 }
+
+fn selection_marks(e: &mut Editor) {
+    for x in [10., 40., 75.] {
+        e.document.commit(crate::document::Mark {
+            tool: Tool::Rectangle,
+            points: vec![(x, 10.), (x + 10., 20.)],
+            color: [255, 0, 0, 255],
+            width: 2.,
+            text: String::new(),
+            curve: None,
+            style: Default::default(),
+        });
+    }
+}
+
+#[gpui::test]
+fn marquee_selection_moves_group_atomically_and_preserves_relative_positions(
+    cx: &mut TestAppContext,
+) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        selection_marks(e);
+        let original = e.document.marks.clone();
+        let revision = e.preview.revision;
+        // Drag backwards from empty canvas; both intersecting marks are selected.
+        e.begin(&down(60., 30.), w, cx);
+        e.motion(&motion(5., 5.), cx);
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        e.finish(&up(5., 5.), cx);
+        assert_eq!(e.document.marks, original);
+        assert_eq!(e.preview.revision, revision);
+        e.begin(&down(10., 15.), w, cx);
+        assert_eq!(e.interaction.gesture.first_drag_index(), Some(0));
+        e.motion(&motion(20., 25.), cx);
+        assert_eq!(e.document.marks, original);
+        assert_eq!(
+            e.interaction.gesture.moved_mark(0).unwrap().points[0],
+            (20., 20.)
+        );
+        assert_eq!(
+            e.interaction.gesture.moved_mark(1).unwrap().points[0],
+            (50., 20.)
+        );
+        e.finish(&up(20., 25.), cx);
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        assert_eq!(e.document.marks[0].points[0], (20., 20.));
+        assert_eq!(e.document.marks[1].points[0], (50., 20.));
+        assert_eq!(e.document.marks[2], original[2]);
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+        e.document.redo();
+        assert_eq!(e.document.marks[1].points[0], (50., 20.));
+        // A selected group click without motion must not create an undo entry.
+        let moved = e.document.marks.clone();
+        e.begin(&down(20., 25.), w, cx);
+        e.finish(&up(20., 25.), cx);
+        assert_eq!(e.document.marks, moved);
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn additive_selection_clicks_cancel_and_select_all_are_contextual(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        reset_layout(e);
+        selection_marks(e);
+        e.begin(&down(5., 5.), w, cx);
+        e.finish(&up(25., 25.), cx);
+        assert_eq!(e.selected_indices(), vec![0]);
+        let mut press = down(35., 5.);
+        press.modifiers.shift = true;
+        e.begin(&press, w, cx);
+        e.finish(&up(55., 25.), cx);
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        let mut toggle = down(10., 15.);
+        toggle.modifiers.shift = true;
+        e.begin(&toggle, w, cx);
+        e.finish(&up(10., 15.), cx);
+        assert_eq!(e.selected_indices(), vec![1]);
+        e.begin(&toggle, w, cx);
+        e.finish(&up(10., 15.), cx);
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        let original = e.document.marks.clone();
+        e.begin(&down(10., 15.), w, cx);
+        e.motion(&motion(20., 25.), cx);
+        e.key(&key("escape"), w, cx);
+        e.finish(&up(20., 25.), cx);
+        assert_eq!(e.document.marks, original);
+        assert!(e.selected_indices().is_empty());
+        e.key(&key(&crate::platform::key_binding("cmd-a")), w, cx);
+        assert_eq!(e.selected_indices(), vec![0, 1, 2]);
+        // Empty clicks clear selection, including inside an outline rectangle.
+        e.begin(&down(65., 50.), w, cx);
+        e.finish(&up(65., 50.), cx);
+        assert!(e.selected_indices().is_empty());
+        e.set_tool(Tool::Text, cx);
+        e.begin(&down(5., 50.), w, cx);
+        e.interaction
+            .text_edit
+            .as_mut()
+            .unwrap()
+            .replace_text("Hello 👋");
+        e.key(&key(&crate::platform::key_binding("cmd-a")), w, cx);
+        let edit = e.interaction.text_edit.as_ref().unwrap();
+        assert_eq!(edit.buffer.selection(), 0.."Hello 👋".len());
+        assert_eq!(e.document.marks, original);
+        assert!(e.selected_indices().is_empty());
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn marquee_uses_source_coordinates_at_zoom_and_cancel_restores_selection(cx: &mut TestAppContext) {
+    let view = editor(cx);
+    view.update(cx, |e, w, cx| {
+        selection_marks(e);
+        e.set_selection(vec![2]);
+        e.viewport.layout.set(Layout {
+            x: 15.,
+            y: 25.,
+            scale: 2.,
+            width: 100.,
+            height: 100.,
+        });
+        e.begin(&down(25., 35.), w, cx); // source (5, 5)
+        e.motion(&motion(125., 75.), cx); // source (55, 25)
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        e.cancel_gesture();
+        assert_eq!(e.selected_indices(), vec![2]);
+        e.begin(&down(25., 35.), w, cx);
+        e.finish(&up(125., 75.), cx);
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+    })
+    .unwrap();
+}
+
+#[gpui::test]
+fn select_all_menu_and_shortcut_use_full_event_dispatch(cx: &mut TestAppContext) {
+    let window = editor(cx);
+    let view = window.root(cx).unwrap();
+    window.update(cx, |e, _, _| selection_marks(e)).unwrap();
+    let mut visual = gpui::VisualTestContext::from_window(*window, cx);
+    visual.update(|_, cx| crate::menus::install(cx));
+    visual.simulate_keystrokes(&crate::platform::key_binding("cmd-a"));
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.selected_indices()),
+        vec![0, 1, 2]
+    );
+    visual.simulate_keystrokes("t");
+    let l = view.read_with(&visual, |e, _| e.viewport.layout.get());
+    visual.simulate_click(
+        point(px(l.x + 5. * l.scale), px(l.y + 50. * l.scale)),
+        Default::default(),
+    );
+    visual.simulate_input("Hello");
+    visual.simulate_keystrokes(&crate::platform::key_binding("cmd-a"));
+    assert_eq!(
+        view.read_with(&visual, |e, _| e
+            .interaction
+            .text_edit
+            .as_ref()
+            .unwrap()
+            .buffer
+            .selection()),
+        0..5
+    );
+    assert!(view.read_with(&visual, |e, _| e.selected_indices().is_empty()));
+    visual.simulate_keystrokes("escape");
+    visual.dispatch_action(crate::menus::SelectAll);
+    assert_eq!(
+        view.read_with(&visual, |e, _| e.selected_indices()),
+        vec![0, 1, 2]
+    );
+}

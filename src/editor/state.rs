@@ -19,6 +19,8 @@ pub(crate) struct Layout {
 pub(super) struct InteractionState {
     pub(super) gesture: Gesture,
     pub(super) selected: Option<usize>,
+    /// Other members of the selection; selected remains the primary inspector target.
+    pub(super) selected_others: Vec<usize>,
     pub(super) tool: Tool,
     pub(super) color: [u8; 4],
     pub(super) width: f32,
@@ -87,6 +89,13 @@ pub(super) enum Gesture {
     Idle,
     Drawing(Mark),
     MovingAnnotation(AnnotationDrag),
+    MovingSelection(Vec<AnnotationDrag>),
+    Selecting {
+        origin: (f32, f32),
+        current: (f32, f32),
+        additive: bool,
+        previous: Vec<usize>,
+    },
     EditingArrow {
         drag: AnnotationDrag,
         handle: usize,
@@ -117,6 +126,23 @@ impl Gesture {
             Self::MovingAnnotation(drag) => Some((drag, None)),
             Self::EditingArrow { drag, handle } => Some((drag, Some(*handle))),
             _ => None,
+        }
+    }
+    pub(super) fn first_drag_index(&self) -> Option<usize> {
+        match self {
+            Self::MovingSelection(drags) => drags.iter().map(|d| d.index).min(),
+            _ => self.drag().map(|(d, _)| d.index),
+        }
+    }
+    pub(super) fn moved_mark(&self, index: usize) -> Option<&Mark> {
+        match self {
+            Self::MovingSelection(drags) => {
+                drags.iter().find(|d| d.index == index).map(|d| &d.moved)
+            }
+            _ => self
+                .drag()
+                .filter(|(d, _)| d.index == index)
+                .map(|(d, _)| &d.moved),
         }
     }
     pub(super) fn draft(&self) -> Option<&Mark> {

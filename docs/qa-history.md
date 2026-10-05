@@ -1,0 +1,481 @@
+# QA record — October 2026
+
+Historical results and observations, retained from the original QA log.
+Counts and acceptance status describe their respective runs.
+Use [QA.md](../QA.md) for the current checklist.
+
+## Result
+
+91 automated tests pass (10 opt-in tests ignored). Native desktop testing remains blocked: computer-use
+access to the former desktop app was denied. These results cover a virtual GPUI window and
+model/rendering logic, not the physical app's visual layout or input latency.
+
+## Bugs found and fixed
+
+- Drawing menu key bindings intercepted ordinary letters while editing text,
+  switching tools and closing the text box. Bindings now require the canvas
+  context. The regression test types every tool shortcut through GPUI's full
+  event dispatcher, then verifies Enter commits and Cmd-Z undoes once.
+- Deleting an earlier numbered callout could duplicate a remaining step number.
+  New callouts now follow the highest remaining number.
+- Crop edge snapping could choose the opposite edge on small/zoomed-out images.
+  Snap distance is now capped separately on each axis.
+
+## Arrow and selection update
+
+New annotations remain selected without switching away from the drawing tool.
+Regression coverage checks independent endpoint drags, midpoint curvature,
+whole-arrow movement, immediate deletion, cancelled drags, one-step undo/redo,
+Shift angle snapping and preservation of the pointer's handle grab offset.
+Curve geometry and antialiased filled heads are shared by GPU overlays,
+hit-testing and export. Tests also cover curved PNG output, crop/resize history,
+zoom-relative handle targeting and zero-length arrows. A rendered curved-arrow
+fixture was visually inspected. The text editor's fill is now transparent.
+
+Release curved-arrow path preparation measured p50 0.005 ms / p95 0.006 ms
+(1,000 samples). This measures CPU geometry preparation, not display latency.
+
+## Automated coverage
+
+Eleven GPUI interaction tests exercise drawing, picking, moving, duplication,
+deleting, undo, Shift constraints, Escape cancellation, Space pan, pinch message
+handling, fit/quick zoom, selected styling, grouped keyboard nudges, Unicode text,
+IME composition, and rejection of outdated worker previews. Global shortcuts
+and AppKit gesture monitors are disabled in the virtual test platform.
+
+A deterministic stress test runs 20 sessions of 100 edits. Every operation checks
+undo and redo against the rendered image. Operations include annotations, move,
+delete, solid/gradient backdrops, rounded corners, shadows, rotation, crop and
+plain/smart resize. Every tenth operation also checks lossless PNG encode/decode
+(200 round trips total). Existing tests cover shared history pixels, alpha-aware
+resize, export geometry and long GPU paths.
+
+## Release benchmark
+
+GPU path preparation p95: 0.093 ms for 500 points, 0.195 ms for 2,000
+points, and 0.982 ms for 10,000 points. A 4K history commit measured 0.002 ms
+p95. These are CPU preparation measurements from this run, not physical input
+latency or frame-time guarantees.
+
+## Animated backdrops and native video export
+
+The persistent export footer is covered by a virtual minimum-window layout check:
+its fill matches the worker percentage reported through MCP, its Cancel export
+button dispatches the shared action, and completion removes it. For desktop QA,
+export MP4/GIF with background and image animation together, scroll or close the
+inspector, and confirm the footer remains visible and advances until completion.
+
+### Image entrance checks
+
+Combined preview regressions cover retaining the displayed frame during adaptive
+quality changes, rejecting stale work during background-to-composition handoff,
+and reusing prepared pixels for timing/effect edits while rebuilding after source
+or annotation edits. Metal sampling is compared to the CPU sampler for all three
+entrances at five transition positions, including transparency and cache replacement.
+
+The explicit `foreground_sampling_benchmark` uses synthetic cards and no files
+or network. On 2026-10-04, debug 960×640 sampling measured CPU/Metal respectively:
+Diagonal 22.95/0.50 ms, Pop 154.47/0.45 ms, Tilt 146.52/0.63 ms. Combined Liquid
+and foreground rendering at 960×740 measured 29.54–31.20 ms/frame. These timings
+exclude GPUI image conversion/upload/display and renderer preparation; they are
+worker measurements, not native display FPS. Desktop motion/design acceptance
+and slower-Mac performance still need verification.
+
+The Animation sidebar offers diagonal reveal, spring pop, and 3D settle. Tests
+check each entrance over all eight motions and a static background, exact settled
+pixels, hidden endpoints without a ghost shadow, premultiplied-alpha sampling,
+transparent PNG output without a backdrop, undo/redo and slider grouping,
+minimum-window sidebar clicks, timeline seeking, and stale preview rejection.
+Sidebar scroll events are also checked to leave canvas pan unchanged, while
+scrolling over the canvas still pans normally.
+The GIF test decodes a real export to check that a nonzero preview phase still
+exports from the start, with exact duration and infinite-repeat metadata.
+
+Generate synthetic annotated PNG/GIF/MP4 samples for visual inspection:
+
+```sh
+cargo test --release --locked image_entrance_export_qa -- --ignored --nocapture
+```
+
+Samples are written to `target/image-animation-qa`. On a real desktop, check
+replay/pause/scrubbing, sidebar scrolling, entrance timing with backdrop motion,
+returning to annotation editing, and copying the paused frame versus settled
+image. Native display FPS remains a separate measurement from worker throughput.
+
+The 2026-10-03 entrance verification passed 111 tests (11 opt-in tests ignored).
+Native sidebar replay and scrubbing were inspected with diagonal reveal and 3D
+settle, including Aurora composition and return to annotation editing. The three
+synthetic MP4 samples each contain 90 H.264 frames at 30 fps / exactly 3 seconds;
+their PNG stages and GIFs were inspected. Mean worker frame rendering at 736×414
+was 1.41 ms for diagonal/Liquid, 2.55 ms for pop/static, and 2.93 ms for
+3D/Aurora. These timings exclude UI upload and display latency.
+
+Flow, Lava, Nebula and Painterly are deterministic periodic scenes. Tests
+compare phase 0 and 1, check actual motion at phase 0.37, and verify every opaque
+foreground pixel stays identical. Additional coverage checks duration clamping,
+phase preservation while changing duration, pause/play, Escape cancellation,
+undo/redo, shared source pixels and even output dimensions bounded to 1920 px.
+
+The explicit native integration test generated real H.264 MP4s: three 5-second
+videos with 150 frames and one 10-second video with 300 frames, all at 30 fps.
+ffprobe verified codec, dimensions, frame counts and exact durations; FFmpeg was
+used only for independent decoding in QA, not by the app. Posters were visually
+inspected and a stepped-ring artifact was replaced with continuous Gaussian
+shading. Actual in-flight cancellation preserved each existing destination.
+The encoder streams frames with a pixel-buffer pool and temporary-file commit.
+Independent decoded foreground samples varied by a mean 0.64 RGB levels out of
+255 (maximum 14), consistent with lossy H.264; the pre-encoding foreground is
+identical. A higher bitrate budget and disabled frame reordering improved text
+stability. No canceled-export temporary files remained.
+
+Reproduce the native integration pass after building the app:
+
+```sh
+./scripts/bundle.sh release
+cargo test --release --locked native_motion_export_qa -- --ignored --nocapture
+```
+
+## Motion shaders
+
+Shader previews now render on a persistent worker. Blocking-renderer tests
+verify that requests return while rendering is stalled, pending requests
+coalesce to the latest frame, and effect switches (including switching back),
+pausing and cancellation reject old completions. Suspended redraws retain their
+phase; worker shutdown does not wait for the renderer. A real shader-worker
+test verifies completions arrive from another thread and match the expected
+BGRA frames for all seven shader backgrounds. Nebula paints its crisp stars
+over the worker-rendered nebula. UI atlas upload/display still needs
+native latency profiling.
+
+```sh
+cargo test --locked animation::preview
+```
+
+Adaptive-quality tests use deterministic render durations to check warmup,
+sustained overload, emergency downshifts, the 480 px floor, and slow recovery
+without oscillation. Paused previews use the 960 px cap. Adaptation measures
+worker rendering only; native display FPS and slower-Mac performance remain
+unverified. PNG/MP4/GIF exporters do not consult preview quality.
+
+Liquid, Lava, Aurora, Contours, Prism, Painterly and Nebula's cloud background are checked against their CPU evaluators in landscape and portrait, across
+all eight palettes and three phases (at most two RGB levels of difference).
+The shared animation tests verify seamless looping and unchanged opaque
+foreground pixels. Visual samples are generated in `target/liquid-qa`.
+The additional styles' portrait and landscape samples are in `target/motion-qa`.
+
+```sh
+cargo test --locked liquid_visual_qa -- --ignored --nocapture
+cargo test --locked liquid_video_qa -- --ignored --nocapture
+cargo test --release --locked motion_gallery_qa -- --ignored --nocapture
+cargo test --release --locked contours_motion_qa -- --ignored --nocapture
+cargo test --release --locked painterly_prism_motion_qa -- --ignored --nocapture
+cargo test --locked prism_crystal_visual_qa -- --ignored --nocapture
+cargo test --locked lava_fluid_visual_qa -- --ignored --nocapture
+cargo test --locked nebula_visual_qa -- --ignored --nocapture
+```
+
+The second command requires the bundled native encoder. It creates a ten-second
+shader-only MP4 and a screenshot backdrop MP4, and verifies in-flight
+cancellation leaves the completed destinations untouched. Native GPUI preview
+upload/display timing and interaction feel still need a desktop pass.
+
+The expanded eight-effect export pass produced real H.264 videos for Liquid,
+Lava, Aurora, Contours, Prism, Painterly, Flow and Nebula. Cancellation
+preserved each completed destination. Independent probing of the three new
+styles confirmed 680×470, 30 fps, 150 frames and five-second duration. Samples
+were inspected in portrait and landscape; Contours uses analytic pixel coverage
+to keep steep lines continuous. CPU/Metal parity, exact loop boundaries and fixed
+foreground coverage pass for the expanded set. Compute plus readback at 960×540
+measured about 0.24–0.70 ms/frame across the six shader styles in the last pass;
+this excludes GPUI texture upload and display latency.
+
+Contours now deforms its terrain with independently traveling waves and moves
+the contour levels through that terrain. The evolving-effects continuity test checks
+both the half-cycle phase branch and the loop boundary for abrupt pixel jumps.
+`contours_motion_qa` produces a six-second frame sequence in `target/contours-qa`
+and a portrait sample for reviewing line expansion and local bending.
+
+Painterly grows curved brush strokes from anchored tails on staggered cycles.
+Prism animates an irregular mesh with shared vertex heights, facet lighting and
+traveling bands of refracted color. Alternating diagonals break up the grid, and
+thin edges share the same illumination on adjacent faces. Neutral palettes keep
+their restrained color. Both use periodic motion in their Metal and CPU evaluators.
+`painterly_prism_motion_qa` writes six-second landscape frame sequences and
+portrait samples to `target/dynamic-motion-qa`, and measures compute/readback.
+`prism_crystal_visual_qa` writes landscape/portrait samples, an eight-palette
+contact sheet (Teal, Ocean, Lavender, Sunset, then Rose, Cream, Slate, White) and
+a five-second looping GIF to `target/prism-qa`. Convexity tests check that either
+mesh diagonal stays valid throughout the motion, preventing folded faces or gaps.
+
+Lava uses crossing currents to bend stretching, tilting molten shapes and smaller
+globules that separate and rejoin the streams. Lighting follows the deformed
+surface through analytic derivatives; motion spans both landscape and portrait
+canvases. All temporal frequencies are periodic, including the current warp.
+Lava also participates in the phase-wrap continuity test.
+`lava_fluid_visual_qa` writes landscape/portrait samples, the same eight-palette
+contact sheet order, and a five-second looping GIF to `target/lava-qa`, then
+measures Metal compute/readback at 960×540.
+
+Nebula combines a worker-rendered nebula with its crisp drifting/twinkling
+stars. Four noise octaves, crossing periodic currents, colored emission and dark
+dust lanes create evolving cloud structure. `nebula_visual_qa` writes
+landscape/portrait samples, all eight palettes and a five-second looping GIF to
+`target/nebula-qa`, and measures complete frame composition at 960×540.
+The shader gallery measures nebula compute/readback separately. Seeded and
+unseeded CPU/Metal parity and loop/foreground tests include Nebula.
+The 2026-10-04 debug pass measured about 0.97 ms/frame for nebula compute/readback
+at 960×540, and 23.33 ms/frame including CPU star/foreground composition in the
+debug exporter. This excludes native GPUI texture upload/display latency.
+
+Motion randomization checks cover all eight effects in landscape and portrait:
+repeatable seeds, exact loop endpoints and unchanged opaque foreground pixels.
+Seeded shader tests compare CPU/Metal frames and check the shifted phase branch
+for discontinuities. Worker tests reject completions from the previous seed.
+Virtual GPUI checks click Randomize at 1050×600 and verify bridge read-back,
+revision conflicts, undo/redo, fresh seeds and preservation of colors/paused time.
+`cargo test --locked seeded_motion_visual_qa -- --ignored --nocapture` writes a
+Lava/Prism variation sheet to `target/seeded-motion-qa/variations.png` with seeds
+0, 42 and 314159 from left to right.
+For a desktop pass, randomize while playing and paused, undo/redo, switch palettes
+and effects, then compare preview with PNG/GIF/MP4 exports.
+
+## Glance remote copy
+
+Copy (remote), Edit → Copy (remote), and Cmd-Shift-C share the composed PNG
+through Glance's existing client-upload protocol. The native flow hasn't been
+manually exercised. Virtual GPUI tests verify that upload completion copies
+`Screenshot: <url>`, failure preserves the clipboard, concurrent requests are
+ignored, and the toolbar fits at its minimum 1050-pixel width.
+
+An independent Node crypto fixture verifies byte-for-byte HKDF/AES-GCM and
+storage-path compatibility with Glance. A local HTTP integration test verifies
+clock synchronization, proof issuance, client-token exchange, private Blob
+headers, encrypted PNG round-trip and absence of the share token from upload
+requests. Additional checks cover size boundaries, rate limits, malformed
+responses, server errors and invalid clocks/lifetimes.
+
+The opt-in live test uploaded a generated 3×2 PNG to production `glance.sh` and
+fetched the returned share link, verifying identical decoded pixels. This test
+is excluded from the default suite so routine tests do not upload anything.
+
+```sh
+cargo test --locked live_upload_round_trips_through_glance -- --ignored
+```
+
+## Remaining desktop pass
+
+- Actual mouse/trackpad feel, pinch and smart zoom, wheel momentum.
+- Native menu shortcuts and mouse activation, toolbar fit at minimum width.
+- Capture selection/cancellation and screen-recording permissions.
+- Clipboard import/export, Finder file drop, save/open dialog cancellation.
+- Visible selection outlines, text caret/IME candidate positioning and framing.
+
+Run the reproducible checks:
+
+```sh
+cargo test --locked
+cargo fmt --check
+cargo clippy --all-targets --locked -- -D warnings
+cargo test --release --locked drawing_preparation_benchmark -- --ignored --nocapture
+```
+
+The benchmark measures CPU preparation, not input-to-display latency.
+
+## Local MCP companion
+
+- The feature review passes 120 tests (12 opt-in tests ignored), formatting and
+  Clippy. New coverage checks MCP action discovery against the Serde inventory,
+  round-trip payloads, backdrop controls through the live bridge, and annotation
+  editing after up/downscaling. Regression tests also cover zero-length arrow
+  exports, glyph overhangs, rejected entrance/backdrop durations and atomic
+  rejection of invalid resized geometry. This pass uses the virtual platform;
+  it does not repeat native desktop or tunnel verification.
+- Regular suite now includes MCP initialization/tool discovery, schema validation, image-byte import, crop/resize/backdrop, model-visible PNG read-back, editable arrow movement/curve, stale IDs, undo, and existing export-file protection.
+- A Unix socket-pair integration test exercises serialized requests through the same bridge dispatch used by the native listener.
+- GPUI virtual-platform test applies an MCP-generated annotation to the editor, checks automatic selection/native undo, and rejects stale revisions and a busy editor.
+- Explicit native MP4 roundtrip test exports a real two-second H.264 clip, decodes a one-second frame with AVFoundation, checks dimensions/foreground color, rejects out-of-duration frame reads and overwriting existing videos.
+- Native desktop operation and a live ChatGPT Secure MCP Tunnel connection are not verified by these tests. They require an opt-in editor and an account/workspace with tunnel/developer-mode access.
+
+## Spotlight, magnifier and loop export
+
+- Focus tests cover spotlight union masks, dimming, undo, a bright lens sampling the undimmed annotated source, circular hit testing, independent source/lens handles, and bubble-only texture-key reuse.
+- GPUI virtual-platform event tests draw/select/resize a spotlight, create a magnifier, move each endpoint separately, delete and undo.
+- GIF tests decode actual exports to verify infinite-repeat metadata, 40 frames / exact two-second duration, stable foreground pixels, cancellation and temporary-file cleanup.
+- Loop continuity tests cover all four backgrounds: phase 0 equals phase 1 exactly, and the seam is no larger than a normal animation step within the test tolerance.
+- Explicit `focus_and_loop_demo_qa` renders a five-second GIF, MP4 and full-resolution PNG with focus effects for visual inspection. Native live canvas interaction remains separate from virtual-platform tests.
+## Screen Recording grant after a rebuild
+
+macOS tccd logs for the former Pachiri app reported “Failed to match existing code requirement” for
+`dev.benv.pachiri` / `kTCCServiceScreenCapture`. `codesign -d -r-` showed a
+build-specific cdhash designated requirement, and no code-signing identities
+were available in the local Keychain. This confirms the enabled Settings entry
+was not authorizing the installed build.
+
+Capture now preflights permission and requests the standard macOS grant before
+hiding the editor. Rejected grants show remove/re-add instructions; unrelated
+capture failures preserve screencapture stderr rather than alleging a missing
+permission. Regression coverage checks cancellation and error classification.
+The subsequent Liquid rebuild reproduced this mismatch. The former default
+ad-hoc signing was not a durable fix. Bundle builds now prepare a persistent
+development identity in a private Glance keychain outside the checkout and
+`target/`. Trusting that identity for code signing is an explicit one-time
+user-domain step via `scripts/trust-local-signing.sh`; it does not grant screen
+access or add SSL/TLS trust. The login keychain and its search list are preserved.
+The private key is imported as non-extractable, with codesign access, and its
+keychain is locked after signing. Incomplete/missing signing state fails instead
+of silently creating another identity.
+
+`GLANCE_CODESIGN_IDENTITY` still selects an existing certificate; `-` explicitly
+opts into ad-hoc signing. A failed build/signing step leaves the installed app
+unchanged. The app is staged, signed inside-out and verified before replacement.
+
+```sh
+./scripts/test-local-signing.sh
+```
+
+This integration check changes a copied bundle's version, verifies its code hash
+changes while its designated requirement stays identical, then verifies the new
+copy against the old requirement. The user approved code-signing trust, both
+versions passed the shared-requirement check, the signed bundle passed strict
+verification, and the user's original keychain search list was restored.
+Glance's stale Screen Recording grant was reset for the one-time migration.
+Capture after re-granting and actual TCC retention across a later rebuild still
+need the user's desktop pass; the signing test does not claim to verify those.
+
+## Inside padding
+
+Replaced canvas corner rounding with nearest-edge pixel extension inside the
+screenshot's rounded corners and shadow. Coverage checks all edges and corners,
+zero and large padding, source alpha, fixed output ratios, capped animation
+frames, PNG round trips, decoded GIF padding, grouped slider undo/redo, restoring
+saved padding through another slider, and stale preview geometry. The minimum
+window test checks the revised 2×2 controls in all three backdrop modes.
+
+The full suite passes 113 tests with 12 opt-in tests ignored. Formatting and
+Clippy checks pass. Synthetic before/after PNGs were generated and inspected;
+native live slider responsiveness remains a manual desktop check.
+
+```sh
+cargo test --locked inside_padding_visual_qa -- --ignored
+```
+
+Samples are written to `target/inside-padding-qa`. On the desktop, try a capture
+with different colors on each edge, drag Inside padding, then check annotation
+placement, image corners, shadow, backdrop disable/enable, and undo/redo.
+
+## Omarchy acceptance
+
+The Linux port is experimental. CI covers virtual editor tests, exported text,
+and FFmpeg video round trips. Release builds also verify the installed Arch
+package. Before treating it as stable, complete the real Hyprland checks in
+[QA.md](../QA.md#omarchy),
+including capture/cancellation with display scaling, clipboard persistence,
+file dialogs/overwrite behavior, Ctrl shortcuts/IME, Vulkan startup, and window
+close. Linux animated backdrops currently use CPU rendering.
+
+## Backdrop color picker
+
+2026-10-04: formatting and Clippy pass; 132 tests pass (14 opt-in tests ignored).
+The ad-hoc debug bundle builds successfully; the installed app was not replaced.
+
+Automated checks cover hex validation, HSV round trips, custom solid/gradient and
+all motion exports, unchanged foreground pixels, undo/redo, preset restoration,
+source-pixel sampling, invalid endpoints, revision conflicts through the shared
+bridge, stale native sampler results and virtual GPUI popup/input gestures.
+
+Desktop checks: open each swatch in Solid/Gradient/Motion, drag the wheel and
+brightness (including releasing outside the popup), enter and paste hex, apply
+with Enter, dismiss with Escape/outside click, and verify ordinary tool shortcuts
+do not activate while entering hex. Select each endpoint independently. Pick a
+source pixel at Fit and 200% after clipboard paste; verify zoom/pan does not offset
+the sample and Escape leaves annotations/history unchanged. Use the native
+macOS screen sampler across displays, select/cancel, and compare a sample against
+its sRGB hex value. On Omarchy check hyprpicker selection, cancellation and the
+missing-command error. Reopen/close the panel, switch effects, choose a preset,
+undo/redo and compare custom-color PNG/GIF/MP4 output. Native sampler and physical
+display behavior require a manual pass.
+
+## Compact inspectors and annotation colors
+
+Virtual-platform coverage checks every tool's fields at 1050×600, including
+half-width Stroke choices and aligned Magnifier diameter/Zoom. Native input tests
+cover numeric commit/cancel, invalid values, clipboard/text undo, blur commit and
+annotation undo. Tool-picker tests enter custom hex, preserve opacity and selection,
+sample synthetic source pixels, and check popup bounds. Bridge tests check source
+bounds, read-back, revision conflicts, undo, and stale screen-sampler results.
+
+For desktop acceptance, cycle all tools and select existing annotations at the
+minimum window size. Verify visual solid/dash/dot strokes, fill and independent
+ends, Points tooltips, numeric entry/step arrows, and paired Magnifier settings.
+Open each tool's seventh color swatch, edit hex/wheel/brightness and sample image
+and screen colors; opacity, selection and undo should survive. Switching tools or
+opening another panel closes the old popup. Check Backdrop, Image tools and
+Animation for consistent spacing, readable effect names, paired timing and the
+Hold/Exit choices. Native screen sampling remains a manual desktop check.
+
+## 0.2.0 release preparation
+
+2026-10-04: `cargo fmt --check`, `cargo clippy --all-targets --locked -- -D warnings`
+and `cargo test --locked` pass: 143 tests passed, 16 opt-in tests ignored.
+An isolated ad-hoc debug bundle builds successfully without replacing the normal
+bundle. Both `CFBundleShortVersionString` and `CFBundleVersion` are `0.2.0`;
+strict code-signature verification, CLI help and bundled license notices pass.
+
+The bundled native helpers encoded a synthetic 64×48, 60-frame H.264 video at
+30 fps, decoded its one-second frame to a PNG with matching dimensions, and
+rejected a frame time beyond the two-second duration. Media files were created
+in a private randomized temporary directory and removed after verification.
+
+The local icon build reported a missing `libLLVM.dylib` while stripping debug
+information with `rust-objcopy`; compilation and packaging still succeeded.
+The toolchain also reports future incompatibilities in `block` and
+`proc-macro-error2`. Physical macOS desktop acceptance and Omarchy packaging/
+desktop acceptance were not rerun during this preparation.
+
+## Native accessibility and timing layout — 2026-10-04
+
+Fixed the entrance-duration label/value collision in the paired Animation fields.
+A virtual-window regression checks that duration and delay labels do not overlap
+at 1050×600. The macOS adapter for GPUI 0.2.2 publishes painted, clipped toolbar
+and inspector controls, numeric values, color hex editing, Format/Export menus
+and canvas source dimensions/annotation count. It keeps native node identities
+stable across ordinary redraws and removes callbacks for stale/disposed nodes.
+Accessible edits enter the shared dispatcher with the document/tool/selection
+scope; regression coverage checks validation, selected width edits, undo,
+rejection of obsolete targets, color hex editing and animation timing in seconds.
+
+Native computer use verified toolbar/inspector discovery, exact arrow thickness
+and color hex changes with matching visible fields, exposed Export menu items,
+and the corrected timing layout in an isolated ad-hoc 0.2.0 bundle. The installed
+app was not replaced. Full VoiceOver navigation, on-canvas text/drawing access,
+Omarchy accessibility and native export dialogs remain separate acceptance work.
+
+Formatting, strict Clippy and the regular suite pass: 146 passed, 16 opt-in tests
+ignored. The isolated debug bundle builds and signs successfully; the existing
+rust-objcopy/libLLVM debug-stripping warning remains non-fatal.
+
+### Preview preparation cover
+
+With a large synthetic image, select a shader backdrop and a foreground entrance.
+Replay and seek: “Preparing preview…” must cover the image until a matching frame
+is ready, then the entrance must start at zero (or the sought position). Pause
+while preparing: the first completed frame must remain paused. Replay or edit
+while preparing: stale frames must not remove the cover. Background-only shader
+startup uses the same cover. Confirm playback controls and window input remain
+responsive; normal frame/quality updates must not flash the cover.
+
+## Multi-selection — 2026-10-04
+
+Virtual GPUI coverage checks reversed selection boxes, Shift-drag addition,
+Shift-click toggling, empty-click clearing, cancellation, zoomed source coordinates,
+group preview geometry, one-step group movement/duplication/deletion/style undo,
+contextual Select All and the full native-menu/shortcut event dispatcher. Bridge
+coverage verifies selection read-back, invalid rectangles and stale revisions.
+Group document edits reject invalid members before changing annotations or history.
+
+For manual desktop verification, draw several synthetic annotations, switch to
+Select (V), drag empty canvas across several elements, and confirm the selection
+box and each selected outline remain visible. Shift-click and Shift-drag should
+add/remove elements. Drag a selected element to move the group, then undo once.
+Check ⌘A, ⌘D, Delete and arrow-key nudges, and confirm ⌘A still selects text in
+an inline label, a numeric inspector field and the color hex field.

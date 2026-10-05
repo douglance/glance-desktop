@@ -15,6 +15,15 @@ Notable user-visible changes are recorded here.
 - The `glance` shell command now runs the CLI directly, without `--cli`.
   Use `glance desktop` to open the editor; desktop app launches and legacy flags
   remain supported.
+- Reorganized documentation around release installation and first use, added a
+  macOS opening/capture FAQ, and consolidated source-build instructions in BUILD.md.
+
+## [0.3.0] - 2026-10-04
+
+### Changed
+
+- Select mode supports dragging a selection box, Shift-click multi-selection and
+  ⌘A to select all, with group dragging, styling, nudging, duplication and deletion.
 - Animation sidebar now focuses on foreground effects and playback; backdrop
   controls stay in Backdrop and export stays in the toolbar menu. Toolbar icons
   are ordered Backdrop, Animation, then Image tools.

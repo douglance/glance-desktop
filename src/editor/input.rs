@@ -106,31 +106,65 @@ impl Editor {
         if self.interaction.tool == Tool::Crop {
             p = navigation::endpoint(Tool::Crop, p, p, false, self.viewport.layout.get());
         }
-        if let Some(index) = self
-            .interaction
-            .selected
-            .filter(|i| *i < self.document.marks.len())
-        {
-            let mark = &self.document.marks[index];
-            let handle = arrow::handle_at(mark, p, 7. / self.viewport.layout.get().scale);
-            if handle.is_some() || mark.hit(p, 5. / self.viewport.layout.get().scale) {
-                self.start_annotation_drag(index, p, handle);
+        let selected = self.selected_indices();
+        if !e.modifiers.shift || self.interaction.tool != Tool::Select {
+            if selected.len() == 1 {
+                let index = selected[0];
+                let mark = &self.document.marks[index];
+                let handle = arrow::handle_at(mark, p, 7. / self.viewport.layout.get().scale);
+                if handle.is_some() || mark.hit(p, 5. / self.viewport.layout.get().scale) {
+                    self.start_annotation_drag(index, p, handle);
+                    cx.notify();
+                    return;
+                }
+            } else if let Some(index) = self.document.pick(p, 5. / self.viewport.layout.get().scale)
+                && selected.contains(&index)
+            {
+                self.start_annotation_drag(index, p, None);
                 cx.notify();
                 return;
             }
         }
-        self.interaction.selected = None;
         if self.interaction.tool == Tool::Select {
-            self.interaction.selected =
-                self.document.pick(p, 5. / self.viewport.layout.get().scale);
-            if let Some(index) = self.interaction.selected {
-                self.interaction.color = self.document.marks[index].color;
-                self.interaction.width = self.document.marks[index].width;
-                self.start_annotation_drag(index, p, None);
+            let hit = self.document.pick(p, 5. / self.viewport.layout.get().scale);
+            if let Some(index) = hit {
+                let mut indices = if e.modifiers.shift {
+                    selected
+                } else {
+                    Vec::new()
+                };
+                if e.modifiers.shift && indices.contains(&index) {
+                    indices.retain(|i| *i != index);
+                } else {
+                    indices.push(index);
+                }
+                self.dispatch_ui(
+                    Action::SelectAnnotations {
+                        ids: indices
+                            .iter()
+                            .map(|i| format!("{}:{i}", self.preview.revision))
+                            .collect(),
+                    },
+                    cx,
+                );
+                if !e.modifiers.shift {
+                    self.start_annotation_drag(index, p, None);
+                }
+            } else {
+                self.interaction.gesture = Gesture::Selecting {
+                    origin: p,
+                    current: p,
+                    additive: e.modifiers.shift,
+                    previous: selected,
+                };
+                if !e.modifiers.shift {
+                    self.set_selection(Vec::new());
+                }
             }
             cx.notify();
             return;
         }
+        self.set_selection(Vec::new());
         let settings = self.interaction.defaults[self.interaction.tool.index()];
         self.interaction.color = settings.color;
         self.interaction.width = settings.width;
@@ -224,8 +258,27 @@ impl Editor {
         let Some(p) = self.coordinate(e.position, true) else {
             return;
         };
+        if let Gesture::Selecting {
+            origin,
+            additive,
+            previous,
+            ..
+        } = &self.interaction.gesture
+        {
+            let (origin, additive, previous) = (*origin, *additive, previous.clone());
+            self.set_selection(if additive { previous } else { Vec::new() });
+            self.select_region(selection_rectangle(origin, p), additive);
+        }
         match &mut self.interaction.gesture {
             Gesture::MovingAnnotation(drag) => drag.update(p, e.modifiers.shift, None),
+            Gesture::MovingSelection(drags) => {
+                for drag in drags {
+                    drag.update(p, e.modifiers.shift, None);
+                }
+            }
+            Gesture::Selecting { current, .. } => {
+                *current = p;
+            }
             Gesture::EditingArrow { drag, handle } => {
                 drag.update(p, e.modifiers.shift, Some(*handle))
             }
@@ -267,6 +320,55 @@ impl Editor {
         let gesture = std::mem::take(&mut self.interaction.gesture);
         let (mut drag, handle) = match gesture {
             Gesture::MovingAnnotation(drag) => (drag, None),
+            Gesture::MovingSelection(mut drags) => {
+                if let Some(p) = self.coordinate(e.position, true) {
+                    for drag in &mut drags {
+                        drag.update(p, e.modifiers.shift, None);
+                    }
+                }
+                let updates = drags.into_iter().map(|d| (d.index, d.moved)).collect();
+                let revision = self.preview.revision;
+                self.dispatch_ui(
+                    Action::Edit {
+                        edit: DocumentAction::EditAnnotations {
+                            updates,
+                            additions: Vec::new(),
+                            deletions: Vec::new(),
+                            remember: true,
+                        },
+                    },
+                    cx,
+                );
+                if self.preview.revision == revision {
+                    self.changed();
+                }
+                cx.notify();
+                return;
+            }
+            Gesture::Selecting {
+                origin,
+                current,
+                additive,
+                previous,
+            } => {
+                let end = self.coordinate(e.position, true).unwrap_or(current);
+                // A click on empty canvas clears selection, without selecting nearby bounds.
+                let rectangle = selection_rectangle(origin, end);
+                self.set_selection(if additive { previous } else { Vec::new() });
+                if rectangle.2 * self.viewport.layout.get().scale >= 3.
+                    || rectangle.3 * self.viewport.layout.get().scale >= 3.
+                {
+                    self.dispatch_ui(
+                        Action::SelectRegion {
+                            rectangle,
+                            additive,
+                        },
+                        cx,
+                    );
+                }
+                cx.notify();
+                return;
+            }
             Gesture::EditingArrow { drag, handle } => (drag, Some(handle)),
             Gesture::Drawing(mut mark) => {
                 if let Some(p) = self.coordinate(e.position, true) {
@@ -354,6 +456,24 @@ impl Editor {
         origin: (f32, f32),
         handle: Option<usize>,
     ) {
+        if handle.is_none() && self.selected_indices().len() > 1 {
+            let drags = self
+                .selected_indices()
+                .into_iter()
+                .map(|index| {
+                    let original = self.document.marks[index].clone();
+                    AnnotationDrag {
+                        index,
+                        origin,
+                        moved: original.clone(),
+                        original,
+                    }
+                })
+                .collect();
+            self.interaction.gesture = Gesture::MovingSelection(drags);
+            self.changed();
+            return;
+        }
         let original = self.document.marks[index].clone();
         let drag = AnnotationDrag {
             index,
@@ -433,6 +553,7 @@ impl Editor {
             } else {
                 let text_action = if command {
                     match key {
+                        "a" => Some(Action::SelectAll),
                         "c" => Some(Action::Copy),
                         "x" => Some(Action::Cut),
                         "v" => Some(Action::Paste),
@@ -453,7 +574,6 @@ impl Editor {
                 let mut handled = true;
                 if command {
                     match key {
-                        "a" => edit.buffer.select_all(),
                         "left" => edit.buffer.move_to(0, m.shift),
                         "right" => edit.buffer.move_to(edit.buffer.text().len(), m.shift),
                         _ => handled = false,
@@ -516,6 +636,7 @@ impl Editor {
             Some(Action::Capture { area: key == "2" })
         } else if command {
             match key {
+                "a" => Some(Action::SelectAll),
                 "q" => Some(Action::Quit),
                 "c" if m.shift => Some(Action::CopyRemote),
                 "c" => Some(Action::Copy),
@@ -641,4 +762,13 @@ impl Editor {
         }
         true
     }
+}
+
+fn selection_rectangle(a: (f32, f32), b: (f32, f32)) -> (f32, f32, f32, f32) {
+    (
+        a.0.min(b.0),
+        a.1.min(b.1),
+        (a.0 - b.0).abs(),
+        (a.1 - b.1).abs(),
+    )
 }

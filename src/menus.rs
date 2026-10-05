@@ -15,6 +15,7 @@ actions!(
         Redo,
         Delete,
         Duplicate,
+        SelectAll,
         Select,
         Pen,
         Arrow,
@@ -50,6 +51,11 @@ pub fn install(cx: &mut App) {
         KeyBinding::new(&crate::platform::key_binding("cmd-shift-z"), Redo, None),
         KeyBinding::new("backspace", Delete, None),
         KeyBinding::new(&crate::platform::key_binding("cmd-d"), Duplicate, None),
+        KeyBinding::new(
+            &crate::platform::key_binding("cmd-a"),
+            SelectAll,
+            Some("GlanceCanvas && !ColorPicker && !NumberInput"),
+        ),
         KeyBinding::new(
             "v",
             Select,
@@ -148,6 +154,7 @@ pub fn install(cx: &mut App) {
                 MenuItem::action("Paste", Paste),
                 MenuItem::action("Delete", Delete),
                 MenuItem::action("Duplicate", Duplicate),
+                MenuItem::action("Select All", SelectAll),
             ],
         },
         Menu {

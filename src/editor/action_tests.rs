@@ -1425,3 +1425,149 @@ fn preview_preparation_holds_playback_and_reports_loading_through_bridge(cx: &mu
         assert_eq!(e.clip_time(), 1.25);
     });
 }
+
+#[gpui::test]
+fn multi_selection_bridge_checks_state_revisions_and_group_undo(cx: &mut TestAppContext) {
+    use crate::{automation::Request, document::Mark};
+    let entity = cx.new(|cx| Editor::with_native(cx, false));
+    entity.update(cx, |e, cx| {
+        e.document = Document::new(image::RgbaImage::new(100, 100));
+        for x in [10., 40., 75.] {
+            e.document.commit(Mark {
+                tool: Tool::Rectangle,
+                points: vec![(x, 10.), (x + 10., 20.)],
+                color: [255, 0, 0, 255],
+                width: 2.,
+                text: String::new(),
+                curve: None,
+                style: Default::default(),
+            });
+        }
+        let original = e.document.marks.clone();
+        let bridge = |e: &mut Editor, cx: &mut gpui::Context<Editor>, payload, revision| {
+            let action = Action::from_json(payload).unwrap();
+            let (reply, response) = std::sync::mpsc::channel();
+            e.automation(
+                Request::Dispatch {
+                    action,
+                    expected_revision: Some(revision),
+                    reply,
+                },
+                cx,
+            );
+            response.recv().unwrap()
+        };
+        let revision = e.preview.revision;
+        bridge(e, cx, serde_json::json!({"type":"select_annotations","ids":[format!("{revision}:1")]}), revision).unwrap();
+        assert_eq!(e.selected_indices(), vec![1]);
+        assert!(bridge(e, cx, serde_json::json!({"type":"select_annotations","ids":[format!("{}:0", revision + 1)]}), revision).is_err());
+        assert_eq!(e.selected_indices(), vec![1]);
+        bridge(e, cx, serde_json::json!({"type":"select_annotations","ids":[]}), revision).unwrap();
+        assert!(
+            bridge(
+                e,
+                cx,
+                serde_json::json!({"type":"select_all"}),
+                revision + 1
+            )
+            .is_err()
+        );
+        assert!(e.selected_indices().is_empty());
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"select_region","rectangle":[5,5,50,20]}),
+            revision,
+        )
+        .unwrap();
+        assert_eq!(e.selected_indices(), vec![0, 1]);
+        assert_eq!(e.preview.revision, revision);
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"select_region","rectangle":[70,5,20,20],"additive":true}),
+            revision,
+        )
+        .unwrap();
+        assert_eq!(e.selected_indices(), vec![0, 1, 2]);
+        assert!(
+            bridge(
+                e,
+                cx,
+                serde_json::json!({"type":"select_region","rectangle":[0,0,-1,10]}),
+                revision
+            )
+            .is_err()
+        );
+        assert_eq!(e.selected_indices(), vec![0, 1, 2]);
+        let (reply, response) = std::sync::mpsc::channel();
+        e.automation(Request::State(reply), cx);
+        let state = response.recv().unwrap().unwrap();
+        assert_eq!(state["selected_indices"], serde_json::json!([0, 1, 2]));
+        assert_eq!(
+            state["selected_ids"],
+            serde_json::json!([
+                format!("{revision}:0"),
+                format!("{revision}:1"),
+                format!("{revision}:2")
+            ])
+        );
+        assert_eq!(state["selected"], 2);
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"nudge_selection","delta":[3,4],"remember":true}),
+            revision,
+        )
+        .unwrap();
+        assert!(bridge(e, cx, serde_json::json!({"type":"delete"}), revision).is_err());
+        assert_eq!(e.document.marks[0].points[0], (13., 14.));
+        assert_eq!(e.document.marks[2].points[0], (78., 14.));
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"set_color","color":[10,20,30,128]}),
+            e.preview.revision,
+        )
+        .unwrap();
+        assert!(
+            e.document
+                .marks
+                .iter()
+                .all(|m| m.color == [10, 20, 30, 128])
+        );
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"duplicate_selection"}),
+            e.preview.revision,
+        )
+        .unwrap();
+        assert_eq!(e.selected_indices(), vec![3, 4, 5]);
+        assert_eq!(e.document.marks.len(), 6);
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"select_all"}),
+            e.preview.revision,
+        )
+        .unwrap();
+        bridge(
+            e,
+            cx,
+            serde_json::json!({"type":"delete"}),
+            e.preview.revision,
+        )
+        .unwrap();
+        assert!(e.selected_indices().is_empty());
+        assert!(e.document.marks.is_empty());
+        e.document.undo();
+        assert_eq!(e.document.marks, original);
+    });
+}
