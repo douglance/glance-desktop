@@ -22,6 +22,7 @@ mod navigation;
 mod performance;
 mod platform;
 mod selection;
+mod startup;
 #[cfg(test)]
 mod stress_tests;
 mod style;
@@ -33,30 +34,35 @@ use editor::Editor;
 pub(crate) use editor::{Layout, Message};
 use gpui::*;
 fn main() {
-    let mut argv: Vec<String> = std::env::args().skip(1).collect();
-    if argv.first().is_some_and(|arg| arg == "--codemode-mcp") {
-        if let Err(error) = cli::run_code_mcp() {
-            eprintln!("Glance Code Mode: {error}");
-            std::process::exit(1);
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    let bundled = std::env::current_exe()
+        .ok()
+        .is_some_and(|executable| startup::desktop_bundle(&executable));
+    let argv = match startup::mode(argv, bundled) {
+        startup::Mode::Desktop(argv) => argv,
+        startup::Mode::Cli(argv) => {
+            if let Err(error) = cli::run(argv) {
+                eprintln!("Glance CLI: {error}");
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
-    }
-    if argv.first().is_some_and(|arg| arg == "--cli") {
-        argv.remove(0);
-        if let Err(error) = cli::run(argv) {
-            eprintln!("Glance CLI: {error}");
-            std::process::exit(1);
+        startup::Mode::CodeMcp => {
+            if let Err(error) = cli::run_code_mcp() {
+                eprintln!("Glance Code Mode: {error}");
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
-    }
-    if std::env::args().any(|arg| arg == "--mcp") {
-        if let Err(error) = mcp::run() {
-            eprintln!("Glance MCP: {error}");
-            std::process::exit(1);
+        startup::Mode::NativeMcp => {
+            if let Err(error) = mcp::run() {
+                eprintln!("Glance MCP: {error}");
+                std::process::exit(1);
+            }
+            return;
         }
-        return;
-    }
-    let initial = match platform::startup_image(std::env::args().skip(1)) {
+    };
+    let initial = match platform::startup_image(argv.into_iter()) {
         Ok(platform::Startup::Image(image)) => Some(image),
         Ok(platform::Startup::Demo) => None,
         Ok(platform::Startup::Exit) => return,

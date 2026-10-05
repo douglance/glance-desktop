@@ -129,6 +129,12 @@ from the **Export** menu.
 
 [Full usage guide →](docs/usage.md)
 
+The `glance` shell command is the CLI: run `glance --help`, `glance get-document`,
+`glance code search --query annotation`, or `glance --mcp` directly.
+`glance desktop --automation` opens the native editor with local automation enabled.
+Launching the macOS app still opens its editor window.
+See [CLI, MCP, and Code Mode](docs/interfaces.md) for the complete interface.
+
 ## Sharing and privacy
 
 **⌘C** copies locally. **⌘⇧C** explicitly uploads the composed PNG using

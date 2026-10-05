@@ -12,6 +12,9 @@ Notable user-visible changes are recorded here.
 
 ### Changed
 
+- The `glance` shell command now runs the CLI directly, without `--cli`.
+  Use `glance desktop` to open the editor; desktop app launches and legacy flags
+  remain supported.
 - Animation sidebar now focuses on foreground effects and playback; backdrop
   controls stay in Backdrop and export stays in the toolbar menu. Toolbar icons
   are ordered Backdrop, Animation, then Image tools.

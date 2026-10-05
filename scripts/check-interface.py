@@ -87,11 +87,19 @@ def wait_state(client, identifier, expected):
 def main():
     binary = str(Path(sys.argv[1]).resolve())
     assert Path(binary).is_file(), binary
-    help_text = subprocess.check_output([binary, "--cli", "--help"], text=True)
+    help_text = subprocess.check_output([binary, "--help"], text=True)
     assert "get-document" in help_text and "code" in help_text
+    assert subprocess.check_output([binary], text=True) == help_text
+    assert subprocess.check_output([binary, "--cli", "--help"], text=True) == help_text
+    desktop_help = subprocess.check_output([binary, "desktop", "--help"], text=True)
+    assert "Usage: glance desktop" in desktop_help
+    assert "get-document" not in desktop_help
+    command_help = subprocess.check_output([binary, "get-document", "--help"], text=True)
+    assert command_help.startswith("glance get-document"), command_help
+
     with tempfile.TemporaryDirectory(prefix="glance-interface-") as directory:
         env = dict(os.environ, GLANCE_CODE_DIR=directory)
-        direct = MCP([binary, "--cli", "--mcp"], env)
+        direct = MCP([binary, "--mcp"], env)
         try:
             tools = direct.request("tools/list", {})["tools"]
             names = {tool["name"] for tool in tools}
@@ -111,7 +119,7 @@ def main():
         finally:
             direct.close()
 
-        server = subprocess.Popen([binary, "--cli", "code", "serve"],
+        server = subprocess.Popen([binary, "code", "serve"],
                                   stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                   text=True, env=env)
         try:
@@ -120,7 +128,7 @@ def main():
                 assert server.poll() is None, server.stderr.read()
                 assert time.monotonic() < deadline, "Code Mode service did not bind"
                 time.sleep(0.01)
-            second = subprocess.run([binary, "--cli", "code", "serve"], env=env,
+            second = subprocess.run([binary, "code", "serve"], env=env,
                                     text=True, capture_output=True, timeout=10)
             assert second.returncode != 0 and "already running" in second.stdout + second.stderr
             client = MCP([binary, "--codemode-mcp"], env)
@@ -135,7 +143,7 @@ def main():
 
                 # A second CLI client reads the same MCP-started execution.
                 saved = json.loads(subprocess.check_output([
-                    binary, "--cli", "code", "execution", "--id", started["id"],
+                    binary, "code", "execution", "--id", started["id"],
                     "--filter-output", "id,status,result"], env=env, text=True))
                 assert saved["result"] == {"answer": 42}, saved
 

@@ -115,7 +115,9 @@ pub(crate) fn editor_cli() -> Cli {
 pub(crate) fn editor_cli_with(call: EditorCall) -> Cli {
     let mut cli = Cli::create("glance")
         .version(env!("CARGO_PKG_VERSION"))
-        .description("Control the native Glance editor. Start Glance --automation first.")
+        .description(
+            "Control the native Glance editor. Open the app with 'glance desktop --automation'.",
+        )
         .format(Format::Json)
         .mcp(incurs::mcp::McpServeOptions {
             tools: incurs::mcp::McpToolFilter {

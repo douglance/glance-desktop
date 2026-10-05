@@ -5,12 +5,17 @@ This fork uses published Rust Incurs 0.10.3 and Code Mode 0.8.0. No JavaScript
 build tools are required.
 
 Build with `cargo build --locked`. The examples use `target/debug/glance`;
-a packaged app's executable accepts the same arguments.
+a packaged app's executable also accepts direct subcommands.
+
+The shell command defaults to the CLI: plain `glance` prints help, and
+`glance get-document` runs a command. `glance desktop` opens the native editor.
+Launching the macOS app bundle still opens its window. The legacy `--cli` prefix
+and desktop startup flags remain supported.
 
 ## Start the editor
 
 ```sh
-target/debug/glance --automation
+target/debug/glance desktop --automation
 ```
 
 The editor owns the document, undo history, and background export operations.
@@ -20,12 +25,12 @@ excluding backdrop padding. Import replaces the current document.
 ## CLI and regular MCP
 
 ```sh
-target/debug/glance --cli --help
-target/debug/glance --cli get-document
-target/debug/glance --cli dispatch-action --action '{"type":"fit"}'
-target/debug/glance --cli resize-image --scale 0.5 --smart=false
-target/debug/glance --cli export-png --path /absolute/new-image.png
-target/debug/glance --cli --mcp
+target/debug/glance --help
+target/debug/glance get-document
+target/debug/glance dispatch-action --action '{"type":"fit"}'
+target/debug/glance resize-image --scale 0.5 --smart=false
+target/debug/glance export-png --path /absolute/new-image.png
+target/debug/glance --mcp
 ```
 
 CLI command names and flags use hyphens. MCP names and parameters retain the
@@ -33,9 +38,11 @@ existing underscore spelling. Use JSON text for objects, arrays, and nullable
 values. Omitted settings retain the editor command's defaults. Boolean flags
 accept `--smart=false` as well as `--smart`.
 
-`--cli --mcp` serves the Incurs MCP interface, including structured editor
+`--mcp` serves the Incurs MCP interface, including structured editor
 tools and Code Mode lifecycle commands. Image reads include model-visible PNG
-content. The original `--mcp` remains compatible with existing clients.
+content. `--native-mcp` serves the original editor-only MCP interface. The macOS
+app executable's `--mcp` retains that original interface; use `--cli --mcp` on
+the app executable to explicitly select Incurs.
 
 | Editor MCP tool | CLI command |
 | --- | --- |
@@ -61,9 +68,9 @@ content. The original `--mcp` remains compatible with existing clients.
 
 `dispatch_action` exposes all published application actions, including tool
 settings, framing, animation, playback, selection, capture, and export controls.
-`--cli dispatch-action --schema` describes the CLI flags. The complete nested
+`dispatch-action --schema` describes the CLI flags. The complete nested
 action inventory is published by MCP discovery and
-`--cli code search --query dispatch_action` after starting the Code Mode service.
+`code search --query dispatch_action` after starting the Code Mode service.
 See [the editor MCP reference](../mcp/README.md) for parameters and semantics.
 
 Read `get_document` before object edits and pass `expected_revision` for
@@ -78,7 +85,7 @@ completed edits or cancel an accepted media export; use native undo or
 Start this explicit local service in a second terminal:
 
 ```sh
-target/debug/glance --cli code serve
+target/debug/glance code serve
 ```
 
 It runs in the foreground until stopped. A private Unix socket lets independent
@@ -88,10 +95,10 @@ under the private Glance automation cache directory. `GLANCE_CODE_DIR` selects
 an absolute private service directory for isolated sessions.
 
 ```sh
-target/debug/glance --cli code search --query annotation
-target/debug/glance --cli code execute --code 'const doc = await glance.get_document({}); return {revision: doc.revision, objects: doc.objects.length};'
-target/debug/glance --cli code execution --id EXECUTION_ID
-target/debug/glance --cli code cancel --id EXECUTION_ID
+target/debug/glance code search --query annotation
+target/debug/glance code execute --code 'const doc = await glance.get_document({}); return {revision: doc.revision, objects: doc.objects.length};'
+target/debug/glance code execution --id EXECUTION_ID
+target/debug/glance code cancel --id EXECUTION_ID
 target/debug/glance --codemode-mcp
 ```
 
@@ -107,11 +114,11 @@ stops within that evaluation budget; it does not wait behind the actor loop.
 
 | Code Mode MCP tool | CLI equivalent |
 | --- | --- |
-| codemode_search | --cli code search --query TEXT |
-| codemode_execute | --cli code execute --code JAVASCRIPT |
-| codemode_execution | --cli code execution --id ID [--artifact-id ID] |
-| codemode_decide | --cli code decide --id ID --seq N --decision approve/reject |
-| codemode_cancel | --cli code cancel --id ID |
+| codemode_search | code search --query TEXT |
+| codemode_execute | code execute --code JAVASCRIPT |
+| codemode_execution | code execution --id ID [--artifact-id ID] |
+| codemode_decide | code decide --id ID --seq N --decision approve/reject |
+| codemode_cancel | code cancel --id ID |
 
 `--codemode-mcp` exposes exactly these five lifecycle tools. Configure an MCP
 client to launch the Glance executable with that argument after starting the

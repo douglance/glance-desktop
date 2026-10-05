@@ -243,7 +243,8 @@ seed, and preview and PNG/GIF/MP4 exports use the same variation.
 
 ## Incurs and Code Mode
 
-The fork also provides `Glance --cli --mcp` for the complete Incurs editor
+The shell command provides `glance --mcp` for the complete Incurs editor
 interface and `Glance --codemode-mcp` for the five Code Mode lifecycle tools.
-Start `Glance --cli code serve` for shared execution state. See
+Start `glance code serve` for shared execution state. The app bundle's original
+`Glance --mcp` remains supported; `Glance --cli --mcp` selects Incurs explicitly. See
 [CLI, MCP, and Code Mode](../docs/interfaces.md) for setup and command mappings.
